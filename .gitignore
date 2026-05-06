@@ -1,0 +1,14 @@
+# Ignore Python virtual environment
+.venv/
+
+# Byte-compiled / cache files
+__pycache__/
+*.py[cod]
+
+# Python eggs
+*.egg
+*.egg-info/
+
+# Logs and temp files
+*.log
+*.tmp
