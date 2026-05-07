@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Webcam from "react-webcam";
 import {
-  createDetectionLog,
   detectImage,
   getComponents,
   getDetectionLogs,
@@ -87,12 +86,6 @@ function OperatorPanel({ onLogout }) {
       const result = detectResponse.data;
 
       setDetectionResult(result);
-
-      await createDetectionLog({
-        component: form.component,
-        ai_model: form.model,
-        result: result.result || "No defect detected",
-      });
 
       await fetchLogs();
     } catch (requestError) {
@@ -236,10 +229,18 @@ function OperatorPanel({ onLogout }) {
                   <tr key={log.id}>
                     <td>{log.id}</td>
                     <td>
-                      {componentMap[String(log.component)] || log.component}
+                      {log.component_name ||
+                        componentMap[String(log.component)] ||
+                        log.component}
                     </td>
-                    <td>{modelMap[String(log.ai_model)] || log.ai_model}</td>
-                    <td>{log.result}</td>
+                    <td>
+                      {log.model_name ||
+                        modelMap[String(log.model_used)] ||
+                        log.model_used}
+                    </td>
+                    <td>
+                      {log.final_decision || log.system_decision || log.status}
+                    </td>
                     <td>
                       {new Date(
                         log.timestamp || log.created_at,

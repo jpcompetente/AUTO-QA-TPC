@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { loginUser } from "../api/backend";
+import loginBackground from "../assets/images/loginbgimage.webp";
+import logoMark from "../assets/images/TPCLOGOONLY.png";
 
-function Login({ onLogin, apiMessage }) {
+function Login({ onLogin }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -45,48 +47,55 @@ function Login({ onLogin, apiMessage }) {
   };
 
   return (
-    <div className="auth-shell">
-      <section className="auth-brand-panel">
-        <div className="brand-mark" aria-hidden="true">
-          <span className="brand-mark__ring" />
-          <span className="brand-mark__core">AQ</span>
-        </div>
-        <p className="eyebrow">AUTO-QA TPC</p>
-        <h1>Login first, then move into the inspection dashboard.</h1>
-        <p className="hero-copy">
-          The Vite frontend is now connected to Django for auth, live detection,
-          and role-based panels for admins, operators, and super admins.
-        </p>
-        <div className="status-pill">{apiMessage}</div>
-      </section>
+    <div
+      className="auth-shell"
+      style={{ backgroundImage: `url(${loginBackground})` }}
+    >
+      <div className="auth-shell__overlay" />
 
-      <section className="auth-form-panel">
-        <div className="section-heading">
-          <p className="eyebrow">Secure access</p>
-          <h2>Sign in to continue</h2>
+      <section className="auth-card">
+        <div className="auth-brand">
+          <div className="auth-brand__mark">
+            <img src={logoMark} alt="Team Pacific Corporation" />
+          </div>
+          <h1>Team Pacific Corporation</h1>
+        </div>
+
+        <div className="auth-card__title">
+          <h2>Login</h2>
         </div>
 
         <form className="auth-form" onSubmit={handleSubmit}>
-          <label className="field">
+          <label className="field field--login">
             <span>Username</span>
-            <input
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-              type="text"
-              autoComplete="username"
-              placeholder="Enter your username"
-            />
+            <div className="field-control">
+              <span className="field-icon" aria-hidden="true">
+                ◦
+              </span>
+              <input
+                value={username}
+                onChange={(event) => setUsername(event.target.value)}
+                type="text"
+                autoComplete="username"
+                placeholder="Enter your username"
+              />
+            </div>
           </label>
 
-          <label className="field">
+          <label className="field field--login">
             <span>Password</span>
-            <input
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              type="password"
-              autoComplete="current-password"
-              placeholder="Enter your password"
-            />
+            <div className="field-control">
+              <span className="field-icon" aria-hidden="true">
+                ◦
+              </span>
+              <input
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                type="password"
+                autoComplete="current-password"
+                placeholder="Enter your password"
+              />
+            </div>
           </label>
 
           {errorMessage ? (
@@ -94,11 +103,11 @@ function Login({ onLogin, apiMessage }) {
           ) : null}
 
           <button
-            className="primary-button"
+            className="primary-button primary-button--login"
             type="submit"
             disabled={isSubmitting}
           >
-            {isSubmitting ? "Signing in..." : "Sign in"}
+            {isSubmitting ? "Signing in..." : "Login"}
           </button>
         </form>
       </section>

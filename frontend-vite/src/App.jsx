@@ -3,9 +3,23 @@ import { jwtDecode } from "jwt-decode";
 import { getApiStatus } from "./api/backend";
 import AdminDashboard from "./components/AdminDashboard";
 import Login from "./components/Login";
-import OperatorPanel from "./components/OperatorPanel";
+import InspectorDashboard from "./components/InspectorDashboard";
 import SuperAdminPanel from "./components/SuperAdminPanel";
 import "./App.css";
+
+function normalizeRole(role) {
+  if (!role) {
+    return null;
+  }
+
+  const normalized = role.toLowerCase().replace(/_/g, "");
+
+  if (normalized === "operator") {
+    return "inspector";
+  }
+
+  return normalized;
+}
 
 function readRole(token) {
   if (!token) {
@@ -14,7 +28,7 @@ function readRole(token) {
 
   try {
     const decoded = jwtDecode(token);
-    return decoded.role || decoded.groups?.[0] || "operator";
+    return normalizeRole(decoded.role || decoded.groups?.[0] || "operator");
   } catch {
     return null;
   }
@@ -75,7 +89,11 @@ function App() {
     return <SuperAdminPanel onLogout={handleLogout} />;
   }
 
-  return <OperatorPanel onLogout={handleLogout} />;
+  if (role === "inspector") {
+    return <InspectorDashboard onLogout={handleLogout} />;
+  }
+
+  return <InspectorDashboard onLogout={handleLogout} />;
 }
 
 export default App;

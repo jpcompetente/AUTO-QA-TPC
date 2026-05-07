@@ -57,12 +57,12 @@ api.interceptors.response.use(
 );
 
 export const loginUser = (credentials) =>
-  api.post("/auth/login/", {
+  api.post("/auth/token/", {
     username: credentials.username,
     password: credentials.password,
   });
 
-export const getApiStatus = () => api.get("/data/");
+export const getApiStatus = () => api.get("/dashboard/stats/");
 export const detectImage = (payload) => api.post("/detect/", payload);
 export const getComponents = () => api.get("/component-types/");
 export const getModels = () => api.get("/ai-models/");
@@ -70,7 +70,7 @@ export const getOperators = () => api.get("/operators/");
 export const getAdminSettings = () => api.get("/admin/settings/");
 export const createAdminSettings = (data) => api.post("/admin/settings/", data);
 export const deleteAdminSettings = (id) => api.delete(`/admin/settings/${id}/`);
-export const getDetectionLogs = () => api.get("/detection-logs/");
-export const createDetectionLog = (data) => api.post("/detection-logs/", data);
+export const getDetectionLogs = () => api.get("/inference-logs/");
+export const createDetectionLog = (data) => api.post("/inference-logs/", data);
 
 export default api;
