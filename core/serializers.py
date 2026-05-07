@@ -14,14 +14,21 @@ from .models import (
 
 # 🔑 Custom JWT Serializer (Includes RBAC role in the token)
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @staticmethod
+    def resolve_role(user):
+        try:
+            return user.profile.role
+        except Exception:
+            if getattr(user, "is_superuser", False):
+                return "SUPER_ADMIN"
+            if getattr(user, "is_staff", False):
+                return "ADMIN"
+            return "OPERATOR"
+
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
-        # Try to get role from UserProfile, default to operator
-        try:
-            role = user.profile.role
-        except:
-            role = 'OPERATOR'
+        role = cls.resolve_role(user)
             
         token['role'] = role
         token['username'] = user.username
@@ -29,10 +36,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
     def validate(self, attrs):
         data = super().validate(attrs)
-        try:
-            data['role'] = self.user.profile.role
-        except:
-            data['role'] = 'OPERATOR'
+        data['role'] = self.resolve_role(self.user)
         data['username'] = self.user.username
         data['user_id'] = self.user.id
         return data

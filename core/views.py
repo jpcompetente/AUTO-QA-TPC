@@ -243,6 +243,14 @@ def detect_image(request):
     Accepts multipart PNG/JPEG frames or the legacy base64 data URL payload.
     """
     try:
+        # Require authentication for running detections
+        if not request.user or not request.user.is_authenticated:
+            return Response({'error': 'Authentication required'}, status=401)
+
+        # Operators/inspectors are view-only and cannot trigger detection
+        role_val = user_role(request.user)
+        if role_val == 'OPERATOR':
+            return Response({'error': 'Insufficient permissions to run detection'}, status=403)
         image_file = request.FILES.get('image')
         filename = getattr(image_file, 'name', 'frame.png')
 

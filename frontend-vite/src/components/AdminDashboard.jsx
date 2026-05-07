@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
+import Webcam from "react-webcam";
 import {
   createAdminSettings,
   deleteAdminSettings,
@@ -6,6 +7,8 @@ import {
   getComponents,
   getModels,
   getOperators,
+  detectImage,
+  getDetectionLogs,
 } from "../api/backend";
 
 function AdminDashboard({ onLogout }) {
@@ -13,8 +16,15 @@ function AdminDashboard({ onLogout }) {
   const [models, setModels] = useState([]);
   const [operators, setOperators] = useState([]);
   const [settings, setSettings] = useState([]);
+  const [detectionLogs, setDetectionLogs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [activePage, setActivePage] = useState("overview");
+  // detection state (admin-only)
+  const webcamRef = useRef(null);
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [detLoading, setDetLoading] = useState(false);
+  const [detError, setDetError] = useState("");
+  const [detResult, setDetResult] = useState(null);
+  const [activePage, setActivePage] = useState("home");
   const [form, setForm] = useState({
     component: "",
     model: "",
@@ -31,17 +41,20 @@ function AdminDashboard({ onLogout }) {
         modelResponse,
         operatorResponse,
         settingsResponse,
+        logsResponse,
       ] = await Promise.all([
         getComponents(),
         getModels(),
         getOperators(),
         getAdminSettings(),
+        getDetectionLogs(),
       ]);
 
       setComponents(componentResponse.data);
       setModels(modelResponse.data);
       setOperators(operatorResponse.data);
       setSettings(settingsResponse.data);
+      setDetectionLogs(logsResponse.data);
 
       setForm((currentForm) => ({
         ...currentForm,
@@ -50,6 +63,7 @@ function AdminDashboard({ onLogout }) {
         assigned_operator:
           currentForm.assigned_operator || operatorResponse.data[0]?.id || "",
       }));
+      setDetResult(null);
     } finally {
       setIsLoading(false);
     }
@@ -82,10 +96,10 @@ function AdminDashboard({ onLogout }) {
   };
 
   const pages = [
-    { id: "overview", label: "Overview" },
-    { id: "configure", label: "Configure" },
-    { id: "routing", label: "Routing" },
-    { id: "audit", label: "Audit" },
+    { id: "home", label: "Home" },
+    { id: "detection", label: "Detection" },
+    { id: "detection-logs", label: "Detection Logs" },
+    { id: "settings", label: "Settings" },
   ];
 
   const currentSetting = settings[0];
@@ -95,11 +109,7 @@ function AdminDashboard({ onLogout }) {
       <aside className="dashboard-sidebar">
         <div>
           <p className="eyebrow">Admin dashboard</p>
-          <h1>Control room</h1>
-          <p className="sidebar-copy">
-            A single full-screen workspace for routing, configuration, and
-            governance.
-          </p>
+          <h1>Admin control room</h1>
         </div>
 
         <nav className="page-nav" aria-label="Admin pages">
@@ -132,11 +142,7 @@ function AdminDashboard({ onLogout }) {
         <header className="dashboard-header">
           <div>
             <p className="eyebrow">Admin portal</p>
-            <h2>Page-based dashboard</h2>
-            <p>
-              Manage components, models, operators, and assignment rules from
-              one continuous workspace.
-            </p>
+            <h2>Admin dashboard</h2>
           </div>
           <div className="dashboard-header__meta">
             <span>{components.length} components</span>
@@ -145,7 +151,7 @@ function AdminDashboard({ onLogout }) {
           </div>
         </header>
 
-        {activePage === "overview" ? (
+        {activePage === "home" ? (
           <section className="dashboard-section dashboard-section--overview">
             <div className="stat-line">
               <div>
@@ -197,11 +203,126 @@ function AdminDashboard({ onLogout }) {
           </section>
         ) : null}
 
-        {activePage === "configure" ? (
+        {activePage === "detection" ? (
+          <section className="dashboard-section dashboard-section--camera">
+            <div className="dashboard-section__header">
+              <div>
+                <p className="eyebrow">Detection</p>
+                <h3>Run a single inspection</h3>
+              </div>
+              <span className="section-note">Admin-only action</span>
+            </div>
+
+            <div className="camera-toolbar">
+              <button
+                className="ghost-button"
+                type="button"
+                onClick={() => setIsCameraOpen((current) => !current)}
+              >
+                {isCameraOpen ? "Close camera" : "Open camera"}
+              </button>
+            </div>
+
+            {isCameraOpen ? (
+              <div className="webcam-frame-wrap">
+                <Webcam
+                  ref={webcamRef}
+                  screenshotFormat="image/jpeg"
+                  audio={false}
+                  className="webcam-frame"
+                />
+              </div>
+            ) : (
+              <div className="empty-state empty-state--bordered">
+                Open the camera to capture a detection frame.
+              </div>
+            )}
+
+            {detError ? <div className="notice notice--error">{detError}</div> : null}
+
+            <button
+              className="primary-button"
+              onClick={async () => {
+                const imageSrc = webcamRef.current?.getScreenshot();
+                if (!imageSrc) {
+                  setDetError("Open the camera before running detection");
+                  return;
+                }
+
+                setDetLoading(true);
+                setDetError("");
+
+                try {
+                  const response = await detectImage({ image: imageSrc });
+                  setDetResult(response.data);
+                } catch (err) {
+                  setDetError(err.response?.data?.error || "Detection failed");
+                } finally {
+                  setDetLoading(false);
+                }
+              }}
+              type="button"
+              disabled={detLoading || !isCameraOpen}
+            >
+              {detLoading ? "Processing..." : "Capture and detect"}
+            </button>
+
+            {detResult ? <pre>{JSON.stringify(detResult, null, 2)}</pre> : null}
+          </section>
+        ) : null}
+
+        {activePage === "detection-logs" ? (
+          <section className="dashboard-section dashboard-section--table">
+            <div className="dashboard-section__header">
+              <div>
+                <p className="eyebrow">Detection logs</p>
+                <h3>Latest detection records</h3>
+              </div>
+              <span className="section-note">{detectionLogs.length} rows</span>
+            </div>
+
+            <div className="table-wrap dashboard-table-wrap">
+              <table className="dashboard-table">
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Operator</th>
+                    <th>Component</th>
+                    <th>Model</th>
+                    <th>Decision</th>
+                    <th>Status</th>
+                    <th>Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detectionLogs.map((log) => (
+                    <tr key={log.id}>
+                      <td>{log.id}</td>
+                      <td>{log.operator_name || log.operator}</td>
+                      <td>{log.component_name || log.component}</td>
+                      <td>{log.model_name || log.model_used}</td>
+                      <td>{log.final_decision || log.system_decision}</td>
+                      <td>{log.status}</td>
+                      <td>
+                        {new Date(log.timestamp || log.created_at).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              {detectionLogs.length === 0 ? (
+                <div className="empty-state">No detection logs available.</div>
+              ) : null}
+            </div>
+          </section>
+        ) : null}
+
+        {activePage === "settings" ? (
           <section className="dashboard-section dashboard-section--form">
             <div className="dashboard-section__header">
               <div>
-                <p className="eyebrow">Configure</p>
+                <p className="eyebrow">Settings</p>
                 <h3>Assign models and thresholds</h3>
               </div>
               <button
@@ -277,20 +398,6 @@ function AdminDashboard({ onLogout }) {
                 />
               </label>
             </div>
-          </section>
-        ) : null}
-
-        {activePage === "routing" ? (
-          <section className="dashboard-section dashboard-section--table">
-            <div className="dashboard-section__header">
-              <div>
-                <p className="eyebrow">Routing</p>
-                <h3>Current configs</h3>
-              </div>
-              <span className="section-note">
-                {settings.length} active rows
-              </span>
-            </div>
 
             <div className="table-wrap dashboard-table-wrap">
               <table className="dashboard-table">
@@ -327,47 +434,6 @@ function AdminDashboard({ onLogout }) {
               {settings.length === 0 ? (
                 <div className="empty-state">No configs created yet.</div>
               ) : null}
-            </div>
-          </section>
-        ) : null}
-
-        {activePage === "audit" ? (
-          <section className="dashboard-section dashboard-section--audit">
-            <div className="dashboard-section__header">
-              <div>
-                <p className="eyebrow">Audit</p>
-                <h3>Operational snapshot</h3>
-              </div>
-              <span className="section-note">Read-only summary</span>
-            </div>
-
-            <div className="audit-list">
-              <div className="audit-list__row">
-                <span>Latest component</span>
-                <strong>{components[0]?.name || "No components loaded"}</strong>
-              </div>
-              <div className="audit-list__row">
-                <span>Latest model</span>
-                <strong>
-                  {models[0]
-                    ? `${models[0].name} (${models[0].version})`
-                    : "No models loaded"}
-                </strong>
-              </div>
-              <div className="audit-list__row">
-                <span>Latest operator</span>
-                <strong>
-                  {operators[0]?.username || "No operators loaded"}
-                </strong>
-              </div>
-              <div className="audit-list__row">
-                <span>Last assignment</span>
-                <strong>
-                  {currentSetting
-                    ? `${currentSetting.component_name} to ${currentSetting.operator_name}`
-                    : "No assignment recorded"}
-                </strong>
-              </div>
             </div>
           </section>
         ) : null}

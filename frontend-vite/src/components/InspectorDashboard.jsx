@@ -1,28 +1,23 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Webcam from "react-webcam";
 import {
-  detectImage,
   getComponents,
   getDetectionLogs,
   getModels,
 } from "../api/backend";
 
 const PAGES = [
-  { id: "live", label: "Live View" },
+  { id: "live", label: "Viewer Mode" },
   { id: "logs", label: "Inspection Log" },
   { id: "session", label: "Session Summary" },
 ];
 
 function InspectorDashboard({ onLogout }) {
-  const webcamRef = useRef(null);
   const [components, setComponents] = useState([]);
   const [models, setModels] = useState([]);
   const [logs, setLogs] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [detectionResult, setDetectionResult] = useState(null);
   const [activePage, setActivePage] = useState("live");
-  const [form, setForm] = useState({ component: "", model: "" });
+  const [isCameraOpen, setIsCameraOpen] = useState(false);
 
   const componentMap = useMemo(
     () =>
@@ -51,10 +46,6 @@ function InspectorDashboard({ onLogout }) {
 
     setComponents(componentResponse.data);
     setModels(modelResponse.data);
-    setForm((currentForm) => ({
-      component: currentForm.component || componentResponse.data[0]?.id || "",
-      model: currentForm.model || modelResponse.data[0]?.id || "",
-    }));
   };
 
   const fetchLogs = async () => {
@@ -68,43 +59,13 @@ function InspectorDashboard({ onLogout }) {
         await fetchOptions();
         await fetchLogs();
       } catch (requestError) {
-        setError(
-          requestError.response?.data?.detail ||
-            "Unable to load inspection data.",
-        );
+        // keep the viewer page usable even if metadata cannot load
+        console.error(requestError);
       }
     };
 
     void loadPanelData();
   }, []);
-
-  const handleDetect = async () => {
-    const imageSrc = webcamRef.current?.getScreenshot();
-
-    if (!imageSrc || !form.component || !form.model) {
-      setError("Camera capture, component, and model are required.");
-      return;
-    }
-
-    setLoading(true);
-    setError("");
-
-    try {
-      const detectResponse = await detectImage({ image: imageSrc });
-      const result = detectResponse.data;
-
-      setDetectionResult(result);
-      setActivePage("logs");
-
-      await fetchLogs();
-    } catch (requestError) {
-      setError(
-        requestError.response?.data?.error || "Detection request failed.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const totalPasses = logs.filter(
     (log) =>
@@ -120,10 +81,10 @@ function InspectorDashboard({ onLogout }) {
       <aside className="dashboard-sidebar">
         <div>
           <p className="eyebrow">Inspector viewer</p>
-          <h1>Live review desk</h1>
+          <h1>Inspector viewer mode</h1>
           <p className="sidebar-copy">
-            Capture frames, inspect results, and review historical detections in
-            a single screen.
+            Review camera output and inspection history in a separate
+            read-only page.
           </p>
         </div>
 
@@ -157,10 +118,9 @@ function InspectorDashboard({ onLogout }) {
         <header className="dashboard-header">
           <div>
             <p className="eyebrow">Inspector portal</p>
-            <h2>Full-screen inspection workspace</h2>
+            <h2>Read-only inspection workspace</h2>
             <p>
-              Review the live feed, run detection, and inspect the recent log
-              stream without leaving the page.
+              This dashboard is view-only. Detection remains disabled.
             </p>
           </div>
           <div className="dashboard-header__meta">
@@ -175,100 +135,66 @@ function InspectorDashboard({ onLogout }) {
             <div className="dashboard-section dashboard-section--camera">
               <div className="dashboard-section__header">
                 <div>
-                  <p className="eyebrow">Camera feed</p>
-                  <h3>Prepare the frame</h3>
+                  <p className="eyebrow">Viewer mode</p>
+                  <h3>Live camera preview</h3>
                 </div>
-                <span className="section-note">Selected model ready</span>
+                <span className="section-note">Read-only</span>
               </div>
 
-              <div className="webcam-frame-wrap webcam-frame-wrap--inspector">
-                <Webcam
-                  ref={webcamRef}
-                  screenshotFormat="image/jpeg"
-                  audio={false}
-                  className="webcam-frame"
-                />
+              <div className="camera-toolbar">
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={() => setIsCameraOpen((current) => !current)}
+                >
+                  {isCameraOpen ? "Close camera" : "Open camera"}
+                </button>
               </div>
 
-              <div className="form-grid form-grid--admin form-grid--inspector">
-                <label className="field">
-                  <span>Component</span>
-                  <select
-                    value={form.component}
-                    onChange={(event) =>
-                      setForm({ ...form, component: event.target.value })
-                    }
-                  >
-                    {components.map((component) => (
-                      <option key={component.id} value={component.id}>
-                        {component.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              {isCameraOpen ? (
+                <div className="webcam-frame-wrap webcam-frame-wrap--inspector">
+                  <Webcam
+                    screenshotFormat="image/jpeg"
+                    audio={false}
+                    className="webcam-frame"
+                  />
+                </div>
+              ) : (
+                <div className="empty-state empty-state--bordered">
+                  Open the camera to view the live feed.
+                </div>
+              )}
 
-                <label className="field">
-                  <span>Model</span>
-                  <select
-                    value={form.model}
-                    onChange={(event) =>
-                      setForm({ ...form, model: event.target.value })
-                    }
-                  >
-                    {models.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.name} ({model.version})
-                      </option>
-                    ))}
-                  </select>
-                </label>
+              <div className="notice notice--info">
+                Inspector accounts are view-only and cannot run detections.
               </div>
-
-              {error ? (
-                <div className="notice notice--error">{error}</div>
-              ) : null}
-
-              <button
-                className="primary-button"
-                onClick={handleDetect}
-                disabled={loading}
-                type="button"
-              >
-                {loading ? "Processing..." : "Capture and detect"}
-              </button>
             </div>
 
             <div className="dashboard-section dashboard-section--result">
               <div className="dashboard-section__header">
                 <div>
-                  <p className="eyebrow">Detection result</p>
-                  <h3>Latest AI output</h3>
+                  <p className="eyebrow">Viewer summary</p>
+                  <h3>Current read-only status</h3>
                 </div>
-                <span className="section-note">Live response panel</span>
+                <span className="section-note">No detection actions</span>
               </div>
 
-              {detectionResult ? (
-                <div className="result-panel">
-                  <div className="result-panel__status">
-                    {detectionResult.result || detectionResult.error || "Ready"}
+              <div className="result-panel">
+                <div className="result-panel__status">Viewer mode active</div>
+                <dl className="result-panel__facts">
+                  <div>
+                    <dt>Components</dt>
+                    <dd>{components.length}</dd>
                   </div>
-                  <dl className="result-panel__facts">
-                    <div>
-                      <dt>Size</dt>
-                      <dd>{detectionResult.size || "-"}</dd>
-                    </div>
-                    <div>
-                      <dt>Format</dt>
-                      <dd>{detectionResult.format || "-"}</dd>
-                    </div>
-                  </dl>
-                  <pre>{JSON.stringify(detectionResult, null, 2)}</pre>
-                </div>
-              ) : (
+                  <div>
+                    <dt>Models</dt>
+                    <dd>{models.length}</dd>
+                  </div>
+                </dl>
                 <div className="empty-state empty-state--bordered">
-                  Capture a frame to view the result here.
+                  Detection is disabled for inspector accounts.
                 </div>
-              )}
+              </div>
             </div>
           </section>
         ) : null}
@@ -352,13 +278,13 @@ function InspectorDashboard({ onLogout }) {
               <div className="audit-list__row">
                 <span>Current component</span>
                 <strong>
-                  {componentMap[String(form.component)] || "Not selected"}
+                  {components[0]?.name || "Not selected"}
                 </strong>
               </div>
               <div className="audit-list__row">
                 <span>Current model</span>
                 <strong>
-                  {modelMap[String(form.model)] || "Not selected"}
+                  {models[0] ? `${models[0].name} (${models[0].version})` : "Not selected"}
                 </strong>
               </div>
             </div>
