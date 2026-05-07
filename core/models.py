@@ -97,6 +97,14 @@ class InferenceLog(models.Model):
         ('REJECTED', 'Operator Rejected'),
         ('ARCHIVED', 'Archived'),
     )
+    REJECTION_REASON_CHOICES = (
+        ('MISSED_DEFECT', 'Missed a defect'),
+        ('FALSE_POSITIVE', 'False positive'),
+        ('BLURRY_CAPTURE', 'Blurry capture'),
+        ('BAD_ANNOTATION', 'Bad annotation'),
+        ('WRONG_CLASS', 'Wrong class'),
+        ('OTHER', 'Other'),
+    )
     
     operator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='inference_logs')
     model_used = models.ForeignKey(AIModel, on_delete=models.SET_NULL, null=True)
@@ -112,6 +120,9 @@ class InferenceLog(models.Model):
     system_decision = models.CharField(max_length=10, choices=DECISION_CHOICES)
     operator_override = models.BooleanField(default=False)
     operator_comment = models.TextField(blank=True)
+    operator_review_description = models.TextField(blank=True)
+    rejection_reason = models.CharField(max_length=40, choices=REJECTION_REASON_CHOICES, blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
     final_decision = models.CharField(max_length=10, choices=DECISION_CHOICES)
     
     # Real-time Streaming Metadata

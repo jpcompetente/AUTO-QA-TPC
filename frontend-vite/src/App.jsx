@@ -14,7 +14,9 @@ function readRole(token) {
 
   try {
     const decoded = jwtDecode(token);
-    return decoded.role || decoded.groups?.[0] || "operator";
+    return (decoded.role || decoded.groups?.[0] || "operator")
+      .toLowerCase()
+      .replace("_", "");
   } catch {
     return null;
   }
