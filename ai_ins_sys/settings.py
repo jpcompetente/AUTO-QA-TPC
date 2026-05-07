@@ -78,7 +78,7 @@ CORS_ALLOWED_ORIGINS = [
 # CORS_ALLOW_ALL_ORIGINS = True
 
 # ✅ Root URL configuration
-ROOT_URLCONF = 'backend.urls'
+ROOT_URLCONF = 'ai_ins_sys.urls'
 
 STATIC_URL = '/static/'
 
