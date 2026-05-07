@@ -155,6 +155,22 @@ os.makedirs(MEDIA_ROOT, exist_ok=True)
 os.makedirs(os.path.join(MEDIA_ROOT, 'models', 'weights'), exist_ok=True)
 os.makedirs(os.path.join(MEDIA_ROOT, 'inference', 'snapshots'), exist_ok=True)
 os.makedirs(os.path.join(MEDIA_ROOT, 'retrain_queue'), exist_ok=True)
+os.makedirs(os.path.join(MEDIA_ROOT, 'captures', 'pending'), exist_ok=True)
+
+# AI inference pipeline defaults
+INFERENCE_DEFAULT_MODEL_NAME = os.getenv('INFERENCE_DEFAULT_MODEL_NAME', 'yolo26_emsd_v1')
+INFERENCE_SERVER_URL = os.getenv('INFERENCE_SERVER_URL', 'http://127.0.0.1:8091')
+INFERENCE_DEFAULT_WEIGHTS = os.getenv(
+    'INFERENCE_DEFAULT_WEIGHTS',
+    os.path.join(BASE_DIR, 'models', 'weights', 'tpcyolov26nv21gs_emsd.pt'),
+)
+INFERENCE_CONFIDENCE_THRESHOLD = float(os.getenv('INFERENCE_CONFIDENCE_THRESHOLD', '0.5'))
+INFERENCE_IOU_THRESHOLD = float(os.getenv('INFERENCE_IOU_THRESHOLD', '0.45'))
+INFERENCE_TIMEOUT_SECONDS = float(os.getenv('INFERENCE_TIMEOUT_SECONDS', '10'))
+INFERENCE_CACHE_MAX_ENTRIES = int(os.getenv('INFERENCE_CACHE_MAX_ENTRIES', '256'))
+INFERENCE_MODEL_ENDPOINTS = {
+    INFERENCE_DEFAULT_MODEL_NAME: INFERENCE_SERVER_URL,
+}
 
 # ✅ Celery Configuration for Async Tasks & Model Retraining
 CELERY_BROKER_URL = 'redis://127.0.0.1:6379/0'

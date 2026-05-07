@@ -70,7 +70,7 @@ function AdminDashboard({ onLogout }) {
 
     await createAdminSettings({
       ...form,
-      threshold: Number(form.threshold),
+      confidence_threshold: Number(form.threshold),
     });
 
     fetchData();
@@ -309,7 +309,7 @@ function AdminDashboard({ onLogout }) {
                       <td>{setting.operator_name}</td>
                       <td>{setting.component_name}</td>
                       <td>{setting.model_name}</td>
-                      <td>{Number(setting.threshold).toFixed(2)}</td>
+                      <td>{Number(setting.confidence_threshold).toFixed(2)}</td>
                       <td>
                         <button
                           className="ghost-button ghost-button--danger"

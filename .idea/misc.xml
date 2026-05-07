@@ -3,4 +3,5 @@
   <component name="Black">
     <option name="sdkName" value="Python 3.10 (second_attempt)" />
   </component>
+  <component name="ProjectRootManager" version="2" project-jdk-name="Python 3.14 (AUTO-QA-TPC)" project-jdk-type="Python SDK" />
 </project>
