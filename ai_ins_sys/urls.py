@@ -19,6 +19,9 @@ from core.views import (
     RetrainingQueueViewSet,
     dashboard_stats,
     detect_image,
+    inference_health,
+    inference_metrics,
+    operator_preset,
 )
 
 legacy_router = DefaultRouter()
@@ -39,6 +42,9 @@ urlpatterns = [
     # Backward-compatible API endpoints used by the existing React frontend
     path('api/dashboard/stats/', dashboard_stats),
     path('api/detect/', detect_image),
+    path('api/inference/health/', inference_health),
+    path('api/inference/metrics/', inference_metrics),
+    path('api/operator/preset/', operator_preset),
     path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/', include(legacy_router.urls)),

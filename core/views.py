@@ -1,7 +1,11 @@
 import base64
 import io
 import logging
+import os
 from datetime import timedelta
+from django.conf import settings
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.http import HttpResponse
 from django.utils import timezone
 from django.db.models import Avg, Count, Q, F
@@ -25,12 +29,58 @@ from .serializers import (
     OperatorSerializer
 )
 from .tasks import train_model, deploy_model_version
+from .inference_services import InferenceFactory, orchestrator
 
 logger = logging.getLogger(__name__)
+
+
+def user_role(user):
+    try:
+        return user.profile.role
+    except Exception:
+        return ''
+
+
+class IsAdminOrSuperAdmin(permissions.BasePermission):
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        return user_role(request.user) in ('ADMIN', 'SUPER_ADMIN') or request.user.is_staff
 
 # 🔑 Custom JWT View
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+
+
+@api_view(['GET'])
+def api_status(request):
+    """
+    Lightweight health/status endpoint for the Vite frontend.
+    """
+    return Response({
+        "message": "Django core API connected",
+        "service": "ai_ins_sys.core",
+        "authenticated": bool(request.user and request.user.is_authenticated),
+    })
+
+
+@api_view(['GET'])
+def operator_preset(request):
+    if not request.user or not request.user.is_authenticated:
+        return Response({'error': 'Authentication required'}, status=401)
+
+    setting = AdminSettings.objects.filter(
+        assigned_operator=request.user,
+        is_active=True,
+    ).select_related('component', 'model', 'assigned_operator').order_by('-id').first()
+
+    if not setting:
+        return Response(
+            {'error': 'No active inspection preset assigned to this operator'},
+            status=404,
+        )
+
+    return Response(AdminSettingsSerializer(setting).data)
 
 
 # ====================================
@@ -189,65 +239,144 @@ def model_performance(request):
 @api_view(['POST'])
 def detect_image(request):
     """
-    Real-time inference endpoint
-    Receives image frame, runs YOLO detection, returns results with latency
+    Real-time inference endpoint.
+    Accepts multipart PNG/JPEG frames or the legacy base64 data URL payload.
     """
     try:
-        from .model_loader import model_loader
-        import time
-        import cv2
-        import numpy as np
-        
-        image_data = request.data.get('image')
-        if not image_data:
-            return Response({"error": "No image received"}, status=400)
-        
-        # Get active model
-        model = model_loader.get_active_model()
-        if not model:
-            return Response({"error": "No active model loaded"}, status=500)
-        
-        # Decode image
-        image_bytes = base64.b64decode(image_data.split(',')[1] if ',' in image_data else image_data)
-        image_array = np.frombuffer(image_bytes, dtype=np.uint8)
-        frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
-        
-        if frame is None:
-            return Response({"error": "Invalid image data"}, status=400)
-        
-        # Run inference
-        start_time = time.time()
-        results = model.predict(frame, conf=0.5, verbose=False)
-        latency_ms = (time.time() - start_time) * 1000
-        
-        # Parse results
-        detections = []
-        confidence_scores = []
-        
-        for result in results:
-            for box in result.boxes:
-                detections.append({
-                    'class': int(box.cls),
-                    'confidence': float(box.conf),
-                    'bbox': box.xyxy.tolist()[0]  # [x1, y1, x2, y2]
-                })
-                confidence_scores.append(float(box.conf))
-        
-        # Determine system decision
-        system_decision = 'PASS' if len(detections) == 0 else 'FAIL'
-        avg_confidence = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0
-        
-        return Response({
-            "system_decision": system_decision,
-            "confidence": round(avg_confidence, 3),
-            "detections": detections,
-            "latency_ms": round(latency_ms, 2),
-            "num_detections": len(detections)
-        })
-        
+        image_file = request.FILES.get('image')
+        filename = getattr(image_file, 'name', 'frame.png')
+
+        if image_file:
+            image_bytes = image_file.read()
+        else:
+            image_data = request.data.get('image')
+            if not image_data:
+                return Response({"error": "No image received"}, status=400)
+            image_bytes = base64.b64decode(
+                image_data.split(',', 1)[1] if ',' in image_data else image_data
+            )
+
+        if not image_bytes:
+            return Response({"error": "Empty image received"}, status=400)
+
+        operator = request.user if request.user and request.user.is_authenticated else None
+        active_preset = None
+        if operator and user_role(operator) == 'OPERATOR':
+            active_preset = AdminSettings.objects.filter(
+                assigned_operator=operator,
+                is_active=True,
+            ).select_related('component', 'model').order_by('-id').first()
+            if not active_preset or not active_preset.model:
+                return Response(
+                    {'error': 'No active inspection preset assigned to this operator'},
+                    status=403,
+                )
+
+        model = active_preset.model if active_preset else None
+        model_id = request.data.get('model') or request.data.get('model_id')
+        if model is None and model_id:
+            model = AIModel.objects.filter(id=model_id).first()
+        if model is None:
+            model = AIModel.objects.filter(is_active=True).first()
+        if model is None:
+            model, _ = AIModel.objects.get_or_create(
+                name=getattr(settings, 'INFERENCE_DEFAULT_MODEL_NAME', 'yolo26_emsd_v1'),
+                version='v1',
+                defaults={
+                    'description': 'Default EMSD YOLOv26 model variant',
+                    'is_active': True,
+                    'is_deployment_ready': True,
+                },
+            )
+
+        component = active_preset.component if active_preset else None
+        component_id = request.data.get('component') or request.data.get('component_id')
+        if component is None and component_id:
+            component = ComponentType.objects.filter(id=component_id).first()
+
+        confidence = float(
+            request.data.get(
+                'confidence',
+                active_preset.confidence_threshold if active_preset else getattr(settings, 'INFERENCE_CONFIDENCE_THRESHOLD', 0.5),
+            )
+        )
+        iou = float(request.data.get('iou', getattr(settings, 'INFERENCE_IOU_THRESHOLD', 0.45)))
+
+        result = orchestrator.infer(
+            image_bytes=image_bytes,
+            filename=filename,
+            model_name=model.name,
+            confidence=confidence,
+            iou=iou,
+        )
+
+        if not result.success:
+            return Response(result.to_dict(), status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        if result.system_decision == 'FAIL':
+            capture_name = f"captures/pending/{timezone.now():%Y%m%d_%H%M%S_%f}_{result.image_hash}.png"
+            result.auto_capture_path = default_storage.save(
+                capture_name,
+                ContentFile(image_bytes),
+            )
+
+        if operator is None:
+            operator, _ = User.objects.get_or_create(
+                username='system_operator',
+                defaults={'is_active': False},
+            )
+
+        snapshot_name = f"{timezone.now():%Y%m%d_%H%M%S_%f}_{result.image_hash}.png"
+        log = InferenceLog.objects.create(
+            operator=operator,
+            model_used=model,
+            component=component,
+            image_snapshot=ContentFile(image_bytes, name=snapshot_name),
+            detection_results={
+                'detections': result.detections,
+                'cache_hit': result.cache_hit,
+                'image_hash': result.image_hash,
+                'metrics': result.metrics,
+            },
+            latency_ms=result.latency_ms,
+            confidence_score=result.confidence,
+            system_decision=result.system_decision,
+            final_decision=result.system_decision,
+            status='PENDING',
+            session_id=request.data.get('session_id', ''),
+        )
+
+        payload = result.to_dict()
+        payload['id'] = log.id
+        payload['log_id'] = log.id
+        payload['snapshot_url'] = log.image_snapshot.url if log.image_snapshot else ''
+        if result.auto_capture_path:
+            payload['auto_capture_url'] = default_storage.url(result.auto_capture_path)
+        return Response(payload)
     except Exception as e:
         logger.error(f"Error in detect_image: {str(e)}")
         return Response({"error": str(e)}, status=500)
+
+
+@api_view(['GET'])
+def inference_metrics(request):
+    return Response(orchestrator.snapshot_metrics())
+
+
+@api_view(['GET'])
+def inference_health(request):
+    model_name = request.query_params.get(
+        'model_name',
+        getattr(settings, 'INFERENCE_DEFAULT_MODEL_NAME', 'yolo26_emsd_v1'),
+    )
+    try:
+        health = InferenceFactory.get_service(model_name).health_check()
+        return Response(health)
+    except Exception as exc:
+        return Response(
+            {'status': 'unavailable', 'error': str(exc)},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
 
 # ====================================
@@ -257,7 +386,7 @@ def detect_image(request):
 class AIModelViewSet(viewsets.ModelViewSet):
     queryset = AIModel.objects.all()
     serializer_class = AIModelSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminOrSuperAdmin]
     
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None):
@@ -295,13 +424,13 @@ class AIModelViewSet(viewsets.ModelViewSet):
 class ComponentTypeViewSet(viewsets.ModelViewSet):
     queryset = ComponentType.objects.all()
     serializer_class = ComponentTypeSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminOrSuperAdmin]
 
 
 class AdminSettingsViewSet(viewsets.ModelViewSet):
     queryset = AdminSettings.objects.all().order_by('-id')
     serializer_class = AdminSettingsSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminOrSuperAdmin]
 
     def perform_create(self, serializer):
         serializer.save(admin=self.request.user)
@@ -336,6 +465,9 @@ class InferenceLogViewSet(viewsets.ModelViewSet):
         log.operator_override = True
         log.final_decision = request.data.get('final_decision', log.system_decision)
         log.operator_comment = request.data.get('comment', '')
+        log.operator_review_description = request.data.get('description', log.operator_review_description)
+        log.rejection_reason = request.data.get('rejection_reason', log.rejection_reason)
+        log.reviewed_at = timezone.now()
         log.status = 'APPROVED' if log.final_decision == 'PASS' else 'REJECTED'
         log.save()
         
@@ -348,6 +480,42 @@ class InferenceLogViewSet(viewsets.ModelViewSet):
             )
             logger.info(f"Queued inference {log.id} for retraining due to operator override")
         
+        return Response(InferenceLogSerializer(log).data)
+
+    @action(detail=True, methods=['post'])
+    def review(self, request, pk=None):
+        """Acknowledge or reject the inference result after auto-capture."""
+        log = self.get_object()
+        action_value = request.data.get('action')
+        description = (request.data.get('description') or '').strip()
+        rejection_reason = request.data.get('rejection_reason', '')
+        final_decision = request.data.get('final_decision', log.system_decision)
+
+        if action_value not in ('ACKNOWLEDGE', 'REJECT'):
+            return Response({'error': 'action must be ACKNOWLEDGE or REJECT'}, status=400)
+        if not description:
+            return Response({'error': 'description is required'}, status=400)
+        if action_value == 'REJECT' and not rejection_reason:
+            return Response({'error': 'rejection_reason is required when rejecting'}, status=400)
+        if final_decision not in ('PASS', 'FAIL'):
+            return Response({'error': 'final_decision must be PASS or FAIL'}, status=400)
+
+        log.operator_review_description = description
+        log.operator_comment = description
+        log.rejection_reason = rejection_reason if action_value == 'REJECT' else ''
+        log.final_decision = final_decision
+        log.operator_override = final_decision != log.system_decision or action_value == 'REJECT'
+        log.status = 'APPROVED' if action_value == 'ACKNOWLEDGE' else 'REJECTED'
+        log.reviewed_at = timezone.now()
+        log.save()
+
+        if log.status == 'REJECTED':
+            priority = 2 if rejection_reason in ('MISSED_DEFECT', 'BAD_ANNOTATION', 'WRONG_CLASS') else 1
+            RetrainingQueue.objects.get_or_create(
+                log_entry=log,
+                defaults={'priority': priority, 'status': 'PENDING'},
+            )
+
         return Response(InferenceLogSerializer(log).data)
     
     @action(detail=False, methods=['get'])
@@ -477,4 +645,4 @@ class DatasetBufferViewSet(viewsets.ReadOnlyModelViewSet):
 class OperatorViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = User.objects.filter(profile__role='OPERATOR').order_by('username')
     serializer_class = OperatorSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminOrSuperAdmin]

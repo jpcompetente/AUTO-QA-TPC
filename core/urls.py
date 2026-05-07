@@ -31,6 +31,9 @@ urlpatterns = [
     
     # 🧠 Inference Endpoints (Requirement 1.1)
     path('inference/detect/', views.detect_image, name='detect-image'),
+    path('inference/health/', views.inference_health, name='inference-health'),
+    path('inference/metrics/', views.inference_metrics, name='inference-metrics'),
+    path('operator/preset/', views.operator_preset, name='operator-preset'),
     
     # 🔑 JWT Authentication
     path('auth/token/', views.CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
