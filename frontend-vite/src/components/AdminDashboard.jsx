@@ -14,6 +14,7 @@ function AdminDashboard({ onLogout }) {
   const [operators, setOperators] = useState([]);
   const [settings, setSettings] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [activePage, setActivePage] = useState("overview");
   const [form, setForm] = useState({
     component: "",
     model: "",
@@ -80,50 +81,140 @@ function AdminDashboard({ onLogout }) {
     fetchData();
   };
 
+  const pages = [
+    { id: "overview", label: "Overview" },
+    { id: "configure", label: "Configure" },
+    { id: "routing", label: "Routing" },
+    { id: "audit", label: "Audit" },
+  ];
+
+  const currentSetting = settings[0];
+
   return (
-    <div className="panel-page">
-      <div className="panel-shell">
-        <header className="panel-header">
+    <div className="dashboard-shell dashboard-shell--admin">
+      <aside className="dashboard-sidebar">
+        <div>
+          <p className="eyebrow">Admin dashboard</p>
+          <h1>Control room</h1>
+          <p className="sidebar-copy">
+            A single full-screen workspace for routing, configuration, and
+            governance.
+          </p>
+        </div>
+
+        <nav className="page-nav" aria-label="Admin pages">
+          {pages.map((page) => (
+            <button
+              key={page.id}
+              type="button"
+              className={
+                activePage === page.id
+                  ? "page-nav__button is-active"
+                  : "page-nav__button"
+              }
+              onClick={() => setActivePage(page.id)}
+            >
+              {page.label}
+            </button>
+          ))}
+        </nav>
+
+        <button
+          className="ghost-button ghost-button--sidebar"
+          onClick={onLogout}
+          type="button"
+        >
+          Logout
+        </button>
+      </aside>
+
+      <main className="dashboard-main">
+        <header className="dashboard-header">
           <div>
-            <p className="eyebrow">Admin dashboard</p>
-            <h1>Control inspection rules</h1>
+            <p className="eyebrow">Admin portal</p>
+            <h2>Page-based dashboard</h2>
             <p>
-              Assign components, models, thresholds, and operators from one
-              screen.
+              Manage components, models, operators, and assignment rules from
+              one continuous workspace.
             </p>
           </div>
-          <button className="ghost-button" onClick={onLogout} type="button">
-            Logout
-          </button>
+          <div className="dashboard-header__meta">
+            <span>{components.length} components</span>
+            <span>{models.length} models</span>
+            <span>{operators.length} operators</span>
+          </div>
         </header>
 
-        <section className="metric-grid">
-          <div className="metric-card">
-            <span>Components</span>
-            <strong>{components.length}</strong>
-          </div>
-          <div className="metric-card">
-            <span>Models</span>
-            <strong>{models.length}</strong>
-          </div>
-          <div className="metric-card">
-            <span>Operators</span>
-            <strong>{operators.length}</strong>
-          </div>
-          <div className="metric-card">
-            <span>Configs</span>
-            <strong>{settings.length}</strong>
-          </div>
-        </section>
-
-        <section className="content-grid">
-          <div className="section-card">
-            <div className="section-heading">
-              <p className="eyebrow">Create config</p>
-              <h2>Assign models and thresholds</h2>
+        {activePage === "overview" ? (
+          <section className="dashboard-section dashboard-section--overview">
+            <div className="stat-line">
+              <div>
+                <span>Configurations</span>
+                <strong>{settings.length}</strong>
+              </div>
+              <div>
+                <span>Components</span>
+                <strong>{components.length}</strong>
+              </div>
+              <div>
+                <span>Models</span>
+                <strong>{models.length}</strong>
+              </div>
+              <div>
+                <span>Operators</span>
+                <strong>{operators.length}</strong>
+              </div>
             </div>
 
-            <div className="form-grid">
+            <div className="timeline">
+              <div className="timeline__item">
+                <span>Active routing</span>
+                <strong>
+                  {currentSetting?.operator_name || "No assignment yet"}
+                </strong>
+              </div>
+              <div className="timeline__item">
+                <span>Current component</span>
+                <strong>
+                  {currentSetting?.component_name || "Awaiting config"}
+                </strong>
+              </div>
+              <div className="timeline__item">
+                <span>Current model</span>
+                <strong>
+                  {currentSetting?.model_name || "Awaiting config"}
+                </strong>
+              </div>
+              <div className="timeline__item">
+                <span>Threshold</span>
+                <strong>
+                  {currentSetting
+                    ? Number(currentSetting.threshold).toFixed(2)
+                    : "0.50"}
+                </strong>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {activePage === "configure" ? (
+          <section className="dashboard-section dashboard-section--form">
+            <div className="dashboard-section__header">
+              <div>
+                <p className="eyebrow">Configure</p>
+                <h3>Assign models and thresholds</h3>
+              </div>
+              <button
+                className="primary-button"
+                onClick={handleSubmit}
+                disabled={isLoading}
+                type="button"
+              >
+                Save config
+              </button>
+            </div>
+
+            <div className="form-grid form-grid--admin">
               <label className="field">
                 <span>Component</span>
                 <select
@@ -186,25 +277,23 @@ function AdminDashboard({ onLogout }) {
                 />
               </label>
             </div>
+          </section>
+        ) : null}
 
-            <button
-              className="primary-button"
-              onClick={handleSubmit}
-              disabled={isLoading}
-              type="button"
-            >
-              Save config
-            </button>
-          </div>
-
-          <div className="section-card section-card--wide">
-            <div className="section-heading">
-              <p className="eyebrow">Current configs</p>
-              <h2>Routing overview</h2>
+        {activePage === "routing" ? (
+          <section className="dashboard-section dashboard-section--table">
+            <div className="dashboard-section__header">
+              <div>
+                <p className="eyebrow">Routing</p>
+                <h3>Current configs</h3>
+              </div>
+              <span className="section-note">
+                {settings.length} active rows
+              </span>
             </div>
 
-            <div className="table-wrap">
-              <table>
+            <div className="table-wrap dashboard-table-wrap">
+              <table className="dashboard-table">
                 <thead>
                   <tr>
                     <th>Operator</th>
@@ -239,9 +328,50 @@ function AdminDashboard({ onLogout }) {
                 <div className="empty-state">No configs created yet.</div>
               ) : null}
             </div>
-          </div>
-        </section>
-      </div>
+          </section>
+        ) : null}
+
+        {activePage === "audit" ? (
+          <section className="dashboard-section dashboard-section--audit">
+            <div className="dashboard-section__header">
+              <div>
+                <p className="eyebrow">Audit</p>
+                <h3>Operational snapshot</h3>
+              </div>
+              <span className="section-note">Read-only summary</span>
+            </div>
+
+            <div className="audit-list">
+              <div className="audit-list__row">
+                <span>Latest component</span>
+                <strong>{components[0]?.name || "No components loaded"}</strong>
+              </div>
+              <div className="audit-list__row">
+                <span>Latest model</span>
+                <strong>
+                  {models[0]
+                    ? `${models[0].name} (${models[0].version})`
+                    : "No models loaded"}
+                </strong>
+              </div>
+              <div className="audit-list__row">
+                <span>Latest operator</span>
+                <strong>
+                  {operators[0]?.username || "No operators loaded"}
+                </strong>
+              </div>
+              <div className="audit-list__row">
+                <span>Last assignment</span>
+                <strong>
+                  {currentSetting
+                    ? `${currentSetting.component_name} to ${currentSetting.operator_name}`
+                    : "No assignment recorded"}
+                </strong>
+              </div>
+            </div>
+          </section>
+        ) : null}
+      </main>
     </div>
   );
 }

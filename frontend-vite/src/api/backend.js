@@ -57,12 +57,12 @@ api.interceptors.response.use(
 );
 
 export const loginUser = (credentials) =>
-  api.post("/auth/login/", {
+  api.post("/auth/token/", {
     username: credentials.username,
     password: credentials.password,
   });
 
-export const getApiStatus = () => api.get("/data/");
+export const getApiStatus = () => api.get("/dashboard/stats/");
 export const detectImage = (payload) => api.post("/detect/", payload);
 export const getComponents = () => api.get("/component-types/");
 export const getModels = () => api.get("/ai-models/");

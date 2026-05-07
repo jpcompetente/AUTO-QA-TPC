@@ -569,7 +569,7 @@ function OperatorPanel({ onLogout }) {
                     <td>{log.id}</td>
                     <td>{log.component_name || log.component || "-"}</td>
                     <td>{log.model_name || log.model_used || "-"}</td>
-                    <td>{log.final_decision || log.system_decision}</td>
+                    <td>{log.final_decision || log.system_decision || log.status || "-"}</td>
                     <td>{log.status}</td>
                     <td>{log.operator_review_description || "-"}</td>
                     <td>{log.rejection_reason || "-"}</td>
