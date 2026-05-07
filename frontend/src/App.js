@@ -13,6 +13,15 @@ function App() {
   const [role, setRole] = useState(null);
   const [apiMessage, setApiMessage] = useState("");
 
+  const normalizeRole = (rawRole) => {
+    if (!rawRole) return null;
+    const value = String(rawRole).trim().toLowerCase();
+    if (value === "super_admin" || value === "superadmin") return "superadmin";
+    if (value === "admin") return "admin";
+    if (value === "operator") return "operator";
+    return value;
+  };
+
   useEffect(() => {
     api
       .get("/data/")
@@ -29,8 +38,8 @@ function App() {
     if (token) {
       try {
         const decoded = jwtDecode(token);
-        const userRole = decoded.role || decoded.groups?.[0] || "operator";
-        setRole(userRole);
+        const rawRole = decoded.role || decoded.groups?.[0] || "operator";
+        setRole(normalizeRole(rawRole));
       } catch {
         handleLogout();
       }

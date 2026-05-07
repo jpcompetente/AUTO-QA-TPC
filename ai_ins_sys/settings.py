@@ -32,6 +32,7 @@ DATABASES = {
 
 # Installed Apps
 INSTALLED_APPS = [
+    'daphne',  # ✅ Channels ASGI server (must be first)
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -41,6 +42,7 @@ INSTALLED_APPS = [
     'django.contrib.sites',
     'corsheaders',   # ✅ required for CORS
     'rest_framework',
+    'channels',  # ✅ WebSockets support
     # 'django.contrib.redirects',   # ❌ disabled muna
     'core',
 ]
@@ -122,3 +124,48 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # ✅ Required for django.contrib.sites
 SITE_ID = 1
+
+# ✅ WebSocket & Real-time Support with Channels
+ASGI_APPLICATION = 'ai_ins_sys.asgi.application'
+
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [("127.0.0.1", 6379)],
+            "capacity": 1500,
+            "expiry": 10,
+        },
+    },
+}
+
+# ✅ Media Files Configuration (for model weights, images, etc.)
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# Ensure media directory exists
+os.makedirs(MEDIA_ROOT, exist_ok=True)
+os.makedirs(os.path.join(MEDIA_ROOT, 'models', 'weights'), exist_ok=True)
+os.makedirs(os.path.join(MEDIA_ROOT, 'inference', 'snapshots'), exist_ok=True)
+os.makedirs(os.path.join(MEDIA_ROOT, 'retrain_queue'), exist_ok=True)
+
+# ✅ Celery Configuration for Async Tasks & Model Retraining
+CELERY_BROKER_URL = 'redis://127.0.0.1:6379/0'
+CELERY_RESULT_BACKEND = 'redis://127.0.0.1:6379/0'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'
+CELERY_ENABLE_UTC = True
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+
+# Celery Beat Schedule for periodic tasks
+from celery.schedules import crontab
+CELERY_BEAT_SCHEDULE = {
+    'check-retraining-queue': {
+        'task': 'core.tasks.check_retraining_queue',
+        'schedule': crontab(minute='*/5'),  # Every 5 minutes
+    },
+}
