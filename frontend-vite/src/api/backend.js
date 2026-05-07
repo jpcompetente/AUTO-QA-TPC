@@ -57,7 +57,7 @@ api.interceptors.response.use(
 );
 
 export const loginUser = (credentials) =>
-  api.post("/auth/token/", {
+  api.post("/auth/login/", {
     username: credentials.username,
     password: credentials.password,
   });

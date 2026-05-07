@@ -82,7 +82,7 @@ function App() {
   }
 
   if (role === "admin") {
-    return <AdminDashboard onLogout={handleLogout} />;
+    return <AdminDashboard onLogout={handleLogout} role={role} />;
   }
 
   if (role === "superadmin") {

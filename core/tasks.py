@@ -8,9 +8,9 @@ import os
 import json
 import subprocess
 from datetime import datetime
+from importlib.util import find_spec
 from django.conf import settings
 from celery import shared_task
-from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 import asyncio
 
@@ -20,7 +20,13 @@ from .models import (
 )
 
 logger = logging.getLogger(__name__)
-channel_layer = get_channel_layer()
+
+if find_spec("channels") is not None:
+    from channels.layers import get_channel_layer
+
+    channel_layer = get_channel_layer()
+else:
+    channel_layer = None
 
 
 @shared_task(bind=True)
@@ -295,6 +301,9 @@ names: ['defect']  # Class names
 
 def broadcast_training_progress(training_job_id: int, current_epoch: int, total_epochs: int, log_line: str):
     """Broadcast training progress via WebSocket"""
+    if channel_layer is None:
+        return
+
     try:
         room_name = f'training_progress_{training_job_id}'
         async_to_sync(channel_layer.group_send)(
@@ -313,6 +322,9 @@ def broadcast_training_progress(training_job_id: int, current_epoch: int, total_
 
 def notify_training_complete(training_job_id: int, weights_path: str):
     """Notify Super Admin that training is complete"""
+    if channel_layer is None:
+        return
+
     try:
         async_to_sync(channel_layer.group_send)(
             f'training_progress_{training_job_id}',
@@ -329,6 +341,9 @@ def notify_training_complete(training_job_id: int, weights_path: str):
 
 def notify_deployment_ready(training_job_id: int, model_id: int):
     """Notify Super Admin about deployment readiness"""
+    if channel_layer is None:
+        return
+
     try:
         async_to_sync(channel_layer.group_send)(
             'metrics_broadcast',
