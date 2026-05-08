@@ -70,8 +70,10 @@ export const getOperators = () => api.get("/operators/");
 export const getOperatorPreset = () => api.get("/operator/preset/");
 export const getAdminSettings = () => api.get("/admin/settings/");
 export const createAdminSettings = (data) => api.post("/admin/settings/", data);
+export const updateAdminSettings = (id, data) =>
+  api.patch(`/admin/settings/${id}/`, data);
 export const deleteAdminSettings = (id) => api.delete(`/admin/settings/${id}/`);
-export const getDetectionLogs = () => api.get("/inference-logs/");
+export const getDetectionLogs = (params = {}) => api.get("/inference-logs/", { params });
 export const createDetectionLog = (data) => api.post("/inference-logs/", data);
 export const reviewInferenceLog = (id, data) =>
   api.post(`/inference-logs/${id}/review/`, data);

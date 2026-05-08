@@ -54,9 +54,18 @@ class OperatorSerializer(serializers.ModelSerializer):
 
 # 🤖 AI & Component Serializers
 class AIModelSerializer(serializers.ModelSerializer):
+    compatible_component_ids = serializers.PrimaryKeyRelatedField(
+        many=True,
+        source='compatible_components',
+        read_only=True
+    )
+
     class Meta:
         model = AIModel
         fields = '__all__'
+        extra_kwargs = {
+            'compatible_components': {'read_only': True}
+        }
 
 class ComponentTypeSerializer(serializers.ModelSerializer):
     class Meta:
@@ -74,6 +83,43 @@ class ActiveConfigurationSerializer(serializers.ModelSerializer):
     class Meta:
         model = ActiveConfiguration
         fields = '__all__'
+
+    def validate(self, attrs):
+        data = super().validate(attrs)
+
+        operator = data.get('operator', getattr(self.instance, 'operator', None))
+        product = data.get('product', getattr(self.instance, 'product', None))
+        model = data.get('model', getattr(self.instance, 'model', None))
+        threshold = data.get('threshold', getattr(self.instance, 'threshold', None))
+        is_active = data.get('is_active', getattr(self.instance, 'is_active', True))
+
+        duplicate_qs = ActiveConfiguration.objects.filter(
+            operator=operator,
+            product=product,
+            model=model,
+            threshold=threshold,
+            is_active=is_active,
+        )
+
+        if self.instance is not None:
+            duplicate_qs = duplicate_qs.exclude(pk=self.instance.pk)
+
+        if duplicate_qs.exists():
+            raise serializers.ValidationError(
+                'An identical configuration already exists for this operator and product.'
+            )
+
+        if operator:
+            operator_qs = ActiveConfiguration.objects.filter(operator=operator)
+            if self.instance is not None:
+                operator_qs = operator_qs.exclude(pk=self.instance.pk)
+
+            if operator_qs.exists():
+                raise serializers.ValidationError({
+                    'operator': 'This user already has a saved configuration. Remove the existing config before creating a new one.'
+                })
+
+        return data
 
 # 📊 Inference & Audit Log Serializer (Requirement 1.3)
 class InferenceLogSerializer(serializers.ModelSerializer):

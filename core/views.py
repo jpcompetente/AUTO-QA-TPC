@@ -14,6 +14,7 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import api_view, action
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
+from django_filters.rest_framework import DjangoFilterBackend
 from PIL import Image
 
 from .models import (
@@ -351,7 +352,16 @@ def detect_image(request):
         if not result.success:
             return Response(result.to_dict(), status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        if result.system_decision == 'FAIL':
+        # Only perform automatic auto-capture when the operator session is active.
+        # Frontend will send `session_active` flag (true/false) to indicate whether
+        # the operator has started a session (ready to allow auto-capture).
+        session_active_raw = request.data.get('session_active', True)
+        try:
+            session_active = str(session_active_raw).lower() in ('1', 'true', 'yes', 'on')
+        except Exception:
+            session_active = bool(session_active_raw)
+
+        if result.system_decision == 'FAIL' and session_active:
             capture_name = f"captures/pending/{timezone.now():%Y%m%d_%H%M%S_%f}_{result.image_hash}.png"
             result.auto_capture_path = default_storage.save(
                 capture_name,
@@ -453,6 +463,8 @@ class AIModelViewSet(viewsets.ModelViewSet):
     queryset = AIModel.objects.all()
     serializer_class = AIModelSerializer
     permission_classes = [IsAdminOrReadOnlyAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['compatible_components']
     
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None):
@@ -533,7 +545,8 @@ class InferenceLogViewSet(viewsets.ModelViewSet):
     queryset = InferenceLog.objects.all().order_by('-timestamp')
     serializer_class = InferenceLogSerializer
     permission_classes = [permissions.IsAuthenticated]
-    filterset_fields = ['operator', 'status', 'final_decision']
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['operator', 'status', 'final_decision', 'component']
     
     @action(detail=True, methods=['post'])
     def operator_override(self, request, pk=None):

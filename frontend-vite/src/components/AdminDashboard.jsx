@@ -7,6 +7,7 @@ import {
   getComponents,
   getModels,
   getOperators,
+  updateAdminSettings,
   detectImage,
   getDetectionLogs,
 } from "../api/backend";
@@ -18,6 +19,7 @@ function AdminDashboard({ onLogout }) {
   const [settings, setSettings] = useState([]);
   const [detectionLogs, setDetectionLogs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [formError, setFormError] = useState("");
   // detection state (admin-only)
   const webcamRef = useRef(null);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
@@ -25,6 +27,7 @@ function AdminDashboard({ onLogout }) {
   const [detError, setDetError] = useState("");
   const [detResult, setDetResult] = useState(null);
   const [activePage, setActivePage] = useState("home");
+  const [editingSettingId, setEditingSettingId] = useState(null);
   const [form, setForm] = useState({
     product: "",
     model: "",
@@ -81,23 +84,83 @@ function AdminDashboard({ onLogout }) {
       return;
     }
 
+    setFormError("");
+
+    const payload = {
+      product: form.product,
+      operator: form.operator,
+      model: form.model,
+      threshold: Number(form.threshold),
+    };
+
     try {
-      await createAdminSettings({
-        product: form.product,
-        operator: form.operator,
-        model: form.model,
-        threshold: Number(form.threshold),
-      });
+      if (editingSettingId) {
+        await updateAdminSettings(editingSettingId, payload);
+      } else {
+        await createAdminSettings(payload);
+      }
+
+      setEditingSettingId(null);
       fetchData();
     } catch (err) {
-      // Surface validation errors from server for easier debugging
-      // eslint-disable-next-line no-console
-      console.error('Failed to save admin setting', err.response?.data || err.message);
+      const responseData = err.response?.data;
+      const operatorError = responseData?.operator;
+      const detailError = responseData?.detail;
+
+      if (Array.isArray(operatorError) && operatorError.length > 0) {
+        setFormError(operatorError[0]);
+      } else if (typeof operatorError === 'string') {
+        setFormError(operatorError);
+      } else if (typeof detailError === 'string') {
+        setFormError(detailError);
+      } else {
+        setFormError('Failed to save config. This user already has a configuration.');
+      }
+
       setIsLoading(false);
-      // Optionally show an inline notice
-      alert('Failed to save config: ' + JSON.stringify(err.response?.data || err.message));
     }
   };
+
+  const handleEdit = (setting) => {
+    const productId = String(setting.product ?? setting.product_id ?? "");
+    const modelId = String(setting.model ?? setting.model_id ?? "");
+    const operatorId = String(setting.operator ?? setting.operator_id ?? "");
+
+    setEditingSettingId(setting.id);
+    setFormError("");
+    setForm({
+      product: productId,
+      model: modelId,
+      threshold: setting.threshold ?? setting.confidence_threshold ?? 0.5,
+      operator: operatorId,
+    });
+    setActivePage("settings");
+  };
+
+  const handleCancelEdit = () => {
+    setEditingSettingId(null);
+    setFormError("");
+    setForm((currentForm) => ({
+      ...currentForm,
+      product: components[0]?.id ? String(components[0].id) : "",
+      model: models[0]?.id ? String(models[0].id) : "",
+      operator: operators[0]?.id ? String(operators[0].id) : "",
+      threshold: 0.5,
+    }));
+  };
+
+  // Get compatible models for selected product
+  const getCompatibleModels = () => {
+    if (!form.product) return [];
+    const selectedProduct = parseInt(form.product);
+    return models.filter(
+      (model) =>
+        model.compatible_component_ids &&
+        model.compatible_component_ids.includes(selectedProduct)
+    );
+  };
+
+  const compatibleModels = getCompatibleModels();
 
   const handleDelete = async (id) => {
     await deleteAdminSettings(id);
@@ -332,7 +395,7 @@ function AdminDashboard({ onLogout }) {
             <div className="dashboard-section__header">
               <div>
                 <p className="eyebrow">Settings</p>
-                <h3>Assign models and thresholds</h3>
+                <h3>{editingSettingId ? "Edit config" : "Assign models and thresholds"}</h3>
               </div>
               <button
                 className="primary-button"
@@ -340,18 +403,43 @@ function AdminDashboard({ onLogout }) {
                 disabled={isLoading}
                 type="button"
               >
-                Save config
+                {editingSettingId ? "Update config" : "Save config"}
               </button>
             </div>
+
+            {formError ? <div className="notice notice--error">{formError}</div> : null}
+
+            {editingSettingId ? (
+              <div style={{ marginBottom: "12px" }}>
+                <button
+                  className="ghost-button"
+                  type="button"
+                  onClick={handleCancelEdit}
+                >
+                  Cancel edit
+                </button>
+              </div>
+            ) : null}
 
             <div className="form-grid form-grid--admin">
               <label className="field">
                 <span>Product</span>
                 <select
                   value={form.product}
-                  onChange={(event) =>
-                    setForm({ ...form, product: event.target.value })
-                  }
+                  onChange={(event) => {
+                    const newProduct = event.target.value;
+                    // Reset model to first compatible model when product changes
+                    const compatible = models.filter(
+                      (model) =>
+                        model.compatible_component_ids &&
+                        model.compatible_component_ids.includes(parseInt(newProduct))
+                    );
+                    setForm({
+                      ...form,
+                      product: newProduct,
+                      model: compatible.length > 0 ? String(compatible[0].id) : "",
+                    });
+                  }}
                 >
                   {components.map((component) => (
                     <option key={component.id} value={component.id}>
@@ -369,11 +457,15 @@ function AdminDashboard({ onLogout }) {
                     setForm({ ...form, model: event.target.value })
                   }
                 >
-                  {models.map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.name} ({model.version})
-                    </option>
-                  ))}
+                  {compatibleModels.length > 0 ? (
+                    compatibleModels.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name} ({model.version})
+                      </option>
+                    ))
+                  ) : (
+                    <option disabled>No compatible models</option>
+                  )}
                 </select>
               </label>
 
@@ -433,6 +525,14 @@ function AdminDashboard({ onLogout }) {
                           type="button"
                         >
                           Delete
+                        </button>
+                        <button
+                          className="ghost-button"
+                          onClick={() => handleEdit(setting)}
+                          type="button"
+                          style={{ marginLeft: "8px" }}
+                        >
+                          Edit
                         </button>
                       </td>
                     </tr>

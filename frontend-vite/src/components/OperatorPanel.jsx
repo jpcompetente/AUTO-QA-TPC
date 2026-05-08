@@ -35,6 +35,12 @@ function OperatorPanel({ onLogout }) {
   const [detectionResult, setDetectionResult] = useState(null);
   const [capturedFrame, setCapturedFrame] = useState("");
   const [autoDetectEnabled, setAutoDetectEnabled] = useState(true);
+  const [sessionStarted, setSessionStarted] = useState(false);
+  const [sessionId, setSessionId] = useState("");
+  const [sessionFilter, setSessionFilter] = useState("");
+  const [expandedLogId, setExpandedLogId] = useState(null);
+  const liveIntervalRef = useRef(null);
+  const [rawOpenMap, setRawOpenMap] = useState({});
   const [motionStatus, setMotionStatus] = useState("Waiting for camera");
   const [countdownMs, setCountdownMs] = useState(null);
   const [reviewMode, setReviewMode] = useState("ACKNOWLEDGE");
@@ -50,9 +56,26 @@ function OperatorPanel({ onLogout }) {
     setPreset(presetResponse.data);
   };
 
+  const toggleSession = () => {
+    if (sessionStarted) {
+      setSessionStarted(false);
+    } else {
+      const sid = `session_${Date.now()}`;
+      setSessionId(sid);
+      setSessionStarted(true);
+    }
+  };
+
   const fetchLogs = async () => {
-    const response = await getDetectionLogs();
-    setLogs(normalizeList(response.data));
+    const params = {};
+    if (sessionFilter) params.session_id = sessionFilter;
+    const response = await getDetectionLogs(params);
+    const list = normalizeList(response.data);
+    setLogs(list);
+    if (!sessionFilter && list.length > 0 && !sessionStarted) {
+      const recentSession = list.find((l) => l.session_id);
+      if (recentSession) setSessionId(recentSession.session_id || "");
+    }
   };
 
   useEffect(() => {
@@ -71,6 +94,10 @@ function OperatorPanel({ onLogout }) {
 
     void loadPanelData();
   }, []);
+
+  useEffect(() => {
+    void fetchLogs();
+  }, [sessionFilter]);
 
   const drawOverlay = (result) => {
     const canvas = overlayRef.current;
@@ -102,36 +129,102 @@ function OperatorPanel({ onLogout }) {
     const scaleX = renderedWidth / sourceWidth;
     const scaleY = renderedHeight / sourceHeight;
 
-    (result?.detections || []).forEach((detection) => {
-      const [x1, y1, x2, y2] = detection.bbox || [];
-      const isScratch = detection.label === "SCRATCH";
-      const stroke = isScratch ? "#ef4444" : "#22c55e";
-      const fill = isScratch
-        ? "rgba(239, 68, 68, 0.42)"
-        : "rgba(34, 197, 94, 0.18)";
+    const drawDetections = (detections) => {
+      (detections || []).forEach((detection) => {
+        const [x1, y1, x2, y2] = detection.bbox || [];
+        const isScratch = detection.label === "SCRATCH";
+        const stroke = isScratch ? "#ef4444" : "#22c55e";
+        const fill = isScratch
+          ? "rgba(239, 68, 68, 0.42)"
+          : "rgba(34, 197, 94, 0.18)";
 
+        const polygon = detection.mask?.polygon || [];
+        if (polygon.length > 2) {
+          ctx.beginPath();
+          polygon.forEach(([x, y], index) => {
+            const px = offsetX + x * scaleX;
+            const py = offsetY + y * scaleY;
+            if (index === 0) {
+              ctx.moveTo(px, py);
+            } else {
+              ctx.lineTo(px, py);
+            }
+          });
+          ctx.closePath();
+          ctx.fillStyle = fill;
+          ctx.fill();
+          ctx.lineWidth = 2.5;
+          ctx.strokeStyle = stroke;
+          ctx.stroke();
+        }
+
+        if ([x1, y1, x2, y2].every((value) => Number.isFinite(value))) {
+          const left = offsetX + x1 * scaleX;
+          const top = offsetY + y1 * scaleY;
+          const width = (x2 - x1) * scaleX;
+          const height = (y2 - y1) * scaleY;
+
+          ctx.lineWidth = 3;
+          ctx.strokeStyle = stroke;
+          ctx.strokeRect(left, top, width, height);
+          ctx.font = "700 16px Aptos, sans-serif";
+          const label = `${detection.label || detection.class_name || "DETECTION"} ${(Number(detection.confidence || 0) * 100).toFixed(1)}%`;
+          const labelTop = Math.max(top - 8, 18);
+          ctx.fillStyle = stroke;
+          ctx.fillText(label, left, labelTop);
+        }
+      });
+    };
+
+    drawDetections(result?.detections || []);
+  };
+
+  const drawLogOverlay = (logId, detections = []) => {
+    const image = document.getElementById(`log-image-${logId}`);
+    const canvas = document.getElementById(`log-overlay-${logId}`);
+    if (!image || !canvas) return;
+
+    const containerWidth = image.clientWidth || 1;
+    const containerHeight = image.clientHeight || 1;
+    const sourceWidth = image.naturalWidth || containerWidth;
+    const sourceHeight = image.naturalHeight || containerHeight;
+
+    canvas.width = containerWidth;
+    canvas.height = containerHeight;
+
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, containerWidth, containerHeight);
+
+    const sourceRatio = sourceWidth / sourceHeight;
+    const displayRatio = containerWidth / containerHeight;
+    const renderedWidth =
+      displayRatio > sourceRatio ? containerHeight * sourceRatio : containerWidth;
+    const renderedHeight =
+      displayRatio > sourceRatio ? containerHeight : containerWidth / sourceRatio;
+    const offsetX = (containerWidth - renderedWidth) / 2;
+    const offsetY = (containerHeight - renderedHeight) / 2;
+    const scaleX = renderedWidth / sourceWidth;
+    const scaleY = renderedHeight / sourceHeight;
+
+    (detections || []).forEach((detection) => {
+      const [x1, y1, x2, y2] = detection.bbox || [];
+      const isScratch = detection.label === "SCRATCH" || detection.label === "DEFECT";
+      const stroke = isScratch ? "#ef4444" : "#22c55e";
+      const fill = isScratch ? "rgba(239, 68, 68, 0.35)" : "rgba(34, 197, 94, 0.16)";
       const polygon = detection.mask?.polygon || [];
-      // Log mask data for debugging
-      if (polygon.length > 0) {
-        // eslint-disable-next-line no-console
-        console.log(`Drawing mask for ${detection.label} with ${polygon.length} points`);
-      }
-      
+
       if (polygon.length > 2) {
         ctx.beginPath();
         polygon.forEach(([x, y], index) => {
           const px = offsetX + x * scaleX;
           const py = offsetY + y * scaleY;
-          if (index === 0) {
-            ctx.moveTo(px, py);
-          } else {
-            ctx.lineTo(px, py);
-          }
+          if (index === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
         });
         ctx.closePath();
         ctx.fillStyle = fill;
         ctx.fill();
-        ctx.lineWidth = 2.5;
+        ctx.lineWidth = 2;
         ctx.strokeStyle = stroke;
         ctx.stroke();
       }
@@ -141,18 +234,20 @@ function OperatorPanel({ onLogout }) {
         const top = offsetY + y1 * scaleY;
         const width = (x2 - x1) * scaleX;
         const height = (y2 - y1) * scaleY;
-
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2;
         ctx.strokeStyle = stroke;
         ctx.strokeRect(left, top, width, height);
-        ctx.font = "700 16px Aptos, sans-serif";
-        const label = `${detection.label || detection.class_name || "DETECTION"} ${(Number(detection.confidence || 0) * 100).toFixed(1)}%`;
-        const labelTop = Math.max(top - 8, 18);
-        ctx.fillStyle = stroke;
-        ctx.fillText(label, left, labelTop);
       }
     });
   };
+
+  useEffect(() => {
+    if (!expandedLogId) return;
+    const current = logs.find((entry) => entry.id === expandedLogId);
+    if (!current) return;
+    const detections = current.detection_results?.detections || [];
+    window.setTimeout(() => drawLogOverlay(current.id, detections), 0);
+  }, [expandedLogId, logs]);
 
   useEffect(() => {
     drawOverlay(detectionResult);
@@ -213,6 +308,8 @@ function OperatorPanel({ onLogout }) {
       formData.append("config_version", preset.config_version || 1);
       formData.append("config_hash", preset.config_hash);
       formData.append("trigger", trigger);
+      formData.append("session_id", sessionId || "");
+      formData.append("session_active", sessionStarted ? "true" : "false");
 
       const detectResponse = await detectImage(formData);
       const result = detectResponse.data;
@@ -261,7 +358,8 @@ function OperatorPanel({ onLogout }) {
       captureInFlightRef.current ||
       reviewPendingRef.current ||
       !autoDetectEnabled ||
-      !preset
+      !preset ||
+      !sessionStarted
     ) {
       return;
     }
@@ -324,6 +422,53 @@ function OperatorPanel({ onLogout }) {
     const interval = window.setInterval(sampleMotion, MOTION_SAMPLE_INTERVAL_MS);
     return () => window.clearInterval(interval);
   });
+
+  // Live inference loop: when a session is started, poll backend for live overlays
+  useEffect(() => {
+    const startLive = () => {
+      if (liveIntervalRef.current) return;
+      liveIntervalRef.current = window.setInterval(async () => {
+        if (!sessionStarted || captureInFlightRef.current || reviewPendingRef.current || !preset) return;
+        try {
+          captureInFlightRef.current = true;
+          const imageSrc = webcamRef.current?.getScreenshot();
+          if (!imageSrc) return;
+          const imageBlob = await fetch(imageSrc).then((r) => r.blob());
+          const formData = new FormData();
+          formData.append("image", imageBlob, `frame-${Date.now()}.png`);
+          formData.append("component", preset.product);
+          formData.append("product_id", preset.product);
+          formData.append("model", preset.model);
+          formData.append("config_id", preset.id);
+          formData.append("config_version", preset.config_version || 1);
+          formData.append("config_hash", preset.config_hash);
+          formData.append("trigger", "live");
+          formData.append("session_id", sessionId || "");
+          formData.append("session_active", sessionStarted ? "true" : "false");
+
+          const detectResponse = await detectImage(formData);
+          const result = detectResponse.data;
+          setDetectionResult(result);
+        } catch (err) {
+          // ignore live polling errors
+        } finally {
+          captureInFlightRef.current = false;
+        }
+      }, 600);
+    };
+
+    const stopLive = () => {
+      if (liveIntervalRef.current) {
+        window.clearInterval(liveIntervalRef.current);
+        liveIntervalRef.current = null;
+      }
+    };
+
+    if (sessionStarted) startLive();
+    else stopLive();
+
+    return () => stopLive();
+  }, [sessionStarted, preset]);
 
   const submitReview = async () => {
     const logId = detectionResult?.log_id || detectionResult?.id;
@@ -443,12 +588,19 @@ function OperatorPanel({ onLogout }) {
 
             {error ? <div className="notice notice--error">{error}</div> : null}
 
-            <div className="auto-detect-panel">
-              <div>
+            <div className="auto-detect-panel" style={{display:'flex', gap:12, alignItems:'center'}}>
+              <div style={{flex:1}}>
                 <span>Auto-detect</span>
                 <strong>{motionStatus}</strong>
               </div>
               <div className="countdown-badge">{countdownSeconds}s</div>
+              <div style={{display:'flex', flexDirection:'column', gap:6, alignItems:'flex-end'}}>
+                <div style={{fontSize:12}}>Session</div>
+                <strong style={{fontSize:12}}>{sessionStarted ? sessionId : 'Stopped'}</strong>
+              </div>
+              <button className="ghost-button" onClick={toggleSession} type="button">
+                {sessionStarted ? 'Stop Session' : 'Start Session'}
+              </button>
               <button
                 className="ghost-button"
                 onClick={() => {
@@ -523,6 +675,114 @@ function OperatorPanel({ onLogout }) {
                   Capture a frame to view the result here.
                 </div>
               )}
+            </div>
+          </div>
+          <div className="section-card section-card--logs">
+            <div className="section-heading">
+              <p className="eyebrow">Detection logs</p>
+              <h2>Recent inspections</h2>
+            </div>
+
+            <div style={{display:'flex', gap:12, alignItems:'center', marginBottom:8}}>
+              <label style={{fontSize:12}}>Filter by session</label>
+              <select value={sessionFilter} onChange={(e) => { setSessionFilter(e.target.value); }}>
+                <option value="">All sessions</option>
+                {Array.from(new Set(logs.map((l) => l.session_id).filter(Boolean))).map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <button className="ghost-button" onClick={() => { void fetchLogs(); }}>Refresh</button>
+            </div>
+
+            <div className="log-list">
+              {(logs || []).map((log) => (
+                <div key={log.id} className={`log-item log-item--${(log.final_decision||log.system_decision||'').toLowerCase()}`}>
+                  <div className="log-row" onClick={() => setExpandedLogId(expandedLogId === log.id ? null : log.id)}>
+                    <div style={{flex:1}}>
+                      <strong>{log.id}</strong> &nbsp; {log.component_name || log.product_name || log.component}
+                      <div style={{fontSize:12, color:'#777'}}>{new Date(log.timestamp || log.created_at).toLocaleString()}</div>
+                    </div>
+                    <div style={{textAlign:'right'}}>
+                      <div>{log.final_decision || log.system_decision || log.status}</div>
+                      <div style={{fontSize:12}}>{(log.confidence_score || log.confidence || 0) ? `${(Number(log.confidence_score||log.confidence||0)*100).toFixed(1)}%` : ''}</div>
+                    </div>
+                  </div>
+                  {expandedLogId === log.id ? (
+                    <div className="log-expanded">
+                      <div style={{display:'flex', gap:12}}>
+                        <div style={{flex:'0 0 320px', border:'1px solid #ddd', padding:8, background:'#fff'}}>
+                          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
+                            <strong>Inference Image</strong>
+                            <div>
+                              <button
+                                className="ghost-button"
+                                onClick={() => drawLogOverlay(log.id, log.detection_results?.detections || [])}
+                                type="button"
+                              >
+                                Redraw
+                              </button>
+                            </div>
+                          </div>
+                          <div style={{position:'relative', overflow:'hidden', height:260, display:'flex', alignItems:'center', justifyContent:'center'}}>
+                            <img
+                              id={`log-image-${log.id}`}
+                              src={log.image_snapshot || log.image_snapshot_url || log.image_url}
+                              alt="snapshot"
+                              onLoad={() => drawLogOverlay(log.id, log.detection_results?.detections || [])}
+                              style={{maxWidth:'100%', maxHeight:'100%'}}
+                            />
+                            <canvas
+                              id={`log-overlay-${log.id}`}
+                              className="webcam-overlay"
+                              aria-hidden="true"
+                            />
+                          </div>
+                        </div>
+                        <div style={{flex:1}}>
+                          <h4>Detections</h4>
+                          {(log.detection_results?.detections || []).map((d, idx) => (
+                            <div key={idx} style={{padding:6, borderBottom:'1px solid #eee'}}>
+                              <strong>{d.label || d.class_name}</strong>
+                              <div>Confidence: {((d.confidence||0)*100).toFixed(1)}%</div>
+                              <div>Box: {d.bbox ? d.bbox.join(', ') : 'n/a'}</div>
+                              {d.mask?.polygon ? <div>Mask points: {d.mask.polygon.length}</div> : null}
+                            </div>
+                          ))}
+
+                          <h4>Details</h4>
+                          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:8}}>
+                            <div>
+                              <div><strong>System decision:</strong> {log.system_decision || log.detection_results?.system_decision || '-'}</div>
+                              <div><strong>Final decision:</strong> {log.final_decision || '-'}</div>
+                              <div><strong>Status:</strong> {log.status || '-'}</div>
+                              <div><strong>Confidence:</strong> {log.confidence_score ? `${(Number(log.confidence_score)*100).toFixed(1)}%` : (log.detection_results?.confidence ? `${(Number(log.detection_results.confidence)*100).toFixed(1)}%` : '-')}</div>
+                              <div><strong>Latency:</strong> {log.latency_ms ? `${log.latency_ms} ms` : (log.detection_results?.latency_ms ? `${log.detection_results.latency_ms} ms` : '-')}</div>
+                            </div>
+                            <div>
+                              <div><strong>Cache hit:</strong> {String(log.detection_results?.cache_hit ?? log.cache_hit ?? false)}</div>
+                              <div><strong>Image hash:</strong> {log.detection_results?.image_hash || log.image_hash || '-'}</div>
+                              <div><strong>Defect area %:</strong> {log.defect_area_percent !== undefined ? `${log.defect_area_percent}%` : (log.detection_results?.defect_area_percent ? `${log.detection_results.defect_area_percent}%` : '-')}</div>
+                              <div><strong>Segmentation polygons:</strong> {log.segmentation_data?.mask_polygons?.length ?? (log.detection_results?.mask_polygons ? log.detection_results.mask_polygons.length : 0)}</div>
+                            </div>
+                          </div>
+                          <div style={{marginBottom:8}}>
+                            <button
+                              className="ghost-button"
+                              onClick={() => setRawOpenMap((m) => ({...m, [log.id]: !m[log.id]}))}
+                              type="button"
+                            >
+                              {rawOpenMap[log.id] ? 'Hide raw JSON' : 'Show raw JSON'}
+                            </button>
+                          </div>
+                          {rawOpenMap[log.id] ? (
+                            <pre style={{whiteSpace:'pre-wrap', fontSize:12, background:'#fbfbfb', padding:8, borderRadius:4}}>{JSON.stringify(log.detection_results || log, null, 2)}</pre>
+                          ) : null}
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              ))}
             </div>
           </div>
         </section>
@@ -606,51 +866,7 @@ function OperatorPanel({ onLogout }) {
           </div>
         ) : null}
 
-        <section className="section-card section-card--wide">
-          <div className="section-heading">
-            <p className="eyebrow">Detection logs</p>
-            <h2>Recent inspections</h2>
-          </div>
-
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>ID</th>
-                  <th>Product</th>
-                  <th>Model</th>
-                  <th>Result</th>
-                  <th>Status</th>
-                  <th>Review</th>
-                  <th>Reason</th>
-                  <th>Detected at</th>
-                </tr>
-              </thead>
-              <tbody>
-                {logs.map((log) => (
-                  <tr key={log.id}>
-                    <td>{log.id}</td>
-                    <td>{log.product_name || log.component_name || log.component || "-"}</td>
-                    <td>{log.model_name || log.model_used || "-"}</td>
-                    <td>{log.final_decision || log.system_decision || log.status || "-"}</td>
-                    <td>{log.status}</td>
-                    <td>{log.operator_review_description || "-"}</td>
-                    <td>{log.rejection_reason || "-"}</td>
-                    <td>
-                      {new Date(
-                        log.timestamp || log.created_at,
-                      ).toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-
-            {logs.length === 0 ? (
-              <div className="empty-state">No logs yet.</div>
-            ) : null}
-          </div>
-        </section>
+        
       </div>
     </div>
   );
