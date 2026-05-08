@@ -42,6 +42,7 @@ INSTALLED_APPS = [
     'django.contrib.sites',
     'corsheaders',
     'rest_framework',
+    'django_filters',
     'core',
 ]
 
@@ -54,6 +55,9 @@ if find_spec('channels') is not None:
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_FILTER_BACKENDS': (
+        'django_filters.rest_framework.DjangoFilterBackend',
     )
 }
 

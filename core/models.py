@@ -172,6 +172,7 @@ class InferenceLog(models.Model):
         indexes = [
             models.Index(fields=['operator', '-timestamp']),
             models.Index(fields=['session_id', '-timestamp']),
+            models.Index(fields=['component', '-timestamp']),  # For product-based filtering
         ]
     
     def __str__(self):
