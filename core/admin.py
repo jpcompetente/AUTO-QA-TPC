@@ -3,7 +3,7 @@ from .models import (
     UserProfile, 
     AIModel, 
     ComponentType, 
-    AdminSettings, 
+    ActiveConfiguration,
     InferenceLog, 
     RetrainingQueue
 )
@@ -26,11 +26,11 @@ class AIModelAdmin(admin.ModelAdmin):
 class ComponentTypeAdmin(admin.ModelAdmin):
     list_display = ('name',)
 
-# 4. Operator Presets (Admin Control)
-@admin.register(AdminSettings)
-class AdminSettingsAdmin(admin.ModelAdmin):
-    list_display = ('assigned_operator', 'component', 'model', 'is_active')
-    list_filter = ('is_active', 'component')
+# 4. Active Configurations (Admin Control)
+@admin.register(ActiveConfiguration)
+class ActiveConfigurationAdmin(admin.ModelAdmin):
+    list_display = ('operator', 'product', 'model', 'threshold', 'config_version', 'is_active')
+    list_filter = ('is_active', 'product')
 
 # 5. Audit Logs (Inference History)
 @admin.register(InferenceLog)

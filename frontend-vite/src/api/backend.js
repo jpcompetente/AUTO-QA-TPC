@@ -63,7 +63,7 @@ export const loginUser = (credentials) =>
   });
 
 export const getApiStatus = () => api.get("/dashboard/stats/");
-export const detectImage = (payload) => api.post("/detect/", payload);
+export const detectImage = (payload) => api.post("/inference/detect/", payload);
 export const getComponents = () => api.get("/component-types/");
 export const getModels = () => api.get("/ai-models/");
 export const getOperators = () => api.get("/operators/");

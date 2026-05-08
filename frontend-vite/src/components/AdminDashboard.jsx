@@ -26,10 +26,10 @@ function AdminDashboard({ onLogout }) {
   const [detResult, setDetResult] = useState(null);
   const [activePage, setActivePage] = useState("home");
   const [form, setForm] = useState({
-    component: "",
+    product: "",
     model: "",
     threshold: 0.5,
-    assigned_operator: "",
+    operator: "",
   });
 
   const fetchData = async () => {
@@ -58,10 +58,9 @@ function AdminDashboard({ onLogout }) {
 
       setForm((currentForm) => ({
         ...currentForm,
-        component: currentForm.component || componentResponse.data[0]?.id || "",
+        product: currentForm.product || componentResponse.data[0]?.id || "",
         model: currentForm.model || modelResponse.data[0]?.id || "",
-        assigned_operator:
-          currentForm.assigned_operator || operatorResponse.data[0]?.id || "",
+        operator: currentForm.operator || operatorResponse.data[0]?.id || "",
       }));
       setDetResult(null);
     } finally {
@@ -78,16 +77,26 @@ function AdminDashboard({ onLogout }) {
   }, []);
 
   const handleSubmit = async () => {
-    if (!form.component || !form.model || !form.assigned_operator) {
+    if (!form.product || !form.model || !form.operator) {
       return;
     }
 
-    await createAdminSettings({
-      ...form,
-      confidence_threshold: Number(form.threshold),
-    });
-
-    fetchData();
+    try {
+      await createAdminSettings({
+        product: form.product,
+        operator: form.operator,
+        model: form.model,
+        threshold: Number(form.threshold),
+      });
+      fetchData();
+    } catch (err) {
+      // Surface validation errors from server for easier debugging
+      // eslint-disable-next-line no-console
+      console.error('Failed to save admin setting', err.response?.data || err.message);
+      setIsLoading(false);
+      // Optionally show an inline notice
+      alert('Failed to save config: ' + JSON.stringify(err.response?.data || err.message));
+    }
   };
 
   const handleDelete = async (id) => {
@@ -155,11 +164,11 @@ function AdminDashboard({ onLogout }) {
           <section className="dashboard-section dashboard-section--overview">
             <div className="stat-line">
               <div>
-                <span>Configurations</span>
+                <span>Active configurations</span>
                 <strong>{settings.length}</strong>
               </div>
               <div>
-                <span>Components</span>
+                <span>Products</span>
                 <strong>{components.length}</strong>
               </div>
               <div>
@@ -180,9 +189,9 @@ function AdminDashboard({ onLogout }) {
                 </strong>
               </div>
               <div className="timeline__item">
-                <span>Current component</span>
+                <span>Current product</span>
                 <strong>
-                  {currentSetting?.component_name || "Awaiting config"}
+                  {currentSetting?.product_name || currentSetting?.component_name || "Awaiting config"}
                 </strong>
               </div>
               <div className="timeline__item">
@@ -337,11 +346,11 @@ function AdminDashboard({ onLogout }) {
 
             <div className="form-grid form-grid--admin">
               <label className="field">
-                <span>Component</span>
+                <span>Product</span>
                 <select
-                  value={form.component}
+                  value={form.product}
                   onChange={(event) =>
-                    setForm({ ...form, component: event.target.value })
+                    setForm({ ...form, product: event.target.value })
                   }
                 >
                   {components.map((component) => (
@@ -371,9 +380,9 @@ function AdminDashboard({ onLogout }) {
               <label className="field">
                 <span>Operator</span>
                 <select
-                  value={form.assigned_operator}
+                  value={form.operator}
                   onChange={(event) =>
-                    setForm({ ...form, assigned_operator: event.target.value })
+                    setForm({ ...form, operator: event.target.value })
                   }
                 >
                   {operators.map((operator) => (
@@ -404,7 +413,7 @@ function AdminDashboard({ onLogout }) {
                 <thead>
                   <tr>
                     <th>Operator</th>
-                    <th>Component</th>
+                    <th>Product</th>
                     <th>Model</th>
                     <th>Threshold</th>
                     <th>Action</th>
@@ -414,9 +423,9 @@ function AdminDashboard({ onLogout }) {
                   {settings.map((setting) => (
                     <tr key={setting.id}>
                       <td>{setting.operator_name}</td>
-                      <td>{setting.component_name}</td>
+                      <td>{setting.product_name || setting.component_name}</td>
                       <td>{setting.model_name}</td>
-                      <td>{Number(setting.confidence_threshold).toFixed(2)}</td>
+                      <td>{Number(setting.threshold ?? setting.confidence_threshold).toFixed(2)}</td>
                       <td>
                         <button
                           className="ghost-button ghost-button--danger"

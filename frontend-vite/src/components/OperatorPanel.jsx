@@ -111,6 +111,12 @@ function OperatorPanel({ onLogout }) {
         : "rgba(34, 197, 94, 0.18)";
 
       const polygon = detection.mask?.polygon || [];
+      // Log mask data for debugging
+      if (polygon.length > 0) {
+        // eslint-disable-next-line no-console
+        console.log(`Drawing mask for ${detection.label} with ${polygon.length} points`);
+      }
+      
       if (polygon.length > 2) {
         ctx.beginPath();
         polygon.forEach(([x, y], index) => {
@@ -152,10 +158,41 @@ function OperatorPanel({ onLogout }) {
     drawOverlay(detectionResult);
   }, [detectionResult, capturedFrame]);
 
+  const autoAnnotateDetection = (result) => {
+    if (!result || !result.detections || result.detections.length === 0) {
+      return "No defects detected. Product appears intact.";
+    }
+
+    const detections = result.detections || [];
+    const scratches = detections.filter((d) => d.label === "SCRATCH" || d.label === "DEFECT");
+    const intact = detections.filter((d) => d.label === "INTACT" || d.label === "GOOD");
+
+    const detectionSummary = [];
+
+    if (scratches.length > 0) {
+      const avgConfidence = (
+        scratches.reduce((sum, d) => sum + (d.confidence || 0), 0) / scratches.length
+      ).toFixed(2);
+      detectionSummary.push(
+        `Found ${scratches.length} defect(s) with avg confidence ${avgConfidence}`,
+      );
+    }
+
+    if (intact.length > 0) {
+      detectionSummary.push(`${intact.length} intact area(s) detected`);
+    }
+
+    detectionSummary.push(
+      `Latency: ${result.latency_ms || 0}ms | Cache: ${result.cache_hit ? "HIT" : "MISS"}`,
+    );
+
+    return detectionSummary.join(". ");
+  };
+
   const handleDetect = async (trigger = "manual") => {
     const imageSrc = webcamRef.current?.getScreenshot();
 
-    if (!imageSrc || !preset?.component || !preset?.model) {
+    if (!imageSrc || !preset?.product || !preset?.model || !preset?.config_hash) {
       setError("No active inspection preset is assigned to this operator.");
       return;
     }
@@ -169,16 +206,34 @@ function OperatorPanel({ onLogout }) {
       const imageBlob = await fetch(imageSrc).then((response) => response.blob());
       const formData = new FormData();
       formData.append("image", imageBlob, `frame-${Date.now()}.png`);
-      formData.append("component", preset.component);
+      formData.append("component", preset.product);
+      formData.append("product_id", preset.product);
       formData.append("model", preset.model);
+      formData.append("config_id", preset.id);
+      formData.append("config_version", preset.config_version || 1);
+      formData.append("config_hash", preset.config_hash);
       formData.append("trigger", trigger);
 
       const detectResponse = await detectImage(formData);
       const result = detectResponse.data;
 
+      // Log detection data for debugging
+      // eslint-disable-next-line no-console
+      console.log("Detection result received:", {
+        num_detections: result.num_detections,
+        detections: result.detections?.map(d => ({
+          label: d.label,
+          confidence: d.confidence,
+          bbox: d.bbox,
+          has_mask: !!d.mask,
+          mask_polygon_length: d.mask?.polygon?.length || 0,
+        })),
+      });
+
       setDetectionResult(result);
       setReviewMode("ACKNOWLEDGE");
-      setReviewDescription("");
+      const autoDescription = autoAnnotateDetection(result);
+      setReviewDescription(autoDescription);
       setReviewFinalDecision(result.system_decision || "PASS");
       setReviewRejectionReason("MISSED_DEFECT");
       reviewPendingRef.current = true;
@@ -369,8 +424,8 @@ function OperatorPanel({ onLogout }) {
 
             <div className="preset-summary">
               <div>
-                <span>Component</span>
-                <strong>{preset?.component_name || "Unassigned"}</strong>
+                <span>Product</span>
+                <strong>{preset?.product_name || preset?.component_name || "Unassigned"}</strong>
               </div>
               <div>
                 <span>Model</span>
@@ -406,6 +461,14 @@ function OperatorPanel({ onLogout }) {
                 type="button"
               >
                 {autoDetectEnabled ? "Pause" : "Resume"}
+              </button>
+              <button
+                className="primary-button"
+                onClick={() => void handleDetect("manual")}
+                disabled={loading || reviewPendingRef.current}
+                type="button"
+              >
+                {loading ? "Capturing..." : "Capture & Detect"}
               </button>
             </div>
 
@@ -554,7 +617,7 @@ function OperatorPanel({ onLogout }) {
               <thead>
                 <tr>
                   <th>ID</th>
-                  <th>Component</th>
+                  <th>Product</th>
                   <th>Model</th>
                   <th>Result</th>
                   <th>Status</th>
@@ -567,7 +630,7 @@ function OperatorPanel({ onLogout }) {
                 {logs.map((log) => (
                   <tr key={log.id}>
                     <td>{log.id}</td>
-                    <td>{log.component_name || log.component || "-"}</td>
+                    <td>{log.product_name || log.component_name || log.component || "-"}</td>
                     <td>{log.model_name || log.model_used || "-"}</td>
                     <td>{log.final_decision || log.system_decision || log.status || "-"}</td>
                     <td>{log.status}</td>

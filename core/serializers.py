@@ -5,7 +5,7 @@ from .models import (
     UserProfile,
     AIModel,
     ComponentType,
-    AdminSettings,
+    ActiveConfiguration,
     InferenceLog,
     RetrainingQueue,
     TrainingJob,
@@ -63,14 +63,16 @@ class ComponentTypeSerializer(serializers.ModelSerializer):
         model = ComponentType
         fields = '__all__'
 
-# 🧠 Admin Settings Serializer
-class AdminSettingsSerializer(serializers.ModelSerializer):
-    component_name = serializers.CharField(source='component.name', read_only=True)
+# 🧠 Active Configuration Serializer
+class ActiveConfigurationSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source='product.name', read_only=True)
     model_name = serializers.CharField(source='model.name', read_only=True)
-    operator_name = serializers.CharField(source='assigned_operator.username', read_only=True)
+    operator_name = serializers.CharField(source='operator.username', read_only=True)
+    created_by = serializers.PrimaryKeyRelatedField(read_only=True)
+    created_by_name = serializers.CharField(source='created_by.username', read_only=True)
 
     class Meta:
-        model = AdminSettings
+        model = ActiveConfiguration
         fields = '__all__'
 
 # 📊 Inference & Audit Log Serializer (Requirement 1.3)

@@ -62,7 +62,8 @@ class EMSDWrapper:
         width, height = image.size
         frame = np.array(image.convert("RGB"))
         start_time = time.perf_counter()
-        results = self.model.predict(frame, conf=confidence, iou=iou, verbose=False)
+        # Enable segmentation with task='segment' to get instance masks
+        results = self.model.predict(frame, conf=confidence, iou=iou, task='segment', verbose=False)
         latency_ms = (time.perf_counter() - start_time) * 1000
 
         detections: list[dict[str, Any]] = []
@@ -71,6 +72,9 @@ class EMSDWrapper:
         for result in results:
             masks = result.masks.data.cpu().numpy() if result.masks is not None else []
             boxes = result.boxes if result.boxes is not None else []
+            
+            # Log mask availability for debugging
+            logger.info(f"Inference result: {len(boxes)} boxes detected, masks available: {result.masks is not None}, mask count: {len(masks)}")
 
             for index, box in enumerate(boxes):
                 class_id = int(box.cls.item())
@@ -79,8 +83,22 @@ class EMSDWrapper:
                 mask_polygon = []
                 if index < len(masks):
                     mask_polygon = self._mask_polygon(masks[index], width, height)
+                    logger.info(f"  Detection {index}: {self.names.get(class_id)} - mask polygon points: {len(mask_polygon)}")
+                else:
+                    logger.warning(f"  Detection {index}: {self.names.get(class_id)} - NO MASK DATA (index {index} >= mask count {len(masks)})")
 
                 scores.append(score)
+                
+                # Fallback: if no mask polygon, create one from bbox for visualization
+                if not mask_polygon:
+                    x1, y1, x2, y2 = xyxy
+                    mask_polygon = [
+                        [int(x1), int(y1)],
+                        [int(x2), int(y1)],
+                        [int(x2), int(y2)],
+                        [int(x1), int(y2)],
+                    ]
+                
                 detections.append(
                     {
                         "bbox": xyxy,

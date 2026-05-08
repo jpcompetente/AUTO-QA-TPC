@@ -4,6 +4,7 @@ import { getApiStatus } from "./api/backend";
 import AdminDashboard from "./components/AdminDashboard";
 import Login from "./components/Login";
 import InspectorDashboard from "./components/InspectorDashboard";
+import OperatorPanel from "./components/OperatorPanel";
 import SuperAdminPanel from "./components/SuperAdminPanel";
 import "./App.css";
 
@@ -14,7 +15,17 @@ function normalizeRole(role) {
 
   const normalized = role.toLowerCase().replace(/_/g, "");
 
+  // Map backend roles to frontend role identifiers
+  if (normalized === "superadmin") {
+    return "superadmin";
+  }
+  if (normalized === "admin") {
+    return "admin";
+  }
   if (normalized === "operator") {
+    return "operator";
+  }
+  if (normalized === "inspector") {
     return "inspector";
   }
 
@@ -89,10 +100,15 @@ function App() {
     return <SuperAdminPanel onLogout={handleLogout} />;
   }
 
+  if (role === "operator") {
+    return <OperatorPanel onLogout={handleLogout} />;
+  }
+
   if (role === "inspector") {
     return <InspectorDashboard onLogout={handleLogout} />;
   }
 
+  // Default to inspector for unknown roles
   return <InspectorDashboard onLogout={handleLogout} />;
 }
 

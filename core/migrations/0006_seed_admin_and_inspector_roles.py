@@ -18,7 +18,7 @@ def seed_roles(apps, schema_editor):
     if inspector_user:
         UserProfile.objects.update_or_create(
             user_id=inspector_user.id,
-            defaults={'role': 'OPERATOR'},
+            defaults={'role': 'INSPECTOR'},
         )
 
 
