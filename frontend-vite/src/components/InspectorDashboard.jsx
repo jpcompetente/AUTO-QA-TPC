@@ -82,10 +82,6 @@ function InspectorDashboard({ onLogout }) {
         <div>
           <p className="eyebrow">Inspector viewer</p>
           <h1>Inspector viewer mode</h1>
-          <p className="sidebar-copy">
-            Review camera output and inspection history in a separate
-            read-only page.
-          </p>
         </div>
 
         <nav className="page-nav" aria-label="Inspector pages">
@@ -118,10 +114,7 @@ function InspectorDashboard({ onLogout }) {
         <header className="dashboard-header">
           <div>
             <p className="eyebrow">Inspector portal</p>
-            <h2>Read-only inspection workspace</h2>
-            <p>
-              This dashboard is view-only. Detection remains disabled.
-            </p>
+            <h2>QA Inspection Workspace</h2>
           </div>
           <div className="dashboard-header__meta">
             <span>{components.length} components</span>
@@ -138,7 +131,6 @@ function InspectorDashboard({ onLogout }) {
                   <p className="eyebrow">Viewer mode</p>
                   <h3>Live camera preview</h3>
                 </div>
-                <span className="section-note">Read-only</span>
               </div>
 
               <div className="camera-toolbar">
@@ -174,7 +166,6 @@ function InspectorDashboard({ onLogout }) {
               <div className="dashboard-section__header">
                 <div>
                   <p className="eyebrow">Viewer summary</p>
-                  <h3>Current read-only status</h3>
                 </div>
                 <span className="section-note">No detection actions</span>
               </div>
@@ -262,9 +253,7 @@ function InspectorDashboard({ onLogout }) {
               <div>
                 <p className="eyebrow">Session</p>
                 <h3>Current inspection summary</h3>
-              </div>
-              <span className="section-note">Read-only status</span>
-            </div>
+              </div>            </div>
 
             <div className="audit-list">
               <div className="audit-list__row">

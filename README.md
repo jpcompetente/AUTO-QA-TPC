@@ -30,9 +30,9 @@ python -m venv .venv
 pip install -r requirements.txt
 # Create a .env file in the repo root with at minimum:
 # SECRET_KEY=admin
-# DB_NAME=ai_ins_sys
-# DB_USER=postgres
-# DB_PASSWORD=admin
+# DB_NAME=
+# DB_USER=
+# DB_PASSWORD=
 # DB_HOST=localhost
 # DB_PORT=5432
 ```
@@ -57,7 +57,8 @@ pip install -r requirements.txt
 
 Default seeded users (created by migrations):
 
-- Admin: `admin` / `admin` (superuser)
+- Admin: `admin` / `admin` (admin)
+- Superadmin: `superadmin` / `superadmin` (superadmin)
 - Inspector (operator role): `inspector` / `inspector`
 
 Frontend (Vite React):
@@ -67,6 +68,7 @@ Frontend (Vite React):
 ```powershell
 cd frontend-vite
 npm install
+npm run build
 npm run dev
 ```
 
