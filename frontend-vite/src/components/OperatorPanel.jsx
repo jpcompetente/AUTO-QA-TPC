@@ -179,76 +179,6 @@ function OperatorPanel({ onLogout }) {
     drawDetections(result?.detections || []);
   };
 
-  const drawLogOverlay = (logId, detections = []) => {
-    const image = document.getElementById(`log-image-${logId}`);
-    const canvas = document.getElementById(`log-overlay-${logId}`);
-    if (!image || !canvas) return;
-
-    const containerWidth = image.clientWidth || 1;
-    const containerHeight = image.clientHeight || 1;
-    const sourceWidth = image.naturalWidth || containerWidth;
-    const sourceHeight = image.naturalHeight || containerHeight;
-
-    canvas.width = containerWidth;
-    canvas.height = containerHeight;
-
-    const ctx = canvas.getContext("2d");
-    ctx.clearRect(0, 0, containerWidth, containerHeight);
-
-    const sourceRatio = sourceWidth / sourceHeight;
-    const displayRatio = containerWidth / containerHeight;
-    const renderedWidth =
-      displayRatio > sourceRatio ? containerHeight * sourceRatio : containerWidth;
-    const renderedHeight =
-      displayRatio > sourceRatio ? containerHeight : containerWidth / sourceRatio;
-    const offsetX = (containerWidth - renderedWidth) / 2;
-    const offsetY = (containerHeight - renderedHeight) / 2;
-    const scaleX = renderedWidth / sourceWidth;
-    const scaleY = renderedHeight / sourceHeight;
-
-    (detections || []).forEach((detection) => {
-      const [x1, y1, x2, y2] = detection.bbox || [];
-      const isScratch = detection.label === "SCRATCH" || detection.label === "DEFECT";
-      const stroke = isScratch ? "#ef4444" : "#22c55e";
-      const fill = isScratch ? "rgba(239, 68, 68, 0.35)" : "rgba(34, 197, 94, 0.16)";
-      const polygon = detection.mask?.polygon || [];
-
-      if (polygon.length > 2) {
-        ctx.beginPath();
-        polygon.forEach(([x, y], index) => {
-          const px = offsetX + x * scaleX;
-          const py = offsetY + y * scaleY;
-          if (index === 0) ctx.moveTo(px, py);
-          else ctx.lineTo(px, py);
-        });
-        ctx.closePath();
-        ctx.fillStyle = fill;
-        ctx.fill();
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = stroke;
-        ctx.stroke();
-      }
-
-      if ([x1, y1, x2, y2].every((value) => Number.isFinite(value))) {
-        const left = offsetX + x1 * scaleX;
-        const top = offsetY + y1 * scaleY;
-        const width = (x2 - x1) * scaleX;
-        const height = (y2 - y1) * scaleY;
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = stroke;
-        ctx.strokeRect(left, top, width, height);
-      }
-    });
-  };
-
-  useEffect(() => {
-    if (!expandedLogId) return;
-    const current = logs.find((entry) => entry.id === expandedLogId);
-    if (!current) return;
-    const detections = current.detection_results?.detections || [];
-    window.setTimeout(() => drawLogOverlay(current.id, detections), 0);
-  }, [expandedLogId, logs]);
-
   useEffect(() => {
     drawOverlay(detectionResult);
   }, [detectionResult, capturedFrame]);
@@ -464,8 +394,8 @@ function OperatorPanel({ onLogout }) {
       }
     };
 
-    if (sessionStarted) startLive();
-    else stopLive();
+  if (sessionStarted) startLive();
+  else stopLive();
 
     return () => stopLive();
   }, [sessionStarted, preset]);
@@ -713,28 +643,13 @@ function OperatorPanel({ onLogout }) {
                         <div style={{flex:'0 0 320px', border:'1px solid #ddd', padding:8, background:'#fff'}}>
                           <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                             <strong>Inference Image</strong>
-                            <div>
-                              <button
-                                className="ghost-button"
-                                onClick={() => drawLogOverlay(log.id, log.detection_results?.detections || [])}
-                                type="button"
-                              >
-                                Redraw
-                              </button>
-                            </div>
                           </div>
-                          <div style={{position:'relative', overflow:'hidden', height:260, display:'flex', alignItems:'center', justifyContent:'center'}}>
+                          <div style={{overflow:'hidden', height:260, display:'flex', alignItems:'center', justifyContent:'center'}}>
                             <img
                               id={`log-image-${log.id}`}
                               src={log.image_snapshot || log.image_snapshot_url || log.image_url}
                               alt="snapshot"
-                              onLoad={() => drawLogOverlay(log.id, log.detection_results?.detections || [])}
                               style={{maxWidth:'100%', maxHeight:'100%'}}
-                            />
-                            <canvas
-                              id={`log-overlay-${log.id}`}
-                              className="webcam-overlay"
-                              aria-hidden="true"
                             />
                           </div>
                         </div>
