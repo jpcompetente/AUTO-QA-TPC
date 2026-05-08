@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import Webcam from "react-webcam";
 import {
   detectImage,
@@ -40,20 +40,22 @@ function OperatorPanel({ onLogout }) {
   const [reviewMode, setReviewMode] = useState("ACKNOWLEDGE");
   const [reviewDescription, setReviewDescription] = useState("");
   const [reviewFinalDecision, setReviewFinalDecision] = useState("PASS");
-  const [reviewRejectionReason, setReviewRejectionReason] = useState("MISSED_DEFECT");
+  const [reviewRejectionReason, setReviewRejectionReason] =
+    useState("MISSED_DEFECT");
   const [submittingReview, setSubmittingReview] = useState(false);
+  const [reviewPending, setReviewPending] = useState(false);
 
   const normalizeList = (payload) => payload?.results || payload || [];
 
-  const fetchOptions = async () => {
+  const fetchOptions = useCallback(async () => {
     const presetResponse = await getOperatorPreset();
     setPreset(presetResponse.data);
-  };
+  }, []);
 
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
     const response = await getDetectionLogs();
     setLogs(normalizeList(response.data));
-  };
+  }, []);
 
   useEffect(() => {
     const loadPanelData = async () => {
@@ -70,7 +72,7 @@ function OperatorPanel({ onLogout }) {
     };
 
     void loadPanelData();
-  }, []);
+  }, [fetchOptions, fetchLogs]);
 
   const drawOverlay = (result) => {
     const canvas = overlayRef.current;
@@ -80,10 +82,13 @@ function OperatorPanel({ onLogout }) {
       return;
     }
 
-    const displayWidth = media.clientWidth || media.videoWidth || media.naturalWidth || 1;
-    const displayHeight = media.clientHeight || media.videoHeight || media.naturalHeight || 1;
+    const displayWidth =
+      media.clientWidth || media.videoWidth || media.naturalWidth || 1;
+    const displayHeight =
+      media.clientHeight || media.videoHeight || media.naturalHeight || 1;
     const sourceWidth = media.videoWidth || media.naturalWidth || displayWidth;
-    const sourceHeight = media.videoHeight || media.naturalHeight || displayHeight;
+    const sourceHeight =
+      media.videoHeight || media.naturalHeight || displayHeight;
 
     canvas.width = displayWidth;
     canvas.height = displayHeight;
@@ -111,6 +116,12 @@ function OperatorPanel({ onLogout }) {
         : "rgba(34, 197, 94, 0.18)";
 
       const polygon = detection.mask?.polygon || [];
+      if (polygon.length > 0) {
+        console.log(
+          `Drawing mask for ${detection.label} with ${polygon.length} points`,
+        );
+      }
+
       if (polygon.length > 2) {
         ctx.beginPath();
         polygon.forEach(([x, y], index) => {
@@ -152,10 +163,51 @@ function OperatorPanel({ onLogout }) {
     drawOverlay(detectionResult);
   }, [detectionResult, capturedFrame]);
 
+  const autoAnnotateDetection = (result) => {
+    if (!result || !result.detections || result.detections.length === 0) {
+      return "No defects detected. Product appears intact.";
+    }
+
+    const detections = result.detections || [];
+    const scratches = detections.filter(
+      (d) => d.label === "SCRATCH" || d.label === "DEFECT",
+    );
+    const intact = detections.filter(
+      (d) => d.label === "INTACT" || d.label === "GOOD",
+    );
+
+    const detectionSummary = [];
+
+    if (scratches.length > 0) {
+      const avgConfidence = (
+        scratches.reduce((sum, d) => sum + (d.confidence || 0), 0) /
+        scratches.length
+      ).toFixed(2);
+      detectionSummary.push(
+        `Found ${scratches.length} defect(s) with avg confidence ${avgConfidence}`,
+      );
+    }
+
+    if (intact.length > 0) {
+      detectionSummary.push(`${intact.length} intact area(s) detected`);
+    }
+
+    detectionSummary.push(
+      `Latency: ${result.latency_ms || 0}ms | Cache: ${result.cache_hit ? "HIT" : "MISS"}`,
+    );
+
+    return detectionSummary.join(". ");
+  };
+
   const handleDetect = async (trigger = "manual") => {
     const imageSrc = webcamRef.current?.getScreenshot();
 
-    if (!imageSrc || !preset?.component || !preset?.model) {
+    if (
+      !imageSrc ||
+      !preset?.product ||
+      !preset?.model ||
+      !preset?.config_hash
+    ) {
       setError("No active inspection preset is assigned to this operator.");
       return;
     }
@@ -166,7 +218,9 @@ function OperatorPanel({ onLogout }) {
 
     try {
       setCapturedFrame(imageSrc);
-      const imageBlob = await fetch(imageSrc).then((response) => response.blob());
+      const imageBlob = await fetch(imageSrc).then((response) =>
+        response.blob(),
+      );
       const formData = new FormData();
       formData.append("image", imageBlob, `frame-${Date.now()}.png`);
       formData.append("component", preset.component);
@@ -176,12 +230,24 @@ function OperatorPanel({ onLogout }) {
       const detectResponse = await detectImage(formData);
       const result = detectResponse.data;
 
+      console.log("Detection result received:", {
+        num_detections: result.num_detections,
+        detections: result.detections?.map((d) => ({
+          label: d.label,
+          confidence: d.confidence,
+          bbox: d.bbox,
+          has_mask: !!d.mask,
+          mask_polygon_length: d.mask?.polygon?.length || 0,
+        })),
+      });
+
       setDetectionResult(result);
       setReviewMode("ACKNOWLEDGE");
       setReviewDescription("");
       setReviewFinalDecision(result.system_decision || "PASS");
       setReviewRejectionReason("MISSED_DEFECT");
       reviewPendingRef.current = true;
+      setReviewPending(true);
       setMotionStatus("Review required");
       setCountdownMs(null);
 
@@ -196,79 +262,89 @@ function OperatorPanel({ onLogout }) {
     }
   };
 
-  const sampleMotion = () => {
-    const video = webcamRef.current?.video;
-
-    if (
-      !video ||
-      video.readyState < 2 ||
-      loading ||
-      captureInFlightRef.current ||
-      reviewPendingRef.current ||
-      !autoDetectEnabled ||
-      !preset
-    ) {
-      return;
-    }
-
-    const width = 96;
-    const height = 72;
-    const canvas =
-      motionCanvasRef.current || (motionCanvasRef.current = document.createElement("canvas"));
-    canvas.width = width;
-    canvas.height = height;
-
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    ctx.drawImage(video, 0, 0, width, height);
-    const frame = ctx.getImageData(0, 0, width, height).data;
-    const previous = previousFrameRef.current;
-    previousFrameRef.current = new Uint8ClampedArray(frame);
-
-    if (!previous) {
-      stableSinceRef.current = null;
-      setMotionStatus("Calibrating camera");
-      return;
-    }
-
-    let diff = 0;
-    const pixels = width * height;
-    for (let index = 0; index < frame.length; index += 4) {
-      const currentGray =
-        frame[index] * 0.299 + frame[index + 1] * 0.587 + frame[index + 2] * 0.114;
-      const previousGray =
-        previous[index] * 0.299 + previous[index + 1] * 0.587 + previous[index + 2] * 0.114;
-      diff += Math.abs(currentGray - previousGray);
-    }
-
-    const motionScore = diff / pixels;
-    const now = performance.now();
-
-    if (motionScore > MOTION_THRESHOLD) {
-      stableSinceRef.current = null;
-      setCountdownMs(null);
-      setMotionStatus("Motion detected");
-      return;
-    }
-
-    if (!stableSinceRef.current) {
-      stableSinceRef.current = now;
-    }
-
-    const elapsed = now - stableSinceRef.current;
-    const remaining = Math.max(0, STABLE_CAPTURE_DELAY_MS - elapsed);
-    setCountdownMs(remaining);
-    setMotionStatus(remaining > 0 ? "Stable frame countdown" : "Capturing stable frame");
-
-    if (remaining <= 0) {
-      stableSinceRef.current = null;
-      void handleDetect("auto_stable");
-    }
-  };
-
   useEffect(() => {
-    const interval = window.setInterval(sampleMotion, MOTION_SAMPLE_INTERVAL_MS);
+    const sampleMotion = () => {
+      const video = webcamRef.current?.video;
+
+      if (
+        !video ||
+        video.readyState < 2 ||
+        loading ||
+        captureInFlightRef.current ||
+        reviewPending ||
+        !autoDetectEnabled ||
+        !preset
+      ) {
+        return;
+      }
+
+      const width = 96;
+      const height = 72;
+      const canvas =
+        motionCanvasRef.current ||
+        (motionCanvasRef.current = document.createElement("canvas"));
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext("2d", { willReadFrequently: true });
+      ctx.drawImage(video, 0, 0, width, height);
+      const frame = ctx.getImageData(0, 0, width, height).data;
+      const previous = previousFrameRef.current;
+      previousFrameRef.current = new Uint8ClampedArray(frame);
+
+      if (!previous) {
+        stableSinceRef.current = null;
+        setMotionStatus("Calibrating camera");
+        return;
+      }
+
+      let diff = 0;
+      const pixels = width * height;
+      for (let index = 0; index < frame.length; index += 4) {
+        const currentGray =
+          frame[index] * 0.299 +
+          frame[index + 1] * 0.587 +
+          frame[index + 2] * 0.114;
+        const previousGray =
+          previous[index] * 0.299 +
+          previous[index + 1] * 0.587 +
+          previous[index + 2] * 0.114;
+        diff += Math.abs(currentGray - previousGray);
+      }
+
+      const motionScore = diff / pixels;
+      const now = performance.now();
+
+      if (motionScore > MOTION_THRESHOLD) {
+        stableSinceRef.current = null;
+        setCountdownMs(null);
+        setMotionStatus("Motion detected");
+        return;
+      }
+
+      if (!stableSinceRef.current) {
+        stableSinceRef.current = now;
+      }
+
+      const elapsed = now - stableSinceRef.current;
+      const remaining = Math.max(0, STABLE_CAPTURE_DELAY_MS - elapsed);
+      setCountdownMs(remaining);
+      setMotionStatus(
+        remaining > 0 ? "Stable frame countdown" : "Capturing stable frame",
+      );
+
+      if (remaining <= 0) {
+        stableSinceRef.current = null;
+        void handleDetect("auto_stable");
+      }
+    };
+
+    const interval = window.setInterval(
+      sampleMotion,
+      MOTION_SAMPLE_INTERVAL_MS,
+    );
     return () => window.clearInterval(interval);
-  });
+  }, [loading, autoDetectEnabled, preset, reviewPending]);
 
   const submitReview = async () => {
     const logId = detectionResult?.log_id || detectionResult?.id;
@@ -298,16 +374,21 @@ function OperatorPanel({ onLogout }) {
       });
 
       reviewPendingRef.current = false;
+      setReviewPending(false);
       previousFrameRef.current = null;
       stableSinceRef.current = null;
       setDetectionResult(null);
       setCapturedFrame("");
       setReviewDescription("");
       setCountdownMs(null);
-      setMotionStatus(autoDetectEnabled ? "Waiting for stable frame" : "Auto-detect paused");
+      setMotionStatus(
+        autoDetectEnabled ? "Waiting for stable frame" : "Auto-detect paused",
+      );
       await fetchLogs();
     } catch (requestError) {
-      setError(requestError.response?.data?.error || "Unable to submit review.");
+      setError(
+        requestError.response?.data?.error || "Unable to submit review.",
+      );
     } finally {
       setSubmittingReview(false);
     }
@@ -369,8 +450,12 @@ function OperatorPanel({ onLogout }) {
 
             <div className="preset-summary">
               <div>
-                <span>Component</span>
-                <strong>{preset?.component_name || "Unassigned"}</strong>
+                <span>Product</span>
+                <strong>
+                  {preset?.product_name ||
+                    preset?.component_name ||
+                    "Unassigned"}
+                </strong>
               </div>
               <div>
                 <span>Model</span>
@@ -401,11 +486,21 @@ function OperatorPanel({ onLogout }) {
                   setAutoDetectEnabled(next);
                   stableSinceRef.current = null;
                   setCountdownMs(null);
-                  setMotionStatus(next ? "Waiting for stable frame" : "Auto-detect paused");
+                  setMotionStatus(
+                    next ? "Waiting for stable frame" : "Auto-detect paused",
+                  );
                 }}
                 type="button"
               >
                 {autoDetectEnabled ? "Pause" : "Resume"}
+              </button>
+              <button
+                className="primary-button"
+                onClick={() => void handleDetect("manual")}
+                disabled={loading || reviewPending}
+                type="button"
+              >
+                {loading ? "Capturing..." : "Capture & Detect"}
               </button>
             </div>
 
@@ -443,16 +538,22 @@ function OperatorPanel({ onLogout }) {
                     </div>
                   </dl>
                   <div className="detection-list">
-                    {(detectionResult.detections || []).map((detection, index) => (
-                      <div
-                        className={`detection-row detection-row--${(detection.label || "unknown").toLowerCase()}`}
-                        key={`${detection.class_id}-${index}`}
-                      >
-                        <strong>{detection.label || detection.class_name}</strong>
-                        <span>{`${((detection.confidence || 0) * 100).toFixed(1)}%`}</span>
-                        <span>{detection.mask?.polygon?.length ? "Mask" : "Box"}</span>
-                      </div>
-                    ))}
+                    {(detectionResult.detections || []).map(
+                      (detection, index) => (
+                        <div
+                          className={`detection-row detection-row--${(detection.label || "unknown").toLowerCase()}`}
+                          key={`${detection.class_id}-${index}`}
+                        >
+                          <strong>
+                            {detection.label || detection.class_name}
+                          </strong>
+                          <span>{`${((detection.confidence || 0) * 100).toFixed(1)}%`}</span>
+                          <span>
+                            {detection.mask?.polygon?.length ? "Mask" : "Box"}
+                          </span>
+                        </div>
+                      ),
+                    )}
                   </div>
                 </div>
               ) : (
@@ -474,17 +575,27 @@ function OperatorPanel({ onLogout }) {
 
               <div className="review-choice">
                 <button
-                  className={reviewMode === "ACKNOWLEDGE" ? "choice-button choice-button--active" : "choice-button"}
+                  className={
+                    reviewMode === "ACKNOWLEDGE"
+                      ? "choice-button choice-button--active"
+                      : "choice-button"
+                  }
                   onClick={() => {
                     setReviewMode("ACKNOWLEDGE");
-                    setReviewFinalDecision(detectionResult.system_decision || "PASS");
+                    setReviewFinalDecision(
+                      detectionResult.system_decision || "PASS",
+                    );
                   }}
                   type="button"
                 >
                   Acknowledge inference
                 </button>
                 <button
-                  className={reviewMode === "REJECT" ? "choice-button choice-button--active" : "choice-button"}
+                  className={
+                    reviewMode === "REJECT"
+                      ? "choice-button choice-button--active"
+                      : "choice-button"
+                  }
                   onClick={() => setReviewMode("REJECT")}
                   type="button"
                 >
@@ -508,7 +619,9 @@ function OperatorPanel({ onLogout }) {
                     <span>Reason for rejection</span>
                     <select
                       value={reviewRejectionReason}
-                      onChange={(event) => setReviewRejectionReason(event.target.value)}
+                      onChange={(event) =>
+                        setReviewRejectionReason(event.target.value)
+                      }
                     >
                       {REJECTION_REASONS.map(([value, label]) => (
                         <option key={value} value={value}>
@@ -522,7 +635,9 @@ function OperatorPanel({ onLogout }) {
                     <span>Correct final decision</span>
                     <select
                       value={reviewFinalDecision}
-                      onChange={(event) => setReviewFinalDecision(event.target.value)}
+                      onChange={(event) =>
+                        setReviewFinalDecision(event.target.value)
+                      }
                     >
                       <option value="PASS">PASS</option>
                       <option value="FAIL">FAIL</option>
@@ -567,9 +682,19 @@ function OperatorPanel({ onLogout }) {
                 {logs.map((log) => (
                   <tr key={log.id}>
                     <td>{log.id}</td>
-                    <td>{log.component_name || log.component || "-"}</td>
+                    <td>
+                      {log.product_name ||
+                        log.component_name ||
+                        log.component ||
+                        "-"}
+                    </td>
                     <td>{log.model_name || log.model_used || "-"}</td>
-                    <td>{log.final_decision || log.system_decision || log.status || "-"}</td>
+                    <td>
+                      {log.final_decision ||
+                        log.system_decision ||
+                        log.status ||
+                        "-"}
+                    </td>
                     <td>{log.status}</td>
                     <td>{log.operator_review_description || "-"}</td>
                     <td>{log.rejection_reason || "-"}</td>
