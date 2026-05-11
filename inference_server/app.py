@@ -24,8 +24,26 @@ from core.models import AIModel  # noqa: E402
 
 try:
     from ultralytics import YOLO
+    from ultralytics.nn.modules import block as ultralytics_block
+    from ultralytics.nn.modules import head as ultralytics_head
 except Exception:  # pragma: no cover - lets /health report dependency state.
     YOLO = None
+    ultralytics_block = None
+    ultralytics_head = None
+
+
+def _install_ultralytics_legacy_aliases() -> None:
+    """Provide class aliases for older custom checkpoints (for example Segment26)."""
+    if ultralytics_block is not None:
+        if not hasattr(ultralytics_block, "Proto26") and hasattr(ultralytics_block, "Proto"):
+            ultralytics_block.Proto26 = ultralytics_block.Proto
+            logger.info("Registered ultralytics compatibility alias: Proto26 -> Proto")
+
+    if ultralytics_head is None:
+        return
+    if not hasattr(ultralytics_head, "Segment26") and hasattr(ultralytics_head, "Segment"):
+        ultralytics_head.Segment26 = ultralytics_head.Segment
+        logger.info("Registered ultralytics compatibility alias: Segment26 -> Segment")
 
 logger = logging.getLogger(__name__)
 app = Flask(__name__)
@@ -36,7 +54,15 @@ class EMSDWrapper:
         if YOLO is None:
             raise RuntimeError("ultralytics is not installed")
         self.weights_path = weights_path
-        self.model = YOLO(weights_path)
+        _install_ultralytics_legacy_aliases()
+        try:
+            self.model = YOLO(weights_path)
+        except AttributeError as exc:
+            if "Segment26" in str(exc) or "Proto26" in str(exc):
+                raise RuntimeError(
+                    "Model checkpoint requires legacy YOLO26 modules that are unavailable in this ultralytics build"
+                ) from exc
+            raise
         self.names = self.model.names or {}
 
     def _label_for(self, class_id: int) -> str:
@@ -189,6 +215,9 @@ def predict() -> tuple[Any, int]:
         return jsonify(result), 200
     except FileNotFoundError as exc:
         logger.exception("Model weights unavailable")
+        return jsonify({"success": False, "error": str(exc)}), 503
+    except RuntimeError as exc:
+        logger.exception("Model initialization failed")
         return jsonify({"success": False, "error": str(exc)}), 503
     except Exception as exc:
         logger.exception("Prediction failed")

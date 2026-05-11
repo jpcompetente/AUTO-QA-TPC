@@ -10,6 +10,8 @@ import {
 const STABLE_CAPTURE_DELAY_MS = 2000;
 const MOTION_SAMPLE_INTERVAL_MS = 250;
 const MOTION_THRESHOLD = 9;
+const LIVE_INFERENCE_INTERVAL_MS = 600;
+const LIVE_FRAME_CHANGE_THRESHOLD = 7;
 const REJECTION_REASONS = [
   ["MISSED_DEFECT", "Missed a defect"],
   ["FALSE_POSITIVE", "False positive"],
@@ -40,6 +42,8 @@ function OperatorPanel({ onLogout }) {
   const [sessionFilter, setSessionFilter] = useState("");
   const [expandedLogId, setExpandedLogId] = useState(null);
   const liveIntervalRef = useRef(null);
+  const livePreviousFrameRef = useRef(null);
+  const waitForMotionAfterEmptyRef = useRef(false);
   const [rawOpenMap, setRawOpenMap] = useState({});
   const [motionStatus, setMotionStatus] = useState("Waiting for camera");
   const [countdownMs, setCountdownMs] = useState(null);
@@ -227,7 +231,6 @@ function OperatorPanel({ onLogout }) {
     captureInFlightRef.current = true;
 
     try {
-      setCapturedFrame(imageSrc);
       const imageBlob = await fetch(imageSrc).then((response) => response.blob());
       const formData = new FormData();
       formData.append("image", imageBlob, `frame-${Date.now()}.png`);
@@ -243,6 +246,20 @@ function OperatorPanel({ onLogout }) {
 
       const detectResponse = await detectImage(formData);
       const result = detectResponse.data;
+      const detections = result?.detections || [];
+      const isManualCapture = trigger === "manual";
+
+      if (!isManualCapture && detections.length === 0) {
+        setDetectionResult(null);
+        setCapturedFrame("");
+        setCountdownMs(null);
+        setMotionStatus("No change in image. Waiting for motion or manual capture.");
+        waitForMotionAfterEmptyRef.current = true;
+        return;
+      }
+
+      waitForMotionAfterEmptyRef.current = false;
+      setCapturedFrame(imageSrc);
 
       // Log detection data for debugging
       // eslint-disable-next-line no-console
@@ -327,9 +344,16 @@ function OperatorPanel({ onLogout }) {
     const now = performance.now();
 
     if (motionScore > MOTION_THRESHOLD) {
+      waitForMotionAfterEmptyRef.current = false;
       stableSinceRef.current = null;
       setCountdownMs(null);
       setMotionStatus("Motion detected");
+      return;
+    }
+
+    if (waitForMotionAfterEmptyRef.current) {
+      setCountdownMs(null);
+      setMotionStatus("No change in image. Move product/camera or capture manually.");
       return;
     }
 
@@ -348,6 +372,45 @@ function OperatorPanel({ onLogout }) {
     }
   };
 
+  const shouldSendLiveInference = () => {
+    const video = webcamRef.current?.video;
+    if (!video || video.readyState < 2) {
+      return false;
+    }
+
+    const width = 64;
+    const height = 48;
+    const canvas =
+      motionCanvasRef.current || (motionCanvasRef.current = document.createElement("canvas"));
+    canvas.width = width;
+    canvas.height = height;
+
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    ctx.drawImage(video, 0, 0, width, height);
+    const frame = ctx.getImageData(0, 0, width, height).data;
+    const previous = livePreviousFrameRef.current;
+
+    // Store current frame for next comparison regardless of send decision.
+    livePreviousFrameRef.current = new Uint8ClampedArray(frame);
+
+    if (!previous) {
+      return true;
+    }
+
+    let diff = 0;
+    const pixels = width * height;
+    for (let index = 0; index < frame.length; index += 4) {
+      const currentGray =
+        frame[index] * 0.299 + frame[index + 1] * 0.587 + frame[index + 2] * 0.114;
+      const previousGray =
+        previous[index] * 0.299 + previous[index + 1] * 0.587 + previous[index + 2] * 0.114;
+      diff += Math.abs(currentGray - previousGray);
+    }
+
+    const changeScore = diff / pixels;
+    return changeScore >= LIVE_FRAME_CHANGE_THRESHOLD;
+  };
+
   useEffect(() => {
     const interval = window.setInterval(sampleMotion, MOTION_SAMPLE_INTERVAL_MS);
     return () => window.clearInterval(interval);
@@ -359,6 +422,8 @@ function OperatorPanel({ onLogout }) {
       if (liveIntervalRef.current) return;
       liveIntervalRef.current = window.setInterval(async () => {
         if (!sessionStarted || captureInFlightRef.current || reviewPendingRef.current || !preset) return;
+        if (waitForMotionAfterEmptyRef.current) return;
+        if (!shouldSendLiveInference()) return;
         try {
           captureInFlightRef.current = true;
           const imageSrc = webcamRef.current?.getScreenshot();
@@ -384,7 +449,7 @@ function OperatorPanel({ onLogout }) {
         } finally {
           captureInFlightRef.current = false;
         }
-      }, 600);
+      }, LIVE_INFERENCE_INTERVAL_MS);
     };
 
     const stopLive = () => {
@@ -392,6 +457,8 @@ function OperatorPanel({ onLogout }) {
         window.clearInterval(liveIntervalRef.current);
         liveIntervalRef.current = null;
       }
+      livePreviousFrameRef.current = null;
+      waitForMotionAfterEmptyRef.current = false;
     };
 
   if (sessionStarted) startLive();
