@@ -6,16 +6,15 @@ import {
   getOperatorPreset,
   reviewInferenceLog,
 } from '../api/backend';
-import '../styles/operator.css';
 
 /* ── Constants ───────────────────────────────────────────────── */
 const STABLE_CAPTURE_DELAY_MS  = 2000;
 const MOTION_SAMPLE_INTERVAL_MS = 250;
-const MOTION_THRESHOLD          = 9;
+const MOTION_THRESHOLD          = 9;   // For auto-capture (stable frame detection)
+const LIVE_INFERENCE_INTERVAL_MS = 1500;
+const LIVE_LABEL_CHANGE_COOLDOWN_MS = 1000;
+const LIVE_MOTION_THRESHOLD     = 20;  // Higher threshold for live feed (less noise)
 
-const MOTION_THRESHOLD = 9;
-const LIVE_INFERENCE_INTERVAL_MS = 600;
-const LIVE_FRAME_CHANGE_THRESHOLD = 7;
 const REJECTION_REASONS = [
   ['MISSED_DEFECT',  'Missed a defect'],
   ['FALSE_POSITIVE', 'False positive'],
@@ -28,69 +27,51 @@ const REJECTION_REASONS = [
 /* ── Component ───────────────────────────────────────────────── */
 function OperatorPanel({ onLogout }) {
   /* refs */
-  const webcamRef         = useRef(null);
-  const frameRef          = useRef(null);
-  const overlayRef        = useRef(null);
-  const motionCanvasRef   = useRef(null);
-  const previousFrameRef  = useRef(null);
-  const stableSinceRef    = useRef(null);
+  const webcamRef          = useRef(null);
+  const frameRef           = useRef(null);
+  const overlayRef         = useRef(null);
+  const motionCanvasRef    = useRef(null);
+  const previousFrameRef   = useRef(null);
+  const lastCapturedFrameRef = useRef(null);
+  const stableSinceRef     = useRef(null);
   const captureInFlightRef = useRef(false);
-  const reviewPendingRef  = useRef(false);
-  const liveIntervalRef   = useRef(null);
+  const reviewPendingRef   = useRef(false);
+  const liveIntervalRef    = useRef(null);
+  const livePreviousFrameRef = useRef(null);
+  const waitForMotionAfterEmptyRef = useRef(false);
+  const lastLiveLabelRef   = useRef(null);
+  const lastCaptureCooldownRef = useRef(0);
 
   /* state */
-  const [preset,               setPreset]              = useState(null);
-  const [logs,                 setLogs]                = useState([]);
-  const [loading,              setLoading]             = useState(false);
-  const [error,                setError]               = useState('');
-  const [detectionResult,      setDetectionResult]     = useState(null);
-  const [capturedFrame,        setCapturedFrame]       = useState('');
-  const [autoDetectEnabled,    setAutoDetectEnabled]   = useState(true);
-  const [sessionStarted,       setSessionStarted]      = useState(false);
-  const [sessionId,            setSessionId]           = useState('');
-  const [sessionFilter,        setSessionFilter]       = useState('');
-  const [expandedLogId,        setExpandedLogId]       = useState(null);
-  const [rawOpenMap,           setRawOpenMap]          = useState({});
-  const [motionStatus,         setMotionStatus]        = useState('Waiting for camera');
-  const [countdownMs,          setCountdownMs]         = useState(null);
-  const [reviewMode,           setReviewMode]          = useState('ACKNOWLEDGE');
-  const [reviewDescription,    setReviewDescription]   = useState('');
-  const [reviewFinalDecision,  setReviewFinalDecision] = useState('PASS');
-  const [reviewRejectionReason,setReviewRejectionReason] = useState('MISSED_DEFECT');
-  const [submittingReview,     setSubmittingReview]    = useState(false);
-  const [reviewPending,        setReviewPending]       = useState(false);
-  const [activePanel,          setActivePanel]         = useState('camera');
+  const [preset,                setPreset]               = useState(null);
+  const [logs,                  setLogs]                 = useState([]);
+  const [loading,               setLoading]              = useState(false);
+  const [error,                 setError]                = useState('');
+  const [detectionResult,       setDetectionResult]      = useState(null);
+  const [capturedFrame,         setCapturedFrame]        = useState('');
+  const [autoDetectEnabled,     setAutoDetectEnabled]    = useState(true);
+  const [sessionStarted,        setSessionStarted]       = useState(false);
+  const [sessionId,             setSessionId]            = useState('');
+  const [sessionFilter,         setSessionFilter]        = useState('');
+  const [expandedLogId,         setExpandedLogId]        = useState(null);
+  const [rawOpenMap,            setRawOpenMap]           = useState({});
+  const [motionStatus,          setMotionStatus]         = useState('Waiting for camera');
+  const [countdownMs,           setCountdownMs]          = useState(null);
+  const [reviewMode,            setReviewMode]           = useState('ACKNOWLEDGE');
+  const [reviewDescription,     setReviewDescription]    = useState('');
+  const [reviewFinalDecision,   setReviewFinalDecision]  = useState('PASS');
+  const [reviewRejectionReason, setReviewRejectionReason] = useState('MISSED_DEFECT');
+  const [submittingReview,      setSubmittingReview]     = useState(false);
+  const [reviewPending,         setReviewPending]        = useState(false);
+  const [activePanel,           setActivePanel]          = useState('camera');
+  const [zoomedImage,           setZoomedImage]          = useState(null);
+  const [logsLimit,             setLogsLimit]            = useState(20);
 
   /* ── Helpers ─────────────────────────────────────────────────── */
   const normalizeList = useCallback(
     (payload) => payload?.results || payload || [],
     [],
   );
-  const reviewPendingRef = useRef(false);
-  const [preset, setPreset] = useState(null);
-  const [logs, setLogs] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [detectionResult, setDetectionResult] = useState(null);
-  const [capturedFrame, setCapturedFrame] = useState("");
-  const [autoDetectEnabled, setAutoDetectEnabled] = useState(true);
-  const [sessionStarted, setSessionStarted] = useState(false);
-  const [sessionId, setSessionId] = useState("");
-  const [sessionFilter, setSessionFilter] = useState("");
-  const [expandedLogId, setExpandedLogId] = useState(null);
-  const liveIntervalRef = useRef(null);
-  const livePreviousFrameRef = useRef(null);
-  const waitForMotionAfterEmptyRef = useRef(false);
-  const [rawOpenMap, setRawOpenMap] = useState({});
-  const [motionStatus, setMotionStatus] = useState("Waiting for camera");
-  const [countdownMs, setCountdownMs] = useState(null);
-  const [reviewMode, setReviewMode] = useState("ACKNOWLEDGE");
-  const [reviewDescription, setReviewDescription] = useState("");
-  const [reviewFinalDecision, setReviewFinalDecision] = useState("PASS");
-  const [reviewRejectionReason, setReviewRejectionReason] = useState("MISSED_DEFECT");
-  const [submittingReview, setSubmittingReview] = useState(false);
-
-  const normalizeList = (payload) => payload?.results || payload || [];
 
   const fetchOptions = useCallback(async () => {
     const response = await getOperatorPreset();
@@ -98,9 +79,16 @@ function OperatorPanel({ onLogout }) {
   }, []);
 
   const fetchLogs = useCallback(async () => {
-    const response = await getDetectionLogs();
-    setLogs(normalizeList(response.data));
-  }, [normalizeList]);
+    const params = {};
+    if (sessionFilter) params.session_id = sessionFilter;
+    const response = await getDetectionLogs(params);
+    const list = normalizeList(response.data);
+    setLogs(list);
+    if (!sessionFilter && list.length > 0 && !sessionStarted) {
+      const recentSession = list.find((l) => l.session_id);
+      if (recentSession) setSessionId(recentSession.session_id || '');
+    }
+  }, [normalizeList, sessionFilter, sessionStarted]);
 
   /* ── Session ─────────────────────────────────────────────────── */
   const stopSession = useCallback(() => {
@@ -108,16 +96,19 @@ function OperatorPanel({ onLogout }) {
       window.clearInterval(liveIntervalRef.current);
       liveIntervalRef.current = null;
     }
+    waitForMotionAfterEmptyRef.current = false;
     setSessionStarted(false);
     setSessionId('');
   }, []);
 
   const toggleSession = useCallback(() => {
-    if (sessionStarted) { stopSession(); return; }
-    const nextId = `SESSION-${Date.now()}`;
+    if (sessionStarted) {
+      stopSession();
+      return;
+    }
+    const sid = `session_${Date.now()}`;
+    setSessionId(sid);
     setSessionStarted(true);
-    setSessionId(nextId);
-    liveIntervalRef.current = window.setInterval(() => setSessionId(nextId), 60_000);
   }, [sessionStarted, stopSession]);
 
   useEffect(() => () => {
@@ -141,71 +132,131 @@ function OperatorPanel({ onLogout }) {
     void load();
   }, [fetchLogs, fetchOptions]);
 
+  // Refresh logs when session filter changes
+  useEffect(() => {
+    void fetchLogs();
+  }, [sessionFilter]);
+
   /* ── Canvas overlay ─────────────────────────────────────────── */
   const drawOverlay = useCallback((result) => {
     const canvas = overlayRef.current;
-    const media  = frameRef.current || webcamRef.current?.video;
+    // For live feed: use video, for captured frame: use image
+    const media = capturedFrame ? frameRef.current : webcamRef.current?.video;
     if (!canvas || !media) return;
 
-    const dW = media.clientWidth  || media.videoWidth  || media.naturalWidth  || 1;
-    const dH = media.clientHeight || media.videoHeight || media.naturalHeight || 1;
-    const sW = media.videoWidth   || media.naturalWidth  || dW;
-    const sH = media.videoHeight  || media.naturalHeight || dH;
+    // Get display dimensions from canvas container
+    const displayWidth = canvas.offsetWidth || media.clientWidth || 640;
+    const displayHeight = canvas.offsetHeight || media.clientHeight || 480;
+    
+    // Get source dimensions - handle both video and img elements
+    let sourceWidth, sourceHeight;
+    if (media.tagName === 'VIDEO') {
+      sourceWidth = media.videoWidth || media.naturalWidth || displayWidth;
+      sourceHeight = media.videoHeight || media.naturalHeight || displayHeight;
+    } else {
+      sourceWidth = media.naturalWidth || media.width || displayWidth;
+      sourceHeight = media.naturalHeight || media.height || displayHeight;
+    }
 
-    canvas.width  = dW;
-    canvas.height = dH;
+    // Only proceed if we have valid dimensions
+    if (!sourceWidth || !sourceHeight) {
+      return;
+    }
+
+    // Set canvas resolution to match display size
+    canvas.width = displayWidth;
+    canvas.height = displayHeight;
+    
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.clearRect(0, 0, dW, dH);
+    
+    // Clear canvas before drawing
+    ctx.clearRect(0, 0, displayWidth, displayHeight);
 
-    const sRatio = sW / sH;
-    const dRatio = dW / dH;
-    const rW = dRatio > sRatio ? dH * sRatio : dW;
-    const rH = dRatio > sRatio ? dH : dW / sRatio;
-    const ox = (dW - rW) / 2;
-    const oy = (dH - rH) / 2;
-    const sx = rW / sW;
-    const sy = rH / sH;
+    const sourceRatio = sourceWidth / sourceHeight;
+    const displayRatio = displayWidth / displayHeight;
+    const renderedWidth = displayRatio > sourceRatio ? displayHeight * sourceRatio : displayWidth;
+    const renderedHeight = displayRatio > sourceRatio ? displayHeight : displayWidth / sourceRatio;
+    const offsetX = (displayWidth - renderedWidth) / 2;
+    const offsetY = (displayHeight - renderedHeight) / 2;
+    const scaleX = renderedWidth / sourceWidth;
+    const scaleY = renderedHeight / sourceHeight;
 
-    (result?.detections || []).forEach((det) => {
-      const [x1, y1, x2, y2] = det.bbox || [];
-      const stroke = det.label === 'SCRATCH' ? '#ef4444' : '#22c55e';
-      const fill   = det.label === 'SCRATCH'
-        ? 'rgba(239,68,68,.42)' : 'rgba(34,197,94,.18)';
-      const polygon = det.mask?.polygon || [];
-
-      if (polygon.length > 2) {
-        ctx.beginPath();
-        polygon.forEach(([x, y], i) => {
-          const px = ox + x * sx;
-          const py = oy + y * sy;
-          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-        });
-        ctx.closePath();
-        ctx.fillStyle = fill;
-        ctx.fill();
-        ctx.lineWidth   = 2.5;
-        ctx.strokeStyle = stroke;
-        ctx.stroke();
+    const drawDetections = (detections) => {
+      if (!detections || detections.length === 0) {
+        return;
       }
+      
+      (detections || []).forEach((detection, idx) => {
+        const [x1, y1, x2, y2] = detection.bbox || [];
+        const label = detection.label || detection.class_name || 'DETECTION';
+        const confidence = Number(detection.confidence || 0);
+        
+        // Color scheme: Red for SCRATCH, Green for INTACT
+        const isScratch = label === 'SCRATCH';
+        const boxColor = isScratch ? '#ef4444' : '#22c55e';
+        const overlayRGB = isScratch ? [239, 68, 68] : [34, 197, 94];
+        
+        // Draw filled polygon mask if available (with alpha blending)
+        const polygon = detection.mask?.polygon || [];
+        if (polygon.length > 2) {
+          // Semi-transparent fill matching OpenCV approach
+          ctx.fillStyle = isScratch 
+            ? 'rgba(239, 68, 68, 0.35)'  // Red with 35% alpha
+            : 'rgba(34, 197, 94, 0.20)'; // Green with 20% alpha
+          
+          ctx.beginPath();
+          polygon.forEach(([x, y], index) => {
+            const px = offsetX + x * scaleX;
+            const py = offsetY + y * scaleY;
+            if (index === 0) {
+              ctx.moveTo(px, py);
+            } else {
+              ctx.lineTo(px, py);
+            }
+          });
+          ctx.closePath();
+          ctx.fill();
+          
+          // Draw contour around mask
+          ctx.strokeStyle = boxColor;
+          ctx.lineWidth = 2;
+          ctx.stroke();
+        }
 
-      if ([x1, y1, x2, y2].every(Number.isFinite)) {
-        const l = ox + x1 * sx;
-        const t = oy + y1 * sy;
-        const w = (x2 - x1) * sx;
-        const h = (y2 - y1) * sy;
-        ctx.lineWidth   = 3;
-        ctx.strokeStyle = stroke;
-        ctx.strokeRect(l, t, w, h);
-        ctx.font      = "700 14px 'DM Sans', sans-serif";
-        ctx.fillStyle = stroke;
-        ctx.fillText(
-          `${det.label || det.class_name || 'DETECTION'} ${(Number(det.confidence || 0) * 100).toFixed(1)}%`,
-          l,
-          Math.max(t - 8, 18),
-        );
-      }
-    });
+        // Draw bounding box
+        if ([x1, y1, x2, y2].every((value) => Number.isFinite(value))) {
+          const left = offsetX + x1 * scaleX;
+          const top = offsetY + y1 * scaleY;
+          const width = (x2 - x1) * scaleX;
+          const height = (y2 - y1) * scaleY;
+
+          // Draw rectangle (2px stroke matching OpenCV)
+          ctx.strokeStyle = boxColor;
+          ctx.lineWidth = 2;
+          ctx.strokeRect(left, top, width, height);
+          
+          // Draw label with background (matching OpenCV style)
+          const text = `${label} ${(confidence * 100).toFixed(1)}%`;
+          ctx.font = '600 14px Arial, sans-serif';
+          const textMetrics = ctx.measureText(text);
+          const textWidth = textMetrics.width + 8;
+          const textHeight = 18;
+          const labelX = left;
+          const labelY = Math.max(top - textHeight - 4, 16);
+          
+          // Label background
+          ctx.fillStyle = boxColor;
+          ctx.fillRect(labelX, labelY, textWidth, textHeight);
+          
+          // Label text
+          ctx.fillStyle = '#ffffff';
+          ctx.fillText(text, labelX + 4, labelY + 14);
+        }
+      });
+    };
+
+    drawDetections(result?.detections || []);
   }, []);
 
   const drawLogOverlay = useCallback((logId, detections = []) => {
@@ -272,47 +323,121 @@ function OperatorPanel({ onLogout }) {
       0,
     );
   }, [expandedLogId, logs, drawLogOverlay]);
-        if ([x1, y1, x2, y2].every((value) => Number.isFinite(value))) {
-          const left = offsetX + x1 * scaleX;
-          const top = offsetY + y1 * scaleY;
-          const width = (x2 - x1) * scaleX;
-          const height = (y2 - y1) * scaleY;
 
-          ctx.lineWidth = 3;
-          ctx.strokeStyle = stroke;
-          ctx.strokeRect(left, top, width, height);
-          ctx.font = "700 16px Aptos, sans-serif";
-          const label = `${detection.label || detection.class_name || "DETECTION"} ${(Number(detection.confidence || 0) * 100).toFixed(1)}%`;
-          const labelTop = Math.max(top - 8, 18);
-          ctx.fillStyle = stroke;
-          ctx.fillText(label, left, labelTop);
+  useEffect(() => {
+    drawOverlay(detectionResult);
+  }, [drawOverlay, capturedFrame, detectionResult]);
+
+  // Display server-rendered annotated image when available
+  useEffect(() => {
+    if (detectionResult?.annotated_image_b64) {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = overlayRef.current;
+        if (!canvas) return;
+        
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0);
+          console.debug('[ServerAnnotation] Rendered annotated image:', {width: img.width, height: img.height});
         }
-      });
+      };
+      img.onerror = (err) => {
+        console.error('[ServerAnnotation] Image load error:', err);
+      };
+      img.src = `data:image/png;base64,${detectionResult.annotated_image_b64}`;
+      console.debug('[ServerAnnotation] Loading base64 image:', {size: detectionResult.annotated_image_b64?.length || 0});
+    }
+  }, [detectionResult?.annotated_image_b64]);
+
+  // Live feed annotation loop - draw detections on live webcam
+  useEffect(() => {
+    const canvas = overlayRef.current;
+    if (!canvas) return;
+
+    let animationFrameId;
+    
+    const drawFrame = () => {
+      const video = webcamRef.current?.video;
+      
+      // Only draw on live feed (not when captured frame is showing)
+      if (!capturedFrame && video && video.readyState === 4) {
+        // Draw detections if available
+        if (detectionResult && detectionResult.detections && detectionResult.detections.length > 0) {
+          drawOverlay(detectionResult);
+        } else {
+          // Clear canvas if no detections
+          const displayWidth = canvas.offsetWidth || video.clientWidth || 640;
+          const displayHeight = canvas.offsetHeight || video.clientHeight || 480;
+          canvas.width = displayWidth;
+          canvas.height = displayHeight;
+          const ctx = canvas.getContext('2d');
+          if (ctx) ctx.clearRect(0, 0, displayWidth, displayHeight);
+        }
+      } else if (capturedFrame) {
+        // Clear canvas when showing captured frame (annotations handled separately)
+        const ctx = canvas.getContext('2d');
+        if (ctx && canvas.width > 0) ctx.clearRect(0, 0, canvas.width, canvas.height);
+      }
+      
+      animationFrameId = requestAnimationFrame(drawFrame);
     };
+    
+    drawFrame();
+    
+    return () => {
+      if (animationFrameId) cancelAnimationFrame(animationFrameId);
+    };
+  }, [detectionResult, capturedFrame, drawOverlay]);
 
-    drawDetections(result?.detections || []);
-  };
-
-  useEffect(() => { drawOverlay(detectionResult); }, [drawOverlay, capturedFrame, detectionResult]);
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && zoomedImage) {
+        setZoomedImage(null);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [zoomedImage]);
 
   /* ── Auto-annotate ───────────────────────────────────────────── */
   const autoAnnotateDetection = useCallback((result) => {
-    if (!result?.detections?.length) return 'No defects detected. Product appears intact.';
-    const scratches = result.detections.filter((d) => d.label === 'SCRATCH' || d.label === 'DEFECT');
-    const intact    = result.detections.filter((d) => d.label === 'INTACT'  || d.label === 'GOOD');
-    const summary   = [];
-    if (scratches.length) {
-      const avg = (scratches.reduce((s, d) => s + (d.confidence || 0), 0) / scratches.length).toFixed(2);
-      summary.push(`Found ${scratches.length} defect(s) with avg confidence ${avg}`);
+    if (!result || !result.detections || result.detections.length === 0) {
+      return 'No defects detected. Product appears intact.';
     }
-    if (intact.length) summary.push(`${intact.length} intact area(s) detected`);
-    summary.push(`Latency: ${result.latency_ms || 0}ms | Cache: ${result.cache_hit ? 'HIT' : 'MISS'}`);
-    return summary.join('. ');
+
+    const detections = result.detections || [];
+    const scratches = detections.filter((d) => d.label === 'SCRATCH' || d.label === 'DEFECT');
+    const intact    = detections.filter((d) => d.label === 'INTACT'  || d.label === 'GOOD');
+
+    const detectionSummary = [];
+
+    if (scratches.length > 0) {
+      const avgConfidence = (
+        scratches.reduce((sum, d) => sum + (d.confidence || 0), 0) / scratches.length
+      ).toFixed(2);
+      detectionSummary.push(
+        `Found ${scratches.length} defect(s) with avg confidence ${avgConfidence}`,
+      );
+    }
+
+    if (intact.length > 0) {
+      detectionSummary.push(`${intact.length} intact area(s) detected`);
+    }
+
+    detectionSummary.push(
+      `Latency: ${result.latency_ms || 0}ms | Cache: ${result.cache_hit ? 'HIT' : 'MISS'}`,
+    );
+
+    return detectionSummary.join('. ');
   }, []);
 
   /* ── Detect ──────────────────────────────────────────────────── */
   const handleDetect = useCallback(async (trigger = 'manual') => {
     const imageSrc = webcamRef.current?.getScreenshot();
+
     if (!imageSrc || !preset?.product || !preset?.model || !preset?.config_hash) {
       setError('No active inspection preset is assigned to this operator.');
       return;
@@ -323,11 +448,9 @@ function OperatorPanel({ onLogout }) {
     captureInFlightRef.current = true;
 
     try {
-      setCapturedFrame(imageSrc);
-      const blob     = await fetch(imageSrc).then((r) => r.blob());
       const imageBlob = await fetch(imageSrc).then((response) => response.blob());
       const formData = new FormData();
-      formData.append('image',           blob, `frame-${Date.now()}.png`);
+      formData.append('image',           imageBlob, `frame-${Date.now()}.png`);
       formData.append('component',       preset.product);
       formData.append('product_id',      preset.product);
       formData.append('model',           preset.model);
@@ -338,49 +461,41 @@ function OperatorPanel({ onLogout }) {
       formData.append('session_id',      sessionId || '');
       formData.append('session_active',  sessionStarted ? 'true' : 'false');
 
-      const { data: result } = await detectImage(formData);
       const detectResponse = await detectImage(formData);
       const result = detectResponse.data;
       const detections = result?.detections || [];
-      const isManualCapture = trigger === "manual";
+      const isManualCapture = trigger === 'manual';
 
       if (!isManualCapture && detections.length === 0) {
         setDetectionResult(null);
-        setCapturedFrame("");
+        setCapturedFrame('');
         setCountdownMs(null);
-        setMotionStatus("No change in image. Waiting for motion or manual capture.");
+        setMotionStatus('No change in image. Waiting for motion or manual capture.');
         waitForMotionAfterEmptyRef.current = true;
         return;
       }
 
       waitForMotionAfterEmptyRef.current = false;
       setCapturedFrame(imageSrc);
-
-      // Log detection data for debugging
-      // eslint-disable-next-line no-console
-      console.log("Detection result received:", {
-        num_detections: result.num_detections,
-        detections: result.detections?.map(d => ({
-          label: d.label,
-          confidence: d.confidence,
-          bbox: d.bbox,
-          has_mask: !!d.mask,
-          mask_polygon_length: d.mask?.polygon?.length || 0,
-        })),
-      });
+      // Store captured frame for future change verification
+      lastCapturedFrameRef.current = imageSrc;
 
       setDetectionResult(result);
       setReviewMode('ACKNOWLEDGE');
-      setReviewDescription(autoAnnotateDetection(result));
+      const autoDescription = autoAnnotateDetection(result);
+      setReviewDescription(autoDescription);
       setReviewFinalDecision(result.system_decision || 'PASS');
       setReviewRejectionReason('MISSED_DEFECT');
       reviewPendingRef.current = true;
       setReviewPending(true);
       setMotionStatus('Review required');
       setCountdownMs(null);
+
       await fetchLogs();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Detection request failed.');
+    } catch (requestError) {
+      const errorMsg = requestError.response?.data?.error || requestError.message || 'Detection request failed.';
+      console.error('[DetectError] Full error:', {msg: errorMsg, response: requestError.response?.data, err: requestError});
+      setError(errorMsg);
     } finally {
       setLoading(false);
       captureInFlightRef.current = false;
@@ -388,109 +503,65 @@ function OperatorPanel({ onLogout }) {
   }, [autoAnnotateDetection, fetchLogs, preset, sessionId, sessionStarted]);
 
   /* ── Motion detection ────────────────────────────────────────── */
+  // Monitor camera status and provide feedback
   useEffect(() => {
-    const sampleMotion = () => {
+    const interval = window.setInterval(() => {
       const video = webcamRef.current?.video;
-      if (
-        !video || video.readyState < 2 ||
-        loading || captureInFlightRef.current ||
-        reviewPending || !autoDetectEnabled || !preset
-      ) return;
-
-      const W = 96, H = 72;
-      const canvas = motionCanvasRef.current
-        || (motionCanvasRef.current = document.createElement('canvas'));
-      canvas.width = W; canvas.height = H;
-      const ctx = canvas.getContext('2d', { willReadFrequently: true });
-      if (!ctx) return;
-      ctx.drawImage(video, 0, 0, W, H);
-      const frame = ctx.getImageData(0, 0, W, H).data;
-      const prev  = previousFrameRef.current;
-      previousFrameRef.current = new Uint8ClampedArray(frame);
-
-      if (!prev) {
-        stableSinceRef.current = null;
-        setMotionStatus('Calibrating camera');
-        return;
+      
+      // If no session started, check camera readiness
+      if (!sessionStarted) {
+        if (!video) {
+          setMotionStatus('Waiting for camera');
+        } else if (video.readyState < 2) {
+          setMotionStatus('Camera initializing...');
+        } else if (!preset) {
+          setMotionStatus('No active preset assigned');
+        } else if (!autoDetectEnabled) {
+          setMotionStatus('Auto-detect paused');
+        } else {
+          setMotionStatus('Ready to start session');
+        }
       }
+      // If session started, motion detection handles the status
+    }, 1000);
+    
+    return () => window.clearInterval(interval);
+  }, [sessionStarted, preset, autoDetectEnabled]);
 
-      let diff = 0;
-      for (let i = 0; i < frame.length; i += 4) {
-        const cg = frame[i] * 0.299 + frame[i+1] * 0.587 + frame[i+2] * 0.114;
-        const pg = prev[i]  * 0.299 + prev[i+1]  * 0.587 + prev[i+2]  * 0.114;
-        diff += Math.abs(cg - pg);
-      }
-
-      const score = diff / (W * H);
-      const now   = performance.now();
-
-      if (score > MOTION_THRESHOLD) {
-        stableSinceRef.current = null;
-        setCountdownMs(null);
-        setMotionStatus('Motion detected');
-        return;
-      }
-    if (motionScore > MOTION_THRESHOLD) {
-      waitForMotionAfterEmptyRef.current = false;
-      stableSinceRef.current = null;
-      setCountdownMs(null);
-      setMotionStatus("Motion detected");
-      return;
-    }
-
-    if (waitForMotionAfterEmptyRef.current) {
-      setCountdownMs(null);
-      setMotionStatus("No change in image. Move product/camera or capture manually.");
-      return;
-    }
-
-      if (!stableSinceRef.current) stableSinceRef.current = now;
-
-      const elapsed   = now - stableSinceRef.current;
-      const remaining = Math.max(0, STABLE_CAPTURE_DELAY_MS - elapsed);
-      setCountdownMs(remaining);
-      setMotionStatus(remaining > 0 ? 'Stable frame countdown' : 'Capturing stable frame');
-
-      if (remaining <= 0) {
-        stableSinceRef.current = null;
-        void handleDetect('auto_stable');
-      }
-    };
-
-    const id = window.setInterval(sampleMotion, MOTION_SAMPLE_INTERVAL_MS);
-    return () => window.clearInterval(id);
-  }, [autoDetectEnabled, handleDetect, loading, preset, reviewPending]);
-
-  /* ── Submit review ───────────────────────────────────────────── */
-    if (remaining <= 0) {
-      stableSinceRef.current = null;
-      void handleDetect("auto_stable");
-    }
-  };
-
-  const shouldSendLiveInference = () => {
+  const sampleMotion = useCallback(() => {
     const video = webcamRef.current?.video;
-    if (!video || video.readyState < 2) {
-      return false;
+
+    if (
+      !video ||
+      video.readyState < 2 ||
+      loading ||
+      captureInFlightRef.current ||
+      reviewPendingRef.current ||
+      !autoDetectEnabled ||
+      !preset ||
+      !sessionStarted
+    ) {
+      return;
     }
 
-    const width = 64;
-    const height = 48;
+    const width = 96;
+    const height = 72;
     const canvas =
-      motionCanvasRef.current || (motionCanvasRef.current = document.createElement("canvas"));
+      motionCanvasRef.current || (motionCanvasRef.current = document.createElement('canvas'));
     canvas.width = width;
     canvas.height = height;
 
-    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return;
     ctx.drawImage(video, 0, 0, width, height);
     const frame = ctx.getImageData(0, 0, width, height).data;
-    const previous = livePreviousFrameRef.current;
-
-    // Store current frame for next comparison regardless of send decision.
-    livePreviousFrameRef.current = new Uint8ClampedArray(frame);
+    const previous = previousFrameRef.current;
+    previousFrameRef.current = new Uint8ClampedArray(frame);
 
     if (!previous) {
-      return true;
+      stableSinceRef.current = null;
+      setMotionStatus('Calibrating camera');
+      return;
     }
 
     let diff = 0;
@@ -503,44 +574,122 @@ function OperatorPanel({ onLogout }) {
       diff += Math.abs(currentGray - previousGray);
     }
 
-    const changeScore = diff / pixels;
-    return changeScore >= LIVE_FRAME_CHANGE_THRESHOLD;
-  };
+    const motionScore = diff / pixels;
+    const now = performance.now();
+
+    if (motionScore > MOTION_THRESHOLD) {
+      waitForMotionAfterEmptyRef.current = false;
+      stableSinceRef.current = null;
+      setCountdownMs(null);
+      setMotionStatus('Motion detected');
+      return;
+    }
+
+    if (waitForMotionAfterEmptyRef.current) {
+      setCountdownMs(null);
+      setMotionStatus('No change in image. Move product/camera or capture manually.');
+      return;
+    }
+
+    if (!stableSinceRef.current) {
+      stableSinceRef.current = now;
+    }
+
+    const elapsed = now - stableSinceRef.current;
+    const remaining = Math.max(0, STABLE_CAPTURE_DELAY_MS - elapsed);
+    setCountdownMs(remaining);
+    setMotionStatus(remaining > 0 ? 'Stable frame countdown' : 'Capturing stable frame');
+
+    if (remaining <= 0) {
+      stableSinceRef.current = null;
+      void handleDetect('auto_stable');
+    }
+  }, [autoDetectEnabled, handleDetect, loading, preset, sessionStarted]);
 
   useEffect(() => {
     const interval = window.setInterval(sampleMotion, MOTION_SAMPLE_INTERVAL_MS);
     return () => window.clearInterval(interval);
-  });
+  }, [sampleMotion]);
 
-  // Live inference loop: when a session is started, poll backend for live overlays
+  /* ── Live inference motion detection ────────────────────────────── */
+  const checkLiveInferenceMotion = useCallback(() => {
+    const video = webcamRef.current?.video;
+    if (!video || video.readyState < 2) return false;
+
+    const width = 64;
+    const height = 48;
+    const canvas =
+      motionCanvasRef.current || (motionCanvasRef.current = document.createElement('canvas'));
+    canvas.width = width;
+    canvas.height = height;
+
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return false;
+    
+    ctx.drawImage(video, 0, 0, width, height);
+    const frame = ctx.getImageData(0, 0, width, height).data;
+    const previous = livePreviousFrameRef.current;
+
+    livePreviousFrameRef.current = new Uint8ClampedArray(frame);
+
+    if (!previous) {
+      return true; // First frame
+    }
+
+    let diff = 0;
+    const pixels = width * height;
+    for (let index = 0; index < frame.length; index += 4) {
+      const currentGray =
+        frame[index] * 0.299 + frame[index + 1] * 0.587 + frame[index + 2] * 0.114;
+      const previousGray =
+        previous[index] * 0.299 + previous[index + 1] * 0.587 + previous[index + 2] * 0.114;
+      diff += Math.abs(currentGray - previousGray);
+    }
+
+    const motionScore = diff / pixels;
+    const hasMotion = motionScore > LIVE_MOTION_THRESHOLD;
+    console.debug(`[LiveMotion] Score: ${motionScore.toFixed(1)} vs threshold ${LIVE_MOTION_THRESHOLD} → ${hasMotion ? 'SEND' : 'SKIP'}`);
+    return hasMotion;
+  }, []);
+
+  /* ── Live inference loop ─────────────────────────────────────── */
   useEffect(() => {
     const startLive = () => {
       if (liveIntervalRef.current) return;
+      console.debug('[LiveInference] Starting live inference loop');
       liveIntervalRef.current = window.setInterval(async () => {
         if (!sessionStarted || captureInFlightRef.current || reviewPendingRef.current || !preset) return;
         if (waitForMotionAfterEmptyRef.current) return;
-        if (!shouldSendLiveInference()) return;
+        // Only send live inference when motion is detected
+        if (!checkLiveInferenceMotion()) return;
         try {
           captureInFlightRef.current = true;
           const imageSrc = webcamRef.current?.getScreenshot();
           if (!imageSrc) return;
           const imageBlob = await fetch(imageSrc).then((r) => r.blob());
           const formData = new FormData();
-          formData.append("image", imageBlob, `frame-${Date.now()}.png`);
-          formData.append("component", preset.product);
-          formData.append("product_id", preset.product);
-          formData.append("model", preset.model);
-          formData.append("config_id", preset.id);
-          formData.append("config_version", preset.config_version || 1);
-          formData.append("config_hash", preset.config_hash);
-          formData.append("trigger", "live");
-          formData.append("session_id", sessionId || "");
-          formData.append("session_active", sessionStarted ? "true" : "false");
+          formData.append('image',           imageBlob, `frame-${Date.now()}.png`);
+          formData.append('component',       preset.product);
+          formData.append('product_id',      preset.product);
+          formData.append('model',           preset.model);
+          formData.append('config_id',       preset.id);
+          formData.append('config_version',  preset.config_version || 1);
+          formData.append('config_hash',     preset.config_hash);
+          formData.append('trigger',         'live');
+          formData.append('session_id',      sessionId || '');
+          formData.append('session_active',  sessionStarted ? 'true' : 'false');
 
           const detectResponse = await detectImage(formData);
           const result = detectResponse.data;
+          console.debug('[LiveInference] Received result:', { 
+            detections: result?.detections?.length || 0, 
+            decision: result?.system_decision,
+            success: result?.success,
+            error: result?.error
+          });
           setDetectionResult(result);
         } catch (err) {
+          console.warn('[LiveInference] Error:', err.response?.data || err.message);
           // ignore live polling errors
         } finally {
           captureInFlightRef.current = false;
@@ -550,6 +699,7 @@ function OperatorPanel({ onLogout }) {
 
     const stopLive = () => {
       if (liveIntervalRef.current) {
+        console.debug('[LiveInference] Stopping live inference loop');
         window.clearInterval(liveIntervalRef.current);
         liveIntervalRef.current = null;
       }
@@ -557,17 +707,28 @@ function OperatorPanel({ onLogout }) {
       waitForMotionAfterEmptyRef.current = false;
     };
 
-  if (sessionStarted) startLive();
-  else stopLive();
+    if (sessionStarted) startLive();
+    else stopLive();
 
     return () => stopLive();
-  }, [sessionStarted, preset]);
+  }, [sessionStarted, preset, checkLiveInferenceMotion]);
 
+  /* ── Submit review ───────────────────────────────────────────── */
   const submitReview = async () => {
     const logId = detectionResult?.log_id || detectionResult?.id;
-    if (!logId)                                  { setError('No inference log available for review.');  return; }
-    if (!reviewDescription.trim())               { setError('Review description is required.');         return; }
-    if (reviewMode === 'REJECT' && !reviewRejectionReason) { setError('Rejection reason is required.'); return; }
+
+    if (!logId) {
+      setError('No inference log is available for review.');
+      return;
+    }
+    if (!reviewDescription.trim()) {
+      setError('Review description is required.');
+      return;
+    }
+    if (reviewMode === 'REJECT' && !reviewRejectionReason) {
+      setError('Rejection reason is required.');
+      return;
+    }
 
     setSubmittingReview(true);
     setError('');
@@ -590,8 +751,8 @@ function OperatorPanel({ onLogout }) {
       setCountdownMs(null);
       setMotionStatus(autoDetectEnabled ? 'Waiting for stable frame' : 'Auto-detect paused');
       await fetchLogs();
-    } catch (err) {
-      setError(err.response?.data?.error || 'Unable to submit review.');
+    } catch (requestError) {
+      setError(requestError.response?.data?.error || 'Unable to submit review.');
     } finally {
       setSubmittingReview(false);
     }
@@ -599,9 +760,10 @@ function OperatorPanel({ onLogout }) {
 
   /* ── Derived ─────────────────────────────────────────────────── */
   const countdownSeconds = countdownMs === null ? '--' : String(Math.ceil(countdownMs / 1000));
-  const displayedLogs    = sessionFilter
+  const filteredLogs     = sessionFilter
     ? logs.filter((l) => l.session_id === sessionFilter)
     : logs;
+  const displayedLogs    = filteredLogs.slice(0, logsLimit);
 
   /* ── Render ──────────────────────────────────────────────────── */
   return (
@@ -609,41 +771,43 @@ function OperatorPanel({ onLogout }) {
       <div className="panel-shell">
 
         {/* ── Header / nav ── */}
-        <header className="panel-header--operator">
-          <div className="panel-header__left">
-            <div className="panel-header__intro">
-              <h1>Live inspection workflow</h1>
-            </div>
+        <header className="panel-header">
+          <div>
+            <p className="eyebrow">Operator console</p>
+            <h1>Live inspection workflow</h1>
+            <p>
+              Capture a frame, run detection, and save the result against the
+              selected configuration.
+            </p>
           </div>
-
-          <div className="panel-header__right">
-            <div className="panel-switcher" role="tablist" aria-label="Operator pages">
-              <button
-                className={`choice-button${activePanel === 'camera' ? ' choice-button--active' : ''}`}
-                onClick={() => setActivePanel('camera')}
-                type="button"
-              >
-                Camera Feed
-              </button>
-              <button
-                className={`choice-button${activePanel === 'logs' ? ' choice-button--active' : ''}`}
-                onClick={() => setActivePanel('logs')}
-                type="button"
-              >
-                Detection Logs
-              </button>
-            </div>
-            <button className="ghost-button" onClick={onLogout} type="button">
-              Log out
-            </button>
-          </div>
+          <button className="ghost-button" onClick={onLogout} type="button">
+            Logout
+          </button>
         </header>
+
+        {/* ── Tab switcher ── */}
+        <div className="panel-switcher" role="tablist" aria-label="Operator pages" style={{ marginBottom: 16 }}>
+          <button
+            className={`choice-button${activePanel === 'camera' ? ' choice-button--active' : ''}`}
+            onClick={() => setActivePanel('camera')}
+            type="button"
+          >
+            Camera Feed
+          </button>
+          <button
+            className={`choice-button${activePanel === 'logs' ? ' choice-button--active' : ''}`}
+            onClick={() => setActivePanel('logs')}
+            type="button"
+          >
+            Detection Logs
+          </button>
+        </div>
 
         {/* ════════════════════════════════════════════════
             CAMERA PANEL
         ════════════════════════════════════════════════ */}
         {activePanel === 'camera' && (
-          <section className="content-grid--operator">
+          <section className="content-grid content-grid--operator">
 
             {/* ── Left: camera card ── */}
             <div className="section-card section-card--camera">
@@ -653,15 +817,16 @@ function OperatorPanel({ onLogout }) {
               </div>
 
               {/* Webcam */}
-              <div className="webcam-frame-wrap">
+              <div className="webcam-frame-wrap" style={{ position: 'relative' }}>
                 <Webcam
                   ref={webcamRef}
                   screenshotFormat="image/png"
                   audio={false}
-                  autoPlay
-                  playsInline
-                  muted
-                  className={capturedFrame ? 'webcam-frame webcam-frame--capture-source' : 'webcam-frame'}
+                  className={
+                    capturedFrame
+                      ? 'webcam-frame webcam-frame--capture-source'
+                      : 'webcam-frame'
+                  }
                 />
                 {capturedFrame && (
                   <img
@@ -672,7 +837,19 @@ function OperatorPanel({ onLogout }) {
                     onLoad={() => drawOverlay(detectionResult)}
                   />
                 )}
-                <canvas ref={overlayRef} className="webcam-overlay" aria-hidden="true" />
+                <canvas 
+                  ref={overlayRef} 
+                  className="webcam-overlay" 
+                  aria-hidden="true"
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    height: '100%',
+                    zIndex: 10,
+                  }}
+                />
               </div>
 
               {/* Preset metadata chips */}
@@ -690,7 +867,7 @@ function OperatorPanel({ onLogout }) {
                   <strong>
                     {preset?.confidence_threshold !== undefined
                       ? Number(preset.confidence_threshold).toFixed(2)
-                      : '—'}
+                      : '--'}
                   </strong>
                 </div>
               </div>
@@ -699,26 +876,19 @@ function OperatorPanel({ onLogout }) {
               {error && <div className="notice notice--error">{error}</div>}
 
               {/* Auto-detect / controls bar */}
-              <div className="auto-detect-panel">
-                <div>
+              <div className="auto-detect-panel" style={{display:'flex', gap:12, alignItems:'center', flexWrap:'wrap'}}>
+                <div style={{flex:1}}>
                   <span>Auto-detect</span>
                   <strong>{motionStatus}</strong>
                 </div>
-
                 <div className="countdown-badge">{countdownSeconds}s</div>
-
-                <div className="session-info-pill">
-                  <span className="session-label">Session</span>
-                  <span className="session-value" style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                    <span className={`session-dot ${sessionStarted ? 'session-dot--active' : ''}`} />
-                    {sessionStarted ? sessionId : 'Stopped'}
-                  </span>
+                <div style={{display:'flex', flexDirection:'column', gap:6, alignItems:'flex-end'}}>
+                  <div style={{fontSize:12}}>Session</div>
+                  <strong style={{fontSize:12}}>{sessionStarted ? sessionId : 'Stopped'}</strong>
                 </div>
-
                 <button className="ghost-button" onClick={toggleSession} type="button">
                   {sessionStarted ? 'Stop Session' : 'Start Session'}
                 </button>
-
                 <button
                   className="ghost-button"
                   onClick={() => {
@@ -732,14 +902,13 @@ function OperatorPanel({ onLogout }) {
                 >
                   {autoDetectEnabled ? 'Pause' : 'Resume'}
                 </button>
-
                 <button
                   className="primary-button"
                   onClick={() => void handleDetect('manual')}
-                  disabled={loading || reviewPending}
+                  disabled={loading || reviewPendingRef.current}
                   type="button"
                 >
-                  {loading ? 'Capturing…' : 'Capture & Detect'}
+                  {loading ? 'Capturing...' : 'Capture & Detect'}
                 </button>
               </div>
             </div>
@@ -752,19 +921,22 @@ function OperatorPanel({ onLogout }) {
               </div>
 
               {detectionResult ? (
-                <div className="result-card result-card--operator">
+                <div className="result-card">
                   <div className="result-card__status">
-                    {detectionResult.system_decision || detectionResult.error || 'Ready'}
+                    {detectionResult.system_decision ||
+                      detectionResult.error ||
+                      'Ready'}
                   </div>
-
                   <dl>
                     <div>
                       <dt>Confidence</dt>
-                      <dd>{((detectionResult.confidence || 0) * 100).toFixed(1)}%</dd>
+                      <dd>
+                        {`${((detectionResult.confidence || 0) * 100).toFixed(1)}%`}
+                      </dd>
                     </div>
                     <div>
                       <dt>Latency</dt>
-                      <dd>{detectionResult.latency_ms || 0} ms</dd>
+                      <dd>{`${detectionResult.latency_ms || 0} ms`}</dd>
                     </div>
                     <div>
                       <dt>Detections</dt>
@@ -775,16 +947,15 @@ function OperatorPanel({ onLogout }) {
                       <dd>{detectionResult.cache_hit ? 'Hit' : 'Miss'}</dd>
                     </div>
                   </dl>
-
                   <div className="detection-list">
-                    {(detectionResult.detections || []).map((det, idx) => (
+                    {(detectionResult.detections || []).map((detection, index) => (
                       <div
-                        key={`${det.class_id}-${idx}`}
-                        className={`detection-row detection-row--${(det.label || 'unknown').toLowerCase()}`}
+                        className={`detection-row detection-row--${(detection.label || 'unknown').toLowerCase()}`}
+                        key={`${detection.class_id}-${index}`}
                       >
-                        <strong>{det.label || det.class_name}</strong>
-                        <span>{((det.confidence || 0) * 100).toFixed(1)}%</span>
-                        <span>{det.mask?.polygon?.length ? 'Mask' : 'Box'}</span>
+                        <strong>{detection.label || detection.class_name}</strong>
+                        <span>{`${((detection.confidence || 0) * 100).toFixed(1)}%`}</span>
+                        <span>{detection.mask?.polygon?.length ? 'Mask' : 'Box'}</span>
                       </div>
                     ))}
                   </div>
@@ -802,183 +973,124 @@ function OperatorPanel({ onLogout }) {
             LOGS PANEL
         ════════════════════════════════════════════════ */}
         {activePanel === 'logs' && (
-          <section className="section-card section-card--logs section-card--logs-page" style={{ margin: 16 }}>
-            <div className="section-heading" style={{ marginBottom: 12 }}>
+          <section className="section-card section-card--logs">
+            <div className="section-heading">
               <p className="eyebrow">Detection logs</p>
               <h2>Recent inspections</h2>
             </div>
 
             {/* Filter row */}
-            <div className="log-filter-row">
-              <label>Filter by session</label>
-              <select
-                value={sessionFilter}
-                onChange={(e) => setSessionFilter(e.target.value)}
-              >
+            <div style={{display:'flex', gap:12, alignItems:'center', marginBottom:12, flexWrap: 'wrap'}}>
+              <label style={{fontSize:12}}>Filter by session</label>
+              <select value={sessionFilter} onChange={(e) => { setSessionFilter(e.target.value); }}>
                 <option value="">All sessions</option>
                 {Array.from(new Set(logs.map((l) => l.session_id).filter(Boolean))).map((s) => (
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
-              <button className="ghost-button" onClick={() => void fetchLogs()} type="button">
-                Refresh
-              </button>
+              <button className="ghost-button" onClick={() => { void fetchLogs(); }} type="button">Refresh</button>
+              
+              <span style={{fontSize:12, marginLeft: 'auto'}}>Show:</span>
+              <select value={logsLimit} onChange={(e) => setLogsLimit(Number(e.target.value))} style={{padding: '4px 8px', fontSize: 12}}>
+                <option value={20}>20 logs</option>
+                <option value={50}>50 logs</option>
+                <option value={filteredLogs.length}>All logs</option>
+              </select>
+              {filteredLogs.length > logsLimit && (
+                <span style={{fontSize: 11, color: '#999'}}>
+                  Showing {displayedLogs.length} of {filteredLogs.length}
+                </span>
+              )}
             </div>
 
             {/* Log list */}
             <div className="log-list">
-              {displayedLogs.length === 0 && (
-                <div className="empty-state">No logs yet.</div>
-              )}
-
-              {displayedLogs.map((log) => (
-                <div
-                  key={log.id}
-                  className={`log-item log-item--${(log.final_decision || log.system_decision || '').toLowerCase()}`}
-                >
-                  {/* Row header */}
-                  <div
-                    className="log-row"
-                    onClick={() => setExpandedLogId(expandedLogId === log.id ? null : log.id)}
-                  >
-                    <div style={{ flex: 1 }}>
-                      <strong>{log.id}</strong>
-                      {' '}
-                      {log.component_name || log.product_name || log.component}
-                      <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>
-                        {new Date(log.timestamp || log.created_at).toLocaleString()}
-                      </div>
+              {!logs || logs.length === 0 ? (
+                <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>
+                  No detection logs yet. Capture a frame and run detection to create logs.
+                </div>
+              ) : displayedLogs && displayedLogs.length > 0 ? (
+                displayedLogs.map((log) => (
+                <div key={log.id} className={`log-item log-item--${(log.final_decision||log.system_decision||'').toLowerCase()}`}>
+                  <div className="log-row" onClick={() => setExpandedLogId(expandedLogId === log.id ? null : log.id)}>
+                    <div style={{flex:1}}>
+                      <strong>{log.id || 'Untitled'}</strong> &nbsp; {log.component_name || log.product_name || log.component || 'N/A'}
+                      <div style={{fontSize:12, color:'#777', marginTop: 4}}>{log.timestamp || log.created_at ? new Date(log.timestamp || log.created_at).toLocaleString() : 'N/A'}</div>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>
-                        {log.final_decision || log.system_decision || log.status}
-                      </div>
-                      {(log.confidence_score || log.confidence) ? (
-                        <div style={{ fontSize: 12, color: 'var(--text3)', fontFamily: "'DM Mono', monospace" }}>
-                          {(Number(log.confidence_score || log.confidence || 0) * 100).toFixed(1)}%
-                        </div>
-                      ) : null}
+                    <div style={{textAlign:'right', whiteSpace: 'nowrap'}}>
+                      <div style={{fontWeight: 500}}>{log.final_decision || log.system_decision || log.status || '—'}</div>
+                      <div style={{fontSize:12, marginTop: 4}}>{(log.confidence_score || log.confidence || 0) ? `${(Number(log.confidence_score||log.confidence||0)*100).toFixed(1)}%` : '—'}</div>
                     </div>
                   </div>
-
-                  {/* Expanded detail */}
-                  {expandedLogId === log.id && (
+                  {expandedLogId === log.id ? (
                     <div className="log-expanded">
-                      <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
-
-                        {/* Image + canvas overlay */}
-                        <div style={{
-                          flex: '0 0 300px',
-                          border: '1px solid var(--border)',
-                          borderRadius: 'var(--radius)',
-                          overflow: 'hidden',
-                          background: '#0d1117',
-                        }}>
-                          <div style={{
-                            display: 'flex', justifyContent: 'space-between',
-                            alignItems: 'center', padding: '8px 10px',
-                            background: 'var(--surface2)',
-                            borderBottom: '1px solid var(--border)',
-                          }}>
-                            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--text2)' }}>
-                              Inference image
-                            </span>
-                            <button
-                              className="ghost-button"
-                              style={{ padding: '4px 10px', fontSize: 12 }}
-                              onClick={() => drawLogOverlay(log.id, log.detection_results?.detections || [])}
-                              type="button"
-                            >
-                              Redraw
-                            </button>
-                          </div>
-                          <div style={{ position: 'relative', height: 240 }}>
                       <div style={{display:'flex', gap:12}}>
                         <div style={{flex:'0 0 320px', border:'1px solid #ddd', padding:8, background:'#fff'}}>
                           <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
                             <strong>Inference Image</strong>
                           </div>
-                          <div style={{overflow:'hidden', height:260, display:'flex', alignItems:'center', justifyContent:'center'}}>
+                          <div style={{overflow:'hidden', height:260, display:'flex', alignItems:'center', justifyContent:'center', position:'relative', cursor:'pointer'}}>
                             <img
                               id={`log-image-${log.id}`}
                               src={log.image_snapshot || log.image_snapshot_url || log.image_url}
                               alt="snapshot"
-                              onLoad={() => drawLogOverlay(log.id, log.detection_results?.detections || [])}
-                              style={{ width: '100%', height: '100%', objectFit: 'contain' }}
                               style={{maxWidth:'100%', maxHeight:'100%'}}
+                              onClick={() => setZoomedImage(log.image_snapshot || log.image_snapshot_url || log.image_url)}
+                              onLoad={() => drawLogOverlay(log.id, log.detection_results?.detections || [])}
+                              title="Click to zoom"
                             />
                           </div>
                         </div>
-
-                        {/* Details */}
-                        <div style={{ flex: 1, minWidth: 220 }}>
+                        <div style={{flex:1}}>
                           <h4>Detections</h4>
-                          {(log.detection_results?.detections || []).map((det, idx) => (
-                            <div
-                              key={idx}
-                              className={`detection-row detection-row--${(det.label || '').toLowerCase()}`}
-                              style={{ marginBottom: 6 }}
-                            >
-                              <strong>{det.label || det.class_name}</strong>
-                              <span>{((det.confidence || 0) * 100).toFixed(1)}%</span>
-                              {det.bbox && (
-                                <span style={{ fontSize: 11 }}>
-                                  [{det.bbox.map((v) => Math.round(v)).join(', ')}]
-                                </span>
-                              )}
-                              {det.mask?.polygon && (
-                                <span style={{ fontSize: 11 }}>Mask: {det.mask.polygon.length}pts</span>
-                              )}
+                          {(log.detection_results?.detections || []).map((d, idx) => (
+                            <div key={idx} style={{padding:6, borderBottom:'1px solid #eee'}}>
+                              <strong>{d.label || d.class_name}</strong>
+                              <div>Confidence: {((d.confidence||0)*100).toFixed(1)}%</div>
+                              <div>Box: {d.bbox ? d.bbox.join(', ') : 'n/a'}</div>
+                              {d.mask?.polygon ? <div>Mask points: {d.mask.polygon.length}</div> : null}
                             </div>
                           ))}
 
                           <h4>Details</h4>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                            <div style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                              <span><strong>System decision:</strong> {log.system_decision || log.detection_results?.system_decision || '—'}</span>
-                              <span><strong>Final decision:</strong>  {log.final_decision || '—'}</span>
-                              <span><strong>Status:</strong>          {log.status || '—'}</span>
-                              <span><strong>Confidence:</strong>      {
-                                (log.confidence_score || log.detection_results?.confidence)
-                                  ? `${(Number(log.confidence_score || log.detection_results?.confidence || 0) * 100).toFixed(1)}%`
-                                  : '—'
-                              }</span>
-                              <span><strong>Latency:</strong>         {log.latency_ms || log.detection_results?.latency_ms ? `${log.latency_ms || log.detection_results?.latency_ms} ms` : '—'}</span>
+                          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:8}}>
+                            <div>
+                              <div><strong>System decision:</strong> {log.system_decision || log.detection_results?.system_decision || '-'}</div>
+                              <div><strong>Final decision:</strong> {log.final_decision || '-'}</div>
+                              <div><strong>Status:</strong> {log.status || '-'}</div>
+                              <div><strong>Confidence:</strong> {log.confidence_score ? `${(Number(log.confidence_score)*100).toFixed(1)}%` : (log.detection_results?.confidence ? `${(Number(log.detection_results.confidence)*100).toFixed(1)}%` : '-')}</div>
+                              <div><strong>Latency:</strong> {log.latency_ms ? `${log.latency_ms} ms` : (log.detection_results?.latency_ms ? `${log.detection_results.latency_ms} ms` : '-')}</div>
                             </div>
-                            <div style={{ fontSize: 12, display: 'flex', flexDirection: 'column', gap: 4 }}>
-                              <span><strong>Cache hit:</strong>       {String(log.detection_results?.cache_hit ?? log.cache_hit ?? false)}</span>
-                              <span><strong>Image hash:</strong>      {log.detection_results?.image_hash || log.image_hash || '—'}</span>
-                              <span><strong>Defect area:</strong>     {
-                                (log.defect_area_percent ?? log.detection_results?.defect_area_percent) !== undefined
-                                  ? `${log.defect_area_percent ?? log.detection_results?.defect_area_percent}%`
-                                  : '—'
-                              }</span>
-                              <span><strong>Mask polygons:</strong>   {
-                                log.segmentation_data?.mask_polygons?.length ??
-                                log.detection_results?.mask_polygons?.length ?? 0
-                              }</span>
+                            <div>
+                              <div><strong>Cache hit:</strong> {String(log.detection_results?.cache_hit ?? log.cache_hit ?? false)}</div>
+                              <div><strong>Image hash:</strong> {log.detection_results?.image_hash || log.image_hash || '-'}</div>
+                              <div><strong>Defect area %:</strong> {log.defect_area_percent !== undefined ? `${log.defect_area_percent}%` : (log.detection_results?.defect_area_percent ? `${log.detection_results.defect_area_percent}%` : '-')}</div>
+                              <div><strong>Segmentation polygons:</strong> {log.segmentation_data?.mask_polygons?.length ?? (log.detection_results?.mask_polygons ? log.detection_results.mask_polygons.length : 0)}</div>
                             </div>
                           </div>
-
-                          <div style={{ marginTop: 10 }}>
+                          <div style={{marginBottom:8}}>
                             <button
                               className="ghost-button"
-                              style={{ fontSize: 12 }}
-                              onClick={() => setRawOpenMap((m) => ({ ...m, [log.id]: !m[log.id] }))}
+                              onClick={() => setRawOpenMap((m) => ({...m, [log.id]: !m[log.id]}))}
                               type="button"
                             >
                               {rawOpenMap[log.id] ? 'Hide raw JSON' : 'Show raw JSON'}
                             </button>
                           </div>
-                          {rawOpenMap[log.id] && (
-                            <pre>{JSON.stringify(log.detection_results || log, null, 2)}</pre>
-                          )}
+                          {rawOpenMap[log.id] ? (
+                            <pre style={{whiteSpace:'pre-wrap', fontSize:12, background:'#fbfbfb', padding:8, borderRadius:4}}>{JSON.stringify(log.detection_results || log, null, 2)}</pre>
+                          ) : null}
                         </div>
                       </div>
                     </div>
-                  )}
+                  ) : null}
                 </div>
-              ))}
+              ))
+              ) : (
+                <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>
+                  No logs to display for the selected session.
+                </div>
+              )}
             </div>
           </section>
         )}
@@ -994,10 +1106,9 @@ function OperatorPanel({ onLogout }) {
                 <h2>Decision required</h2>
               </div>
 
-              {/* Acknowledge / Reject toggle */}
               <div className="review-choice">
                 <button
-                  className={`choice-button${reviewMode === 'ACKNOWLEDGE' ? ' choice-button--active' : ''}`}
+                  className={reviewMode === 'ACKNOWLEDGE' ? 'choice-button choice-button--active' : 'choice-button'}
                   onClick={() => {
                     setReviewMode('ACKNOWLEDGE');
                     setReviewFinalDecision(detectionResult.system_decision || 'PASS');
@@ -1007,7 +1118,7 @@ function OperatorPanel({ onLogout }) {
                   Acknowledge inference
                 </button>
                 <button
-                  className={`choice-button${reviewMode === 'REJECT' ? ' choice-button--active' : ''}`}
+                  className={reviewMode === 'REJECT' ? 'choice-button choice-button--active' : 'choice-button'}
                   onClick={() => setReviewMode('REJECT')}
                   type="button"
                 >
@@ -1015,56 +1126,114 @@ function OperatorPanel({ onLogout }) {
                 </button>
               </div>
 
-              {/* Description */}
               <label className="field">
                 <span>Description</span>
                 <textarea
                   value={reviewDescription}
-                  onChange={(e) => setReviewDescription(e.target.value)}
+                  onChange={(event) => setReviewDescription(event.target.value)}
                   rows={4}
                   placeholder="Describe what the operator observed."
                 />
               </label>
 
-              {/* Reject-specific fields */}
-              {reviewMode === 'REJECT' && (
+              {reviewMode === 'REJECT' ? (
                 <>
                   <label className="field">
                     <span>Reason for rejection</span>
                     <select
                       value={reviewRejectionReason}
-                      onChange={(e) => setReviewRejectionReason(e.target.value)}
+                      onChange={(event) => setReviewRejectionReason(event.target.value)}
                     >
                       {REJECTION_REASONS.map(([value, label]) => (
-                        <option key={value} value={value}>{label}</option>
+                        <option key={value} value={value}>
+                          {label}
+                        </option>
                       ))}
                     </select>
                   </label>
+
                   <label className="field">
                     <span>Correct final decision</span>
                     <select
                       value={reviewFinalDecision}
-                      onChange={(e) => setReviewFinalDecision(e.target.value)}
+                      onChange={(event) => setReviewFinalDecision(event.target.value)}
                     >
                       <option value="PASS">PASS</option>
                       <option value="FAIL">FAIL</option>
                     </select>
                   </label>
                 </>
-              )}
+              ) : null}
 
-              {/* Error */}
               {error && <div className="notice notice--error">{error}</div>}
 
-              {/* Submit */}
               <button
                 className="primary-button"
                 onClick={submitReview}
                 disabled={submittingReview}
                 type="button"
               >
-                {submittingReview ? 'Saving review…' : 'Submit review'}
+                {submittingReview ? 'Saving review...' : 'Submit review'}
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* Zoom Modal */}
+        {zoomedImage && (
+          <div
+            style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: 'rgba(0,0,0,0.85)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 9999,
+              padding: '20px',
+            }}
+            onClick={() => setZoomedImage(null)}
+          >
+            <div
+              style={{
+                maxWidth: '90vw',
+                maxHeight: '90vh',
+                position: 'relative',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <img
+                src={zoomedImage}
+                alt="zoomed inspection"
+                style={{
+                  width: '100%',
+                  height: '100%',
+                  objectFit: 'contain',
+                }}
+              />
+              <button
+                onClick={() => setZoomedImage(null)}
+                style={{
+                  position: 'absolute',
+                  top: '10px',
+                  right: '10px',
+                  background: '#fff',
+                  border: 'none',
+                  padding: '8px 12px',
+                  cursor: 'pointer',
+                  borderRadius: '4px',
+                  fontSize: '16px',
+                  fontWeight: 'bold',
+                }}
+              >
+                ✕
+              </button>
+              <div style={{ color: '#999', textAlign: 'center', marginTop: '10px', fontSize: '12px' }}>
+                Click to close or press Esc
+              </div>
             </div>
           </div>
         )}

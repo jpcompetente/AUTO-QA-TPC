@@ -26,6 +26,7 @@ class InferenceResult:
     system_decision: str = "PASS"
     confidence: float = 0.0
     detections: list[dict[str, Any]] = field(default_factory=list)
+    annotated_image_b64: str = ""
     latency_ms: float = 0.0
     num_detections: int = 0
     cache_hit: bool = False
@@ -103,6 +104,7 @@ class RemoteInferenceService:
             system_decision="FAIL" if scratch_detected else "PASS",
             confidence=round(float(avg_confidence), 4),
             detections=detections,
+            annotated_image_b64=str(payload.get("annotated_image_b64") or ""),
             latency_ms=round(float(payload.get("latency_ms", 0.0)), 2),
             num_detections=len(detections),
             model_name=self.model_name,
