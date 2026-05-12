@@ -42,6 +42,7 @@ urlpatterns = [
     # Backward-compatible API endpoints used by the existing React frontend
     path('api/dashboard/stats/', dashboard_stats),
     path('api/detect/', detect_image),
+    path('api/inference/detect/', detect_image),
     path('api/inference/health/', inference_health),
     path('api/inference/metrics/', inference_metrics),
     path('api/operator/preset/', operator_preset),

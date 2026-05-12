@@ -62,16 +62,18 @@ export const loginUser = (credentials) =>
     password: credentials.password,
   });
 
-export const getApiStatus = () => api.get("/data/");
-export const detectImage = (payload) => api.post("/detect/", payload);
+export const getApiStatus = () => api.get("/dashboard/stats/");
+export const detectImage = (payload) => api.post("/inference/detect/", payload);
 export const getComponents = () => api.get("/component-types/");
 export const getModels = () => api.get("/ai-models/");
 export const getOperators = () => api.get("/operators/");
 export const getOperatorPreset = () => api.get("/operator/preset/");
 export const getAdminSettings = () => api.get("/admin/settings/");
 export const createAdminSettings = (data) => api.post("/admin/settings/", data);
+export const updateAdminSettings = (id, data) =>
+  api.patch(`/admin/settings/${id}/`, data);
 export const deleteAdminSettings = (id) => api.delete(`/admin/settings/${id}/`);
-export const getDetectionLogs = () => api.get("/inference-logs/");
+export const getDetectionLogs = (params = {}) => api.get("/inference-logs/", { params });
 export const createDetectionLog = (data) => api.post("/inference-logs/", data);
 export const reviewInferenceLog = (id, data) =>
   api.post(`/inference-logs/${id}/review/`, data);

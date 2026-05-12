@@ -3,9 +3,34 @@ import { jwtDecode } from "jwt-decode";
 import { getApiStatus } from "./api/backend";
 import AdminDashboard from "./components/AdminDashboard";
 import Login from "./components/Login";
+import InspectorDashboard from "./components/InspectorDashboard";
 import OperatorPanel from "./components/OperatorPanel";
 import SuperAdminPanel from "./components/SuperAdminPanel";
 import "./App.css";
+
+function normalizeRole(role) {
+  if (!role) {
+    return null;
+  }
+
+  const normalized = role.toLowerCase().replace(/_/g, "");
+
+  // Map backend roles to frontend role identifiers
+  if (normalized === "superadmin") {
+    return "superadmin";
+  }
+  if (normalized === "admin") {
+    return "admin";
+  }
+  if (normalized === "operator") {
+    return "operator";
+  }
+  if (normalized === "inspector") {
+    return "inspector";
+  }
+
+  return normalized;
+}
 
 function readRole(token) {
   if (!token) {
@@ -14,9 +39,7 @@ function readRole(token) {
 
   try {
     const decoded = jwtDecode(token);
-    return (decoded.role || decoded.groups?.[0] || "operator")
-      .toLowerCase()
-      .replace("_", "");
+    return normalizeRole(decoded.role || decoded.groups?.[0] || "operator");
   } catch {
     return null;
   }
@@ -70,14 +93,23 @@ function App() {
   }
 
   if (role === "admin") {
-    return <AdminDashboard onLogout={handleLogout} />;
+    return <AdminDashboard onLogout={handleLogout} role={role} />;
   }
 
   if (role === "superadmin") {
     return <SuperAdminPanel onLogout={handleLogout} />;
   }
 
-  return <OperatorPanel onLogout={handleLogout} />;
+  if (role === "operator") {
+    return <OperatorPanel onLogout={handleLogout} />;
+  }
+
+  if (role === "inspector") {
+    return <InspectorDashboard onLogout={handleLogout} />;
+  }
+
+  // Default to inspector for unknown roles
+  return <InspectorDashboard onLogout={handleLogout} />;
 }
 
 export default App;

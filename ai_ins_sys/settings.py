@@ -1,4 +1,5 @@
 import os
+from importlib.util import find_spec
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -22,17 +23,16 @@ ALLOWED_HOSTS = ['*']  # Set this to your domain or IP in production
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME'),
-        'USER': os.getenv('DB_USER'),
-        'PASSWORD': os.getenv('DB_PASSWORD'),
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'NAME': os.getenv('DB_NAME', ''),
+        'USER': os.getenv('DB_USER', ''),
+        'PASSWORD': os.getenv('DB_PASSWORD', ''),
+        'HOST': os.getenv('DB_HOST', 'localhost'),
+        'PORT': os.getenv('DB_PORT', '5432'),
     }
 }
 
 # Installed Apps
 INSTALLED_APPS = [
-    'daphne',  # ✅ Channels ASGI server (must be first)
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -40,16 +40,24 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.sites',
-    'corsheaders',   # ✅ required for CORS
+    'corsheaders',
     'rest_framework',
-    'channels',  # ✅ WebSockets support
-    # 'django.contrib.redirects',   # ❌ disabled muna
+    'django_filters',
     'core',
 ]
+
+if find_spec('daphne') is not None:
+    INSTALLED_APPS.insert(0, 'daphne')
+
+if find_spec('channels') is not None:
+    INSTALLED_APPS.append('channels')
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_FILTER_BACKENDS': (
+        'django_filters.rest_framework.DjangoFilterBackend',
     )
 }
 
@@ -130,16 +138,17 @@ SITE_ID = 1
 # ✅ WebSocket & Real-time Support with Channels
 ASGI_APPLICATION = 'ai_ins_sys.asgi.application'
 
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [("127.0.0.1", 6379)],
-            "capacity": 1500,
-            "expiry": 10,
+if find_spec('channels') is not None and find_spec('channels_redis') is not None:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [("127.0.0.1", 6379)],
+                "capacity": 1500,
+                "expiry": 10,
+            },
         },
-    },
-}
+    }
 
 # ✅ Media Files Configuration (for model weights, images, etc.)
 MEDIA_URL = '/media/'
@@ -180,10 +189,15 @@ CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
 # Celery Beat Schedule for periodic tasks
-from celery.schedules import crontab
-CELERY_BEAT_SCHEDULE = {
-    'check-retraining-queue': {
-        'task': 'core.tasks.check_retraining_queue',
-        'schedule': crontab(minute='*/5'),  # Every 5 minutes
-    },
-}
+try:
+    from celery.schedules import crontab
+except ImportError:
+    crontab = None
+
+if crontab is not None:
+    CELERY_BEAT_SCHEDULE = {
+        'check-retraining-queue': {
+            'task': 'core.tasks.check_retraining_queue',
+            'schedule': crontab(minute='*/5'),  # Every 5 minutes
+        },
+    }

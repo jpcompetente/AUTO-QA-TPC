@@ -16,7 +16,7 @@ celery==5.5.3
 redis==6.4.0
 
 numpy==2.4.4
-opencv-python==4.13.0.88
+opencv-python==4.13.0.92
 ultralytics==8.3.228
 torch==2.9.0
 
