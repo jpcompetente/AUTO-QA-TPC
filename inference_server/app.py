@@ -20,12 +20,108 @@ os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ai_ins_sys.settings")
 django.setup()
 
 from django.conf import settings  # noqa: E402
+from core.config import AppConfig  # noqa: E402
 from core.models import AIModel  # noqa: E402
 
 try:
     from ultralytics import YOLO
+    from ultralytics.nn.modules import block as ultralytics_block
+    from ultralytics.nn.modules import head as ultralytics_head
 except Exception:  # pragma: no cover - lets /health report dependency state.
     YOLO = None
+    ultralytics_block = None
+    ultralytics_head = None
+
+
+def _install_ultralytics_legacy_aliases() -> None:
+    """Provide class aliases for older custom checkpoints (for example Segment26)."""
+    if ultralytics_block is not None:
+        if not hasattr(ultralytics_block, "Proto26") and hasattr(ultralytics_block, "Proto"):
+            ultralytics_block.Proto26 = ultralytics_block.Proto
+            logger.info("Registered ultralytics compatibility alias: Proto26 -> Proto")
+
+    if ultralytics_head is None:
+        return
+    if not hasattr(ultralytics_head, "Segment26") and hasattr(ultralytics_head, "Segment"):
+        ultralytics_head.Segment26 = ultralytics_head.Segment
+        logger.info("Registered ultralytics compatibility alias: Segment26 -> Segment")
+
+
+def _overlay_mask_and_detections(
+    rgb: np.ndarray,
+    mask: np.ndarray | None,
+    detections: list,
+) -> np.ndarray:
+    """
+    Render detection masks and bounding boxes on RGB image (server-side annotation).
+    Uses styling from AppConfig for consistency across the system.
+    """
+    output = rgb.copy()
+
+    # Semi-transparent mask overlay (use config colors)
+    if mask is not None and np.count_nonzero(mask) > 0:
+        overlay = np.zeros_like(output)
+        overlay[:, :] = AppConfig.OVERLAY_COLOR  # Orange/yellow (BGR)
+        mask_3ch = np.stack([mask] * 3, axis=-1) > 0
+        alpha = AppConfig.MASK_ALPHA  # 30% opacity
+        output[mask_3ch] = (
+            output[mask_3ch] * (1 - alpha) + overlay[mask_3ch] * alpha
+        ).astype(np.uint8)
+
+        # Draw mask contours (blue)
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(
+            output,
+            contours,
+            -1,
+            AppConfig.CONTOUR_COLOR,
+            AppConfig.CONTOUR_THICKNESS,
+        )
+
+    # Draw bounding boxes and labels (use same visual style as reference)
+    for det in detections:
+        bbox = det.get("bbox", [])
+        if len(bbox) != 4:
+            continue
+
+        x1, y1, x2, y2 = [int(v) for v in bbox]
+        label = det.get("label", "SCRATCH")
+        conf = float(det.get("confidence", 0.0))
+
+        # Draw bounding box with configured color
+        cv2.rectangle(output, (x1, y1), (x2, y2), AppConfig.BBOX_COLOR, AppConfig.BBOX_THICKNESS)
+
+        # Draw label with background
+        text = f"{label} {conf * 100:.1f}%"
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = AppConfig.TEXT_FONT_SCALE
+        thickness = AppConfig.TEXT_THICKNESS
+        text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
+        text_x = x1
+        text_y = max(20, y1 - AppConfig.TEXT_MARGIN)
+
+        # Label background (use same color as bbox for consistency)
+        cv2.rectangle(
+            output,
+            (text_x, text_y - text_size[1] - 4),
+            (text_x + text_size[0] + 4, text_y + 4),
+            AppConfig.BBOX_COLOR,
+            -1,
+        )
+
+        # Label text (white)
+        cv2.putText(
+            output,
+            text,
+            (text_x + 2, text_y - 2),
+            font,
+            font_scale,
+            (255, 255, 255),  # White text
+            thickness,
+        )
+
+    return output
+
 
 logger = logging.getLogger(__name__)
 app = Flask(__name__)
@@ -36,7 +132,15 @@ class EMSDWrapper:
         if YOLO is None:
             raise RuntimeError("ultralytics is not installed")
         self.weights_path = weights_path
-        self.model = YOLO(weights_path)
+        _install_ultralytics_legacy_aliases()
+        try:
+            self.model = YOLO(weights_path)
+        except AttributeError as exc:
+            if "Segment26" in str(exc) or "Proto26" in str(exc):
+                raise RuntimeError(
+                    "Model checkpoint requires legacy YOLO26 modules that are unavailable in this ultralytics build"
+                ) from exc
+            raise
         self.names = self.model.names or {}
 
     def _label_for(self, class_id: int) -> str:
@@ -186,9 +290,29 @@ def predict() -> tuple[Any, int]:
         image_bytes = image_file.read()
         image = Image.open(io.BytesIO(image_bytes))
         result = registry.get(model_name).predict(image, confidence, iou)
+        
+        # Render annotations server-side
+        if result.get("success"):
+            frame_rgb = np.array(image.convert("RGB"))
+            # Create mask from detections (simplified: use first mask if available)
+            mask = None
+            # Apply overlay
+            annotated_frame = _overlay_mask_and_detections(frame_rgb, mask, result.get("detections", []))
+            # Convert to PNG bytes and base64 encode (strip whitespace)
+            annotated_pil = Image.fromarray(annotated_frame)
+            png_bytes = io.BytesIO()
+            annotated_pil.save(png_bytes, format="PNG")
+            png_bytes.seek(0)
+            annotated_b64 = base64.b64encode(png_bytes.getvalue()).decode("utf-8").replace('\n', '').replace('\r', '')
+            result["annotated_image_b64"] = annotated_b64
+            logger.info(f"Rendered annotations for {len(result.get('detections', []))} detections, base64 size: {len(annotated_b64)}")
+        
         return jsonify(result), 200
     except FileNotFoundError as exc:
         logger.exception("Model weights unavailable")
+        return jsonify({"success": False, "error": str(exc)}), 503
+    except RuntimeError as exc:
+        logger.exception("Model initialization failed")
         return jsonify({"success": False, "error": str(exc)}), 503
     except Exception as exc:
         logger.exception("Prediction failed")

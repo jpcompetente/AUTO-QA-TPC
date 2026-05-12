@@ -15,7 +15,7 @@ from rest_framework.decorators import api_view, action
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django_filters.rest_framework import DjangoFilterBackend
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from .models import (
     UserProfile, AIModel, ComponentType, 
@@ -33,6 +33,79 @@ from .tasks import train_model, deploy_model_version
 from .inference_services import InferenceFactory, orchestrator
 
 logger = logging.getLogger(__name__)
+
+
+def _render_annotated_snapshot(image_bytes, detections):
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as source_image:
+            base_image = source_image.convert('RGBA')
+    except Exception:
+        return image_bytes
+
+    overlay = Image.new('RGBA', base_image.size, (0, 0, 0, 0))
+    overlay_draw = ImageDraw.Draw(overlay)
+    draw = ImageDraw.Draw(base_image)
+
+    try:
+        font = ImageFont.load_default()
+    except Exception:
+        font = None
+
+    for detection in detections or []:
+        if not isinstance(detection, dict):
+            continue
+
+        label = str(detection.get('label') or detection.get('class_name') or 'DETECTION').upper()
+        confidence = float(detection.get('confidence') or 0.0)
+        bbox = detection.get('bbox') or []
+        mask = detection.get('mask') if isinstance(detection.get('mask'), dict) else {}
+        polygon = mask.get('polygon') if isinstance(mask, dict) else None
+
+        is_defect = label in ('SCRATCH', 'DEFECT')
+        stroke = (239, 68, 68, 255) if is_defect else (34, 197, 94, 255)
+        fill = (239, 68, 68, 72) if is_defect else (34, 197, 94, 64)
+
+        if polygon and len(polygon) > 2:
+            points = []
+            for point in polygon:
+                if isinstance(point, (list, tuple)) and len(point) >= 2:
+                    try:
+                        points.append((float(point[0]), float(point[1])))
+                    except (TypeError, ValueError):
+                        continue
+
+            if len(points) > 2:
+                overlay_draw.polygon(points, fill=fill, outline=stroke)
+                overlay_draw.line(points + [points[0]], fill=stroke, width=2)
+
+        if len(bbox) == 4:
+            try:
+                x1, y1, x2, y2 = [int(round(float(value))) for value in bbox]
+            except (TypeError, ValueError):
+                continue
+
+            draw.rectangle([x1, y1, x2, y2], outline=stroke, width=3)
+            text = f"{label} {confidence * 100:.1f}%"
+
+            if font is not None:
+                text_bbox = draw.textbbox((x1, y1), text, font=font)
+            else:
+                text_bbox = draw.textbbox((x1, y1), text)
+
+            text_width = text_bbox[2] - text_bbox[0]
+            text_height = text_bbox[3] - text_bbox[1]
+            text_left = x1
+            text_top = max(0, y1 - text_height - 8)
+            draw.rectangle(
+                [text_left, text_top, text_left + text_width + 8, text_top + text_height + 6],
+                fill=(0, 0, 0, 170),
+            )
+            draw.text((text_left + 4, text_top + 2), text, fill=(255, 255, 255, 255), font=font)
+
+    annotated = Image.alpha_composite(base_image, overlay).convert('RGB')
+    buffer = io.BytesIO()
+    annotated.save(buffer, format='PNG')
+    return buffer.getvalue()
 
 
 def user_role(user):
@@ -361,11 +434,13 @@ def detect_image(request):
         except Exception:
             session_active = bool(session_active_raw)
 
+        annotated_image_bytes = _render_annotated_snapshot(image_bytes, result.detections)
+
         if result.system_decision == 'FAIL' and session_active:
             capture_name = f"captures/pending/{timezone.now():%Y%m%d_%H%M%S_%f}_{result.image_hash}.png"
             result.auto_capture_path = default_storage.save(
                 capture_name,
-                ContentFile(image_bytes),
+                ContentFile(annotated_image_bytes, name=f"{result.image_hash}.png"),
             )
 
         if operator is None:
@@ -405,7 +480,7 @@ def detect_image(request):
             operator=operator,
             model_used=model,
             component=component,
-            image_snapshot=ContentFile(image_bytes, name=snapshot_name),
+            image_snapshot=ContentFile(annotated_image_bytes, name=snapshot_name),
             detection_results={
                 'detections': result.detections,
                 'cache_hit': result.cache_hit,

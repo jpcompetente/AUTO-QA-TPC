@@ -799,13 +799,12 @@ body { background: var(--bg); min-height: 100vh; }
 
 /* ─── LOG LIST ──────────────────────────────────────────────── */
 .log-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding-right: 4px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
+  max-height: 600px;
+  overflow-y: auto;
+  padding-right: 4px;
 }
 
 .log-item {
@@ -814,6 +813,7 @@ body { background: var(--bg); min-height: 100vh; }
   background: var(--surface);
   overflow: hidden;
   transition: box-shadow .15s;
+  flex-shrink: 0;
 }
 .log-item:hover { box-shadow: var(--shadow-md); }
 .log-item--pass { border-left: 3px solid var(--green); }
@@ -826,6 +826,8 @@ body { background: var(--bg); min-height: 100vh; }
   padding: 12px 14px;
   cursor: pointer;
   transition: background .1s;
+  min-height: 60px;
+  color: var(--text);
 }
 .log-row:hover { background: var(--surface2); }
 
