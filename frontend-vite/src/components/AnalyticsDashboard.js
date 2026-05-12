@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import axios from 'axios';
 import '../styles/AnalyticsDashboard.css';
 
@@ -10,8 +10,6 @@ const AnalyticsDashboard = ({ onLogout }) => {
   const [retrainingQueue, setRetrainingQueue] = useState([]);
   const [trainingJobs, setTrainingJobs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [wsConnection, setWsConnection] = useState(null);
-
   // WebSocket for real-time metrics
   useEffect(() => {
     const wsUrl = `ws://localhost:8000/ws/metrics/`;
@@ -19,7 +17,6 @@ const AnalyticsDashboard = ({ onLogout }) => {
 
     ws.onopen = () => {
       console.log('Analytics WebSocket connected');
-      setWsConnection(ws);
     };
 
     ws.onmessage = (event) => {

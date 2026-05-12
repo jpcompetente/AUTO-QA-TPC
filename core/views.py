@@ -177,8 +177,17 @@ def dashboard_stats(request):
     """
     Main dashboard statistics
     Returns: Accuracy, FRR, Latency, Total inspections
+    Role-aware: Operators see their own stats, Admins see all stats
     """
-    total_inferences = InferenceLog.objects.count()
+    # Build role-aware queryset
+    role = user_role(request.user)
+    if role in ('ADMIN', 'SUPER_ADMIN') or request.user.is_staff or request.user.is_superuser:
+        logs_qs = InferenceLog.objects.all()
+    else:
+        # Operators only see their own logs
+        logs_qs = InferenceLog.objects.filter(operator=request.user)
+    
+    total_inferences = logs_qs.count()
     if total_inferences == 0:
         return Response({
             "detection_accuracy": 0,
@@ -189,25 +198,25 @@ def dashboard_stats(request):
         }, status=200)
 
     # Calculate Accuracy: (Final matches System) / Total
-    correct_detections = InferenceLog.objects.filter(operator_override=False).count()
+    correct_detections = logs_qs.filter(operator_override=False).count()
     accuracy = (correct_detections / total_inferences) * 100
 
     # Calculate False Reject Rate (FRR): Operator Approved but System Flagged Defect
-    false_rejects = InferenceLog.objects.filter(
+    false_rejects = logs_qs.filter(
         system_decision='FAIL', 
         final_decision='PASS'
     ).count()
     frr = (false_rejects / total_inferences) * 100 if total_inferences > 0 else 0
 
-    avg_latency = InferenceLog.objects.aggregate(Avg('latency_ms'))['latency_ms__avg'] or 0
+    avg_latency = logs_qs.aggregate(Avg('latency_ms'))['latency_ms__avg'] or 0
     
     # Additional metrics
-    false_positives = InferenceLog.objects.filter(
+    false_positives = logs_qs.filter(
         system_decision='FAIL',
         final_decision='PASS'
     ).count()
     
-    false_negatives = InferenceLog.objects.filter(
+    false_negatives = logs_qs.filter(
         system_decision='PASS',
         final_decision='FAIL'
     ).count()
@@ -227,20 +236,29 @@ def latency_trends(request):
     """
     Latency trends over time (last 7 days)
     Returns: Daily average latency for charting
+    Role-aware: Operators see their own trends, Admins see all trends
     """
+    # Build role-aware queryset
+    role = user_role(request.user)
+    if role in ('ADMIN', 'SUPER_ADMIN') or request.user.is_staff or request.user.is_superuser:
+        logs_qs = InferenceLog.objects.all()
+    else:
+        # Operators only see their own logs
+        logs_qs = InferenceLog.objects.filter(operator=request.user)
+    
     days = int(request.query_params.get('days', 7))
     
     trends = []
     for i in range(days, 0, -1):
         date = timezone.now().date() - timedelta(days=i)
-        daily_avg = InferenceLog.objects.filter(
+        daily_avg = logs_qs.filter(
             timestamp__date=date
         ).aggregate(Avg('latency_ms'))['latency_ms__avg']
         
         trends.append({
             'date': date.isoformat(),
             'avg_latency_ms': round(daily_avg or 0, 2),
-            'count': InferenceLog.objects.filter(timestamp__date=date).count()
+            'count': logs_qs.filter(timestamp__date=date).count()
         })
     
     return Response({'trends': trends})
@@ -251,7 +269,16 @@ def operator_performance(request):
     """
     Performance metrics per operator
     Returns: Accuracy, FRR, inspection count per operator
+    Admin/SuperAdmin only - shows all operators' performance
     """
+    # Restrict to admin/superadmin only
+    role = user_role(request.user)
+    if role not in ('ADMIN', 'SUPER_ADMIN') and not request.user.is_staff and not request.user.is_superuser:
+        return Response(
+            {'error': 'This endpoint is restricted to administrators'},
+            status=403
+        )
+    
     operators = User.objects.filter(profile__role='OPERATOR')
     
     results = []
@@ -622,6 +649,23 @@ class InferenceLogViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['operator', 'status', 'final_decision', 'component']
+    
+    def get_queryset(self):
+        """
+        Filter logs based on user role:
+        - Operators can only see their own logs
+        - Admins and Super Admins can see all logs
+        """
+        user = self.request.user
+        base_queryset = InferenceLog.objects.all().order_by('-timestamp')
+        
+        # Allow admins and superadmins to see all logs
+        role = user_role(user)
+        if role in ('ADMIN', 'SUPER_ADMIN') or user.is_staff or user.is_superuser:
+            return base_queryset
+        
+        # Operators can only see their own logs
+        return base_queryset.filter(operator=user)
     
     @action(detail=True, methods=['post'])
     def operator_override(self, request, pk=None):
