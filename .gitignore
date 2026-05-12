@@ -2,7 +2,7 @@
 __pycache__/
 *.pyc
 db.sqlite3
-venv/
+.venv/
 
 # Django
 staticfiles/
@@ -17,3 +17,6 @@ build/
 # IDE
 .idea/
 .vscode/
+
+media/
+X FROM THE OTHER APP/

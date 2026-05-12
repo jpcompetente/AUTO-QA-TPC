@@ -1,4 +1,7 @@
+import hashlib
+
 from django.db import models
+from django.db.models import Q
 from django.contrib.auth.models import User
 
 # 🛡️ User Profile for RBAC
@@ -7,6 +10,7 @@ class UserProfile(models.Model):
         ('SUPER_ADMIN', 'Super Admin'),
         ('ADMIN', 'Admin'),
         ('OPERATOR', 'Operator'),
+        ('INSPECTOR', 'Inspector'),
     )
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     role = models.CharField(max_length=20, choices=ROLES, default='OPERATOR')
@@ -69,21 +73,44 @@ class ComponentType(models.Model):
     def __str__(self):
         return self.name
 
-# 🧠 Admin Control & Presets
-class AdminSettings(models.Model):
-    admin = models.ForeignKey(User, on_delete=models.CASCADE, related_name='admin_configs')
-    assigned_operator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='active_config', null = True, blank=True)
-    
-    component = models.ForeignKey(ComponentType, on_delete=models.CASCADE, null = True, blank=True)
-    model = models.ForeignKey(AIModel, on_delete=models.CASCADE, null = True, blank=True)
-    
-    confidence_threshold = models.FloatField(default=0.5)
+
+class ActiveConfiguration(models.Model):
+    operator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='active_configurations')
+    product = models.ForeignKey(ComponentType, on_delete=models.CASCADE, related_name='active_configurations')
+    model = models.ForeignKey(AIModel, on_delete=models.CASCADE, related_name='active_configurations')
+    threshold = models.FloatField(default=0.5)
+    config_version = models.PositiveIntegerField(default=1)
+    config_hash = models.CharField(max_length=64, unique=True, editable=False)
     is_active = models.BooleanField(default=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_active_configurations')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at', '-id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['operator', 'product'],
+                condition=Q(is_active=True),
+                name='uniq_active_configuration_per_operator_product',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['operator', 'is_active']),
+            models.Index(fields=['product', 'is_active']),
+        ]
+
+    def _build_config_hash(self) -> str:
+        raw = f"{self.operator_id}:{self.product_id}:{self.model_id}:{self.threshold:.4f}:{self.config_version}:{int(self.is_active)}"
+        return hashlib.sha256(raw.encode('utf-8')).hexdigest()
+
+    def save(self, *args, **kwargs):
+        self.config_hash = self._build_config_hash()
+        super().save(*args, **kwargs)
 
     def __str__(self):
-        op_name = self.assigned_operator.username if self.assigned_operator else "Unassigned"
-        comp_name = self.component.name if self.component else "No Component"
-        return f"Preset: {op_name} ({comp_name})"
+        return f"{self.operator.username} -> {self.product.name} / {self.model.name} v{self.config_version}"
 
 # 📊 Detailed Audit & Inference Logs
 class InferenceLog(models.Model):
@@ -97,6 +124,14 @@ class InferenceLog(models.Model):
         ('REJECTED', 'Operator Rejected'),
         ('ARCHIVED', 'Archived'),
     )
+    REJECTION_REASON_CHOICES = (
+        ('MISSED_DEFECT', 'Missed a defect'),
+        ('FALSE_POSITIVE', 'False positive'),
+        ('BLURRY_CAPTURE', 'Blurry capture'),
+        ('BAD_ANNOTATION', 'Bad annotation'),
+        ('WRONG_CLASS', 'Wrong class'),
+        ('OTHER', 'Other'),
+    )
     
     operator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='inference_logs')
     model_used = models.ForeignKey(AIModel, on_delete=models.SET_NULL, null=True)
@@ -108,10 +143,17 @@ class InferenceLog(models.Model):
     latency_ms = models.FloatField()
     confidence_score = models.FloatField()
     
+    # Segmentation & Mask Data
+    segmentation_data = models.JSONField(default=dict, blank=True)  # mask polygons, mask_file, mask_shape, mask_area_pixels
+    defect_area_percent = models.FloatField(default=0.0, blank=True)  # Percentage of image with defects
+    
     # Workflow 3.3 - Human-in-the-loop decision
     system_decision = models.CharField(max_length=10, choices=DECISION_CHOICES)
     operator_override = models.BooleanField(default=False)
     operator_comment = models.TextField(blank=True)
+    operator_review_description = models.TextField(blank=True)
+    rejection_reason = models.CharField(max_length=40, choices=REJECTION_REASON_CHOICES, blank=True)
+    reviewed_at = models.DateTimeField(null=True, blank=True)
     final_decision = models.CharField(max_length=10, choices=DECISION_CHOICES)
     
     # Real-time Streaming Metadata
@@ -130,6 +172,7 @@ class InferenceLog(models.Model):
         indexes = [
             models.Index(fields=['operator', '-timestamp']),
             models.Index(fields=['session_id', '-timestamp']),
+            models.Index(fields=['component', '-timestamp']),  # For product-based filtering
         ]
     
     def __str__(self):

@@ -1,0 +1,325 @@
+import base64
+import io
+import logging
+import os
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+import cv2
+import django
+import numpy as np
+from flask import Flask, jsonify, request
+from PIL import Image
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BASE_DIR))
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "ai_ins_sys.settings")
+django.setup()
+
+from django.conf import settings  # noqa: E402
+from core.config import AppConfig  # noqa: E402
+from core.models import AIModel  # noqa: E402
+
+try:
+    from ultralytics import YOLO
+    from ultralytics.nn.modules import block as ultralytics_block
+    from ultralytics.nn.modules import head as ultralytics_head
+except Exception:  # pragma: no cover - lets /health report dependency state.
+    YOLO = None
+    ultralytics_block = None
+    ultralytics_head = None
+
+
+def _install_ultralytics_legacy_aliases() -> None:
+    """Provide class aliases for older custom checkpoints (for example Segment26)."""
+    if ultralytics_block is not None:
+        if not hasattr(ultralytics_block, "Proto26") and hasattr(ultralytics_block, "Proto"):
+            ultralytics_block.Proto26 = ultralytics_block.Proto
+            logger.info("Registered ultralytics compatibility alias: Proto26 -> Proto")
+
+    if ultralytics_head is None:
+        return
+    if not hasattr(ultralytics_head, "Segment26") and hasattr(ultralytics_head, "Segment"):
+        ultralytics_head.Segment26 = ultralytics_head.Segment
+        logger.info("Registered ultralytics compatibility alias: Segment26 -> Segment")
+
+
+def _overlay_mask_and_detections(
+    rgb: np.ndarray,
+    mask: np.ndarray | None,
+    detections: list,
+) -> np.ndarray:
+    """
+    Render detection masks and bounding boxes on RGB image (server-side annotation).
+    Uses styling from AppConfig for consistency across the system.
+    """
+    output = rgb.copy()
+
+    # Semi-transparent mask overlay (use config colors)
+    if mask is not None and np.count_nonzero(mask) > 0:
+        overlay = np.zeros_like(output)
+        overlay[:, :] = AppConfig.OVERLAY_COLOR  # Orange/yellow (BGR)
+        mask_3ch = np.stack([mask] * 3, axis=-1) > 0
+        alpha = AppConfig.MASK_ALPHA  # 30% opacity
+        output[mask_3ch] = (
+            output[mask_3ch] * (1 - alpha) + overlay[mask_3ch] * alpha
+        ).astype(np.uint8)
+
+        # Draw mask contours (blue)
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        cv2.drawContours(
+            output,
+            contours,
+            -1,
+            AppConfig.CONTOUR_COLOR,
+            AppConfig.CONTOUR_THICKNESS,
+        )
+
+    # Draw bounding boxes and labels (use same visual style as reference)
+    for det in detections:
+        bbox = det.get("bbox", [])
+        if len(bbox) != 4:
+            continue
+
+        x1, y1, x2, y2 = [int(v) for v in bbox]
+        label = det.get("label", "SCRATCH")
+        conf = float(det.get("confidence", 0.0))
+
+        # Draw bounding box with configured color
+        cv2.rectangle(output, (x1, y1), (x2, y2), AppConfig.BBOX_COLOR, AppConfig.BBOX_THICKNESS)
+
+        # Draw label with background
+        text = f"{label} {conf * 100:.1f}%"
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = AppConfig.TEXT_FONT_SCALE
+        thickness = AppConfig.TEXT_THICKNESS
+        text_size = cv2.getTextSize(text, font, font_scale, thickness)[0]
+        text_x = x1
+        text_y = max(20, y1 - AppConfig.TEXT_MARGIN)
+
+        # Label background (use same color as bbox for consistency)
+        cv2.rectangle(
+            output,
+            (text_x, text_y - text_size[1] - 4),
+            (text_x + text_size[0] + 4, text_y + 4),
+            AppConfig.BBOX_COLOR,
+            -1,
+        )
+
+        # Label text (white)
+        cv2.putText(
+            output,
+            text,
+            (text_x + 2, text_y - 2),
+            font,
+            font_scale,
+            (255, 255, 255),  # White text
+            thickness,
+        )
+
+    return output
+
+
+logger = logging.getLogger(__name__)
+app = Flask(__name__)
+
+
+class EMSDWrapper:
+    def __init__(self, weights_path: str) -> None:
+        if YOLO is None:
+            raise RuntimeError("ultralytics is not installed")
+        self.weights_path = weights_path
+        _install_ultralytics_legacy_aliases()
+        try:
+            self.model = YOLO(weights_path)
+        except AttributeError as exc:
+            if "Segment26" in str(exc) or "Proto26" in str(exc):
+                raise RuntimeError(
+                    "Model checkpoint requires legacy YOLO26 modules that are unavailable in this ultralytics build"
+                ) from exc
+            raise
+        self.names = self.model.names or {}
+
+    def _label_for(self, class_id: int) -> str:
+        class_name = str(self.names.get(class_id, class_id)).lower()
+        if any(token in class_name for token in ("intact", "ok", "good", "pass")):
+            return "INTACT"
+        if any(token in class_name for token in ("scratch", "defect", "damage", "fail")):
+            return "SCRATCH"
+        return "SCRATCH"
+
+    def _mask_polygon(self, mask: np.ndarray, width: int, height: int) -> list[list[int]]:
+        resized = cv2.resize(mask, (width, height), interpolation=cv2.INTER_NEAREST)
+        binary = (resized > 0.5).astype(np.uint8) * 255
+        contours, _ = cv2.findContours(binary, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            return []
+        contour = max(contours, key=cv2.contourArea)
+        epsilon = 0.002 * cv2.arcLength(contour, True)
+        polygon = cv2.approxPolyDP(contour, epsilon, True)
+        return polygon.reshape(-1, 2).astype(int).tolist()
+
+    def predict(self, image: Image.Image, confidence: float, iou: float) -> dict[str, Any]:
+        width, height = image.size
+        frame = np.array(image.convert("RGB"))
+        start_time = time.perf_counter()
+        # Enable segmentation with task='segment' to get instance masks
+        results = self.model.predict(frame, conf=confidence, iou=iou, task='segment', verbose=False)
+        latency_ms = (time.perf_counter() - start_time) * 1000
+
+        detections: list[dict[str, Any]] = []
+        scores: list[float] = []
+
+        for result in results:
+            masks = result.masks.data.cpu().numpy() if result.masks is not None else []
+            boxes = result.boxes if result.boxes is not None else []
+            
+            # Log mask availability for debugging
+            logger.info(f"Inference result: {len(boxes)} boxes detected, masks available: {result.masks is not None}, mask count: {len(masks)}")
+
+            for index, box in enumerate(boxes):
+                class_id = int(box.cls.item())
+                score = float(box.conf.item())
+                xyxy = [float(value) for value in box.xyxy.cpu().numpy()[0].tolist()]
+                mask_polygon = []
+                if index < len(masks):
+                    mask_polygon = self._mask_polygon(masks[index], width, height)
+                    logger.info(f"  Detection {index}: {self.names.get(class_id)} - mask polygon points: {len(mask_polygon)}")
+                else:
+                    logger.warning(f"  Detection {index}: {self.names.get(class_id)} - NO MASK DATA (index {index} >= mask count {len(masks)})")
+
+                scores.append(score)
+                
+                # Fallback: if no mask polygon, create one from bbox for visualization
+                if not mask_polygon:
+                    x1, y1, x2, y2 = xyxy
+                    mask_polygon = [
+                        [int(x1), int(y1)],
+                        [int(x2), int(y1)],
+                        [int(x2), int(y2)],
+                        [int(x1), int(y2)],
+                    ]
+                
+                detections.append(
+                    {
+                        "bbox": xyxy,
+                        "confidence": round(score, 4),
+                        "class_id": class_id,
+                        "class_name": str(self.names.get(class_id, class_id)),
+                        "label": self._label_for(class_id),
+                        "mask": {
+                            "polygon": mask_polygon,
+                            "width": width,
+                            "height": height,
+                        },
+                    }
+                )
+
+        return {
+            "success": True,
+            "detections": detections,
+            "confidence": round(sum(scores) / len(scores), 4) if scores else 0.0,
+            "latency_ms": round(latency_ms, 2),
+            "image_size": {"width": width, "height": height},
+        }
+
+
+class ModelRegistry:
+    def __init__(self) -> None:
+        self._models: dict[str, EMSDWrapper] = {}
+
+    def _weights_for(self, model_name: str) -> str:
+        model = AIModel.objects.filter(name=model_name).order_by("-is_active", "-created_at").first()
+        if model:
+            file_field = model.file_path_pt or model.file_path_onnx or model.file_path_engine
+            if file_field:
+                storage_path = Path(settings.MEDIA_ROOT) / file_field.name
+                if storage_path.exists():
+                    return str(storage_path)
+
+                repo_weights_path = Path(settings.BASE_DIR) / "models" / "weights" / Path(file_field.name).name
+                if repo_weights_path.exists():
+                    return str(repo_weights_path)
+
+        default_path = getattr(settings, "INFERENCE_DEFAULT_WEIGHTS", "")
+        if default_path:
+            return str(default_path)
+        return str(Path(settings.BASE_DIR) / "models" / "weights" / "tpcyolov26nv21gs_emsd.pt")
+
+    def get(self, model_name: str) -> EMSDWrapper:
+        if model_name not in self._models:
+            weights_path = self._weights_for(model_name)
+            if not os.path.exists(weights_path):
+                raise FileNotFoundError(f"Model weights not found: {weights_path}")
+            self._models[model_name] = EMSDWrapper(weights_path)
+        return self._models[model_name]
+
+
+registry = ModelRegistry()
+
+
+@app.get("/health")
+def health() -> tuple[Any, int]:
+    return jsonify(
+        {
+            "status": "ok" if YOLO is not None else "degraded",
+            "service": "emsd-yolo26-inference",
+            "loaded_models": list(registry._models.keys()),
+            "ultralytics_available": YOLO is not None,
+        }
+    ), 200 if YOLO is not None else 503
+
+
+@app.post("/predict")
+def predict() -> tuple[Any, int]:
+    if YOLO is None:
+        return jsonify({"success": False, "error": "ultralytics unavailable"}), 503
+
+    image_file = request.files.get("image")
+    if image_file is None:
+        return jsonify({"success": False, "error": "image file is required"}), 400
+
+    model_name = request.form.get("model_name") or "yolo26_emsd_v1"
+    confidence = float(request.form.get("confidence", 0.5))
+    iou = float(request.form.get("iou", 0.45))
+
+    try:
+        image_bytes = image_file.read()
+        image = Image.open(io.BytesIO(image_bytes))
+        result = registry.get(model_name).predict(image, confidence, iou)
+        
+        # Render annotations server-side
+        if result.get("success"):
+            frame_rgb = np.array(image.convert("RGB"))
+            # Create mask from detections (simplified: use first mask if available)
+            mask = None
+            # Apply overlay
+            annotated_frame = _overlay_mask_and_detections(frame_rgb, mask, result.get("detections", []))
+            # Convert to PNG bytes and base64 encode (strip whitespace)
+            annotated_pil = Image.fromarray(annotated_frame)
+            png_bytes = io.BytesIO()
+            annotated_pil.save(png_bytes, format="PNG")
+            png_bytes.seek(0)
+            annotated_b64 = base64.b64encode(png_bytes.getvalue()).decode("utf-8").replace('\n', '').replace('\r', '')
+            result["annotated_image_b64"] = annotated_b64
+            logger.info(f"Rendered annotations for {len(result.get('detections', []))} detections, base64 size: {len(annotated_b64)}")
+        
+        return jsonify(result), 200
+    except FileNotFoundError as exc:
+        logger.exception("Model weights unavailable")
+        return jsonify({"success": False, "error": str(exc)}), 503
+    except RuntimeError as exc:
+        logger.exception("Model initialization failed")
+        return jsonify({"success": False, "error": str(exc)}), 503
+    except Exception as exc:
+        logger.exception("Prediction failed")
+        return jsonify({"success": False, "error": str(exc)}), 500
+
+
+if __name__ == "__main__":
+    host = os.getenv("INFERENCE_SERVER_HOST", "127.0.0.1")
+    port = int(os.getenv("INFERENCE_SERVER_PORT", "8091"))
+    app.run(host=host, port=port)

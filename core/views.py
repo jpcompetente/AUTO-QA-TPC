@@ -1,7 +1,11 @@
 import base64
 import io
 import logging
+import os
 from datetime import timedelta
+from django.conf import settings
+from django.core.files.base import ContentFile
+from django.core.files.storage import default_storage
 from django.http import HttpResponse
 from django.utils import timezone
 from django.db.models import Avg, Count, Q, F
@@ -10,27 +14,158 @@ from rest_framework import viewsets, permissions, status
 from rest_framework.decorators import api_view, action
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
-from PIL import Image
+from django_filters.rest_framework import DjangoFilterBackend
+from PIL import Image, ImageDraw, ImageFont
 
 from .models import (
     UserProfile, AIModel, ComponentType, 
-    AdminSettings, InferenceLog, RetrainingQueue,
+    ActiveConfiguration, InferenceLog, RetrainingQueue,
     TrainingJob, DatasetBuffer
 )
 from .serializers import (
-    AdminSettingsSerializer, ComponentTypeSerializer, 
+    ActiveConfigurationSerializer, ComponentTypeSerializer, 
     AIModelSerializer, InferenceLogSerializer, 
     RetrainingQueueSerializer, CustomTokenObtainPairSerializer,
     TrainingJobSerializer, DatasetBufferSerializer,
     OperatorSerializer
 )
 from .tasks import train_model, deploy_model_version
+from .inference_services import InferenceFactory, orchestrator
 
 logger = logging.getLogger(__name__)
+
+
+def _render_annotated_snapshot(image_bytes, detections):
+    try:
+        with Image.open(io.BytesIO(image_bytes)) as source_image:
+            base_image = source_image.convert('RGBA')
+    except Exception:
+        return image_bytes
+
+    overlay = Image.new('RGBA', base_image.size, (0, 0, 0, 0))
+    overlay_draw = ImageDraw.Draw(overlay)
+    draw = ImageDraw.Draw(base_image)
+
+    try:
+        font = ImageFont.load_default()
+    except Exception:
+        font = None
+
+    for detection in detections or []:
+        if not isinstance(detection, dict):
+            continue
+
+        label = str(detection.get('label') or detection.get('class_name') or 'DETECTION').upper()
+        confidence = float(detection.get('confidence') or 0.0)
+        bbox = detection.get('bbox') or []
+        mask = detection.get('mask') if isinstance(detection.get('mask'), dict) else {}
+        polygon = mask.get('polygon') if isinstance(mask, dict) else None
+
+        is_defect = label in ('SCRATCH', 'DEFECT')
+        stroke = (239, 68, 68, 255) if is_defect else (34, 197, 94, 255)
+        fill = (239, 68, 68, 72) if is_defect else (34, 197, 94, 64)
+
+        if polygon and len(polygon) > 2:
+            points = []
+            for point in polygon:
+                if isinstance(point, (list, tuple)) and len(point) >= 2:
+                    try:
+                        points.append((float(point[0]), float(point[1])))
+                    except (TypeError, ValueError):
+                        continue
+
+            if len(points) > 2:
+                overlay_draw.polygon(points, fill=fill, outline=stroke)
+                overlay_draw.line(points + [points[0]], fill=stroke, width=2)
+
+        if len(bbox) == 4:
+            try:
+                x1, y1, x2, y2 = [int(round(float(value))) for value in bbox]
+            except (TypeError, ValueError):
+                continue
+
+            draw.rectangle([x1, y1, x2, y2], outline=stroke, width=3)
+            text = f"{label} {confidence * 100:.1f}%"
+
+            if font is not None:
+                text_bbox = draw.textbbox((x1, y1), text, font=font)
+            else:
+                text_bbox = draw.textbbox((x1, y1), text)
+
+            text_width = text_bbox[2] - text_bbox[0]
+            text_height = text_bbox[3] - text_bbox[1]
+            text_left = x1
+            text_top = max(0, y1 - text_height - 8)
+            draw.rectangle(
+                [text_left, text_top, text_left + text_width + 8, text_top + text_height + 6],
+                fill=(0, 0, 0, 170),
+            )
+            draw.text((text_left + 4, text_top + 2), text, fill=(255, 255, 255, 255), font=font)
+
+    annotated = Image.alpha_composite(base_image, overlay).convert('RGB')
+    buffer = io.BytesIO()
+    annotated.save(buffer, format='PNG')
+    return buffer.getvalue()
+
+
+def user_role(user):
+    try:
+        return user.profile.role
+    except Exception:
+        return ''
+
+
+class IsAdminOrSuperAdmin(permissions.BasePermission):
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        return user_role(request.user) in ('ADMIN', 'SUPER_ADMIN') or request.user.is_staff
+
+
+class IsAdminOrReadOnlyAuthenticated(permissions.BasePermission):
+    """Allow safe methods for any authenticated user; restrict unsafe methods to admins/superadmins."""
+
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        if request.method in permissions.SAFE_METHODS:
+            return True
+        return user_role(request.user) in ('ADMIN', 'SUPER_ADMIN') or request.user.is_staff
 
 # 🔑 Custom JWT View
 class CustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
+
+
+@api_view(['GET'])
+def api_status(request):
+    """
+    Lightweight health/status endpoint for the Vite frontend.
+    """
+    return Response({
+        "message": "Django core API connected",
+        "service": "ai_ins_sys.core",
+        "authenticated": bool(request.user and request.user.is_authenticated),
+    })
+
+
+@api_view(['GET'])
+def operator_preset(request):
+    if not request.user or not request.user.is_authenticated:
+        return Response({'error': 'Authentication required'}, status=401)
+
+    setting = ActiveConfiguration.objects.filter(
+        operator=request.user,
+        is_active=True,
+    ).select_related('product', 'model', 'operator').order_by('-config_version', '-id').first()
+
+    if not setting:
+        return Response(
+            {'error': 'No active inspection preset assigned to this operator'},
+            status=404,
+        )
+
+    return Response(ActiveConfigurationSerializer(setting).data)
 
 
 # ====================================
@@ -189,65 +324,210 @@ def model_performance(request):
 @api_view(['POST'])
 def detect_image(request):
     """
-    Real-time inference endpoint
-    Receives image frame, runs YOLO detection, returns results with latency
+    Real-time inference endpoint.
+    Accepts multipart PNG/JPEG frames or the legacy base64 data URL payload.
+    Only OPERATOR, ADMIN, and SUPER_ADMIN roles can run detections.
+    INSPECTOR role is view-only and cannot run detections.
     """
     try:
-        from .model_loader import model_loader
-        import time
-        import cv2
-        import numpy as np
+        # Require authentication for running detections
+        if not request.user or not request.user.is_authenticated:
+            return Response({'error': 'Authentication required'}, status=401)
+
+        role_val = user_role(request.user)
+        if role_val == 'INSPECTOR':
+            return Response(
+                {'error': 'Inspector accounts are view-only and cannot run detections'},
+                status=403,
+            )
+        operator_config = None
+        if role_val == 'OPERATOR':
+            operator_config = ActiveConfiguration.objects.filter(
+                operator=request.user,
+                is_active=True,
+            ).select_related('product', 'model', 'operator').order_by('-config_version', '-id').first()
+
+            if not operator_config:
+                return Response(
+                    {'error': 'No active inspection preset assigned to this operator'},
+                    status=403,
+                )
+
+            payload_config_id = request.data.get('config_id') or request.data.get('preset_id')
+            payload_config_version = request.data.get('config_version')
+            payload_config_hash = request.data.get('config_hash')
+
+            if str(operator_config.id) != str(payload_config_id):
+                return Response({'error': 'Preset mismatch'}, status=403)
+            if str(operator_config.config_version) != str(payload_config_version):
+                return Response({'error': 'Preset version mismatch'}, status=409)
+            if not payload_config_hash:
+                return Response({'error': 'Preset hash is required'}, status=400)
+            if payload_config_hash != operator_config.config_hash:
+                return Response({'error': 'Preset hash mismatch'}, status=403)
+        image_file = request.FILES.get('image')
+        filename = getattr(image_file, 'name', 'frame.png')
+
+        if image_file:
+            image_bytes = image_file.read()
+        else:
+            image_data = request.data.get('image')
+            if not image_data:
+                return Response({"error": "No image received"}, status=400)
+            image_bytes = base64.b64decode(
+                image_data.split(',', 1)[1] if ',' in image_data else image_data
+            )
+
+        if not image_bytes:
+            return Response({"error": "Empty image received"}, status=400)
+
+        operator = request.user if request.user and request.user.is_authenticated else None
+        active_preset = operator_config if role_val == 'OPERATOR' else None
+
+        model = active_preset.model if active_preset else None
+        model_id = request.data.get('model') or request.data.get('model_id')
+        if model is None and model_id:
+            model = AIModel.objects.filter(id=model_id).first()
+        if model is None:
+            model = AIModel.objects.filter(is_active=True).first()
+        if model is None:
+            model, _ = AIModel.objects.get_or_create(
+                name=getattr(settings, 'INFERENCE_DEFAULT_MODEL_NAME', 'yolo26_emsd_v1'),
+                version='v1',
+                defaults={
+                    'description': 'Default EMSD YOLOv26 model variant',
+                    'is_active': True,
+                    'is_deployment_ready': True,
+                },
+            )
+
+        component = active_preset.product if active_preset else None
+        component_id = request.data.get('component') or request.data.get('component_id') or request.data.get('product_id')
+        if component is None and component_id:
+            component = ComponentType.objects.filter(id=component_id).first()
+
+        confidence = float(
+            request.data.get(
+                'confidence',
+                active_preset.threshold if active_preset else getattr(settings, 'INFERENCE_CONFIDENCE_THRESHOLD', 0.5),
+            )
+        )
+        iou = float(request.data.get('iou', getattr(settings, 'INFERENCE_IOU_THRESHOLD', 0.45)))
+
+        result = orchestrator.infer(
+            image_bytes=image_bytes,
+            filename=filename,
+            model_name=model.name,
+            confidence=confidence,
+            iou=iou,
+        )
+
+        if not result.success:
+            return Response(result.to_dict(), status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        # Only perform automatic auto-capture when the operator session is active.
+        # Frontend will send `session_active` flag (true/false) to indicate whether
+        # the operator has started a session (ready to allow auto-capture).
+        session_active_raw = request.data.get('session_active', True)
+        try:
+            session_active = str(session_active_raw).lower() in ('1', 'true', 'yes', 'on')
+        except Exception:
+            session_active = bool(session_active_raw)
+
+        annotated_image_bytes = _render_annotated_snapshot(image_bytes, result.detections)
+
+        if result.system_decision == 'FAIL' and session_active:
+            capture_name = f"captures/pending/{timezone.now():%Y%m%d_%H%M%S_%f}_{result.image_hash}.png"
+            result.auto_capture_path = default_storage.save(
+                capture_name,
+                ContentFile(annotated_image_bytes, name=f"{result.image_hash}.png"),
+            )
+
+        if operator is None:
+            operator, _ = User.objects.get_or_create(
+                username='system_operator',
+                defaults={'is_active': False},
+            )
+
+        # Extract segmentation data and calculate defect area percent
+        defect_area_percent = 0.0
+        segmentation_data = {}
         
-        image_data = request.data.get('image')
-        if not image_data:
-            return Response({"error": "No image received"}, status=400)
-        
-        # Get active model
-        model = model_loader.get_active_model()
-        if not model:
-            return Response({"error": "No active model loaded"}, status=500)
-        
-        # Decode image
-        image_bytes = base64.b64decode(image_data.split(',')[1] if ',' in image_data else image_data)
-        image_array = np.frombuffer(image_bytes, dtype=np.uint8)
-        frame = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
-        
-        if frame is None:
-            return Response({"error": "Invalid image data"}, status=400)
-        
-        # Run inference
-        start_time = time.time()
-        results = model.predict(frame, conf=0.5, verbose=False)
-        latency_ms = (time.time() - start_time) * 1000
-        
-        # Parse results
-        detections = []
-        confidence_scores = []
-        
-        for result in results:
-            for box in result.boxes:
-                detections.append({
-                    'class': int(box.cls),
-                    'confidence': float(box.conf),
-                    'bbox': box.xyxy.tolist()[0]  # [x1, y1, x2, y2]
+        for detection in result.detections:
+            # Collect mask polygons
+            if detection.get('mask') and detection['mask'].get('polygon'):
+                if 'mask_polygons' not in segmentation_data:
+                    segmentation_data['mask_polygons'] = []
+                segmentation_data['mask_polygons'].append({
+                    'label': detection.get('label'),
+                    'confidence': detection.get('confidence'),
+                    'polygon': detection['mask']['polygon'],
                 })
-                confidence_scores.append(float(box.conf))
-        
-        # Determine system decision
-        system_decision = 'PASS' if len(detections) == 0 else 'FAIL'
-        avg_confidence = sum(confidence_scores) / len(confidence_scores) if confidence_scores else 0
-        
-        return Response({
-            "system_decision": system_decision,
-            "confidence": round(avg_confidence, 3),
-            "detections": detections,
-            "latency_ms": round(latency_ms, 2),
-            "num_detections": len(detections)
-        })
-        
+            
+            # Calculate defect area percentage based on detected scratches
+            if detection.get('label') == 'SCRATCH' or detection.get('label') == 'DEFECT':
+                bbox = detection.get('bbox', [])
+                if len(bbox) == 4:
+                    x1, y1, x2, y2 = bbox
+                    if len(result.detections) > 0:
+                        # Rough calculation: bbox area / image area
+                        img_area = 640 * 360  # Assuming default YOLO input size
+                        bbox_area = (x2 - x1) * (y2 - y1)
+                        defect_area_percent = max(defect_area_percent, (bbox_area / img_area) * 100)
+
+        snapshot_name = f"{timezone.now():%Y%m%d_%H%M%S_%f}_{result.image_hash}.png"
+        log = InferenceLog.objects.create(
+            operator=operator,
+            model_used=model,
+            component=component,
+            image_snapshot=ContentFile(annotated_image_bytes, name=snapshot_name),
+            detection_results={
+                'detections': result.detections,
+                'cache_hit': result.cache_hit,
+                'image_hash': result.image_hash,
+                'metrics': result.metrics,
+            },
+            segmentation_data=segmentation_data,
+            defect_area_percent=round(defect_area_percent, 2),
+            latency_ms=result.latency_ms,
+            confidence_score=result.confidence,
+            system_decision=result.system_decision,
+            final_decision=result.system_decision,
+            status='PENDING',
+            session_id=request.data.get('session_id', ''),
+        )
+
+        payload = result.to_dict()
+        payload['id'] = log.id
+        payload['log_id'] = log.id
+        payload['snapshot_url'] = log.image_snapshot.url if log.image_snapshot else ''
+        if result.auto_capture_path:
+            payload['auto_capture_url'] = default_storage.url(result.auto_capture_path)
+        return Response(payload)
     except Exception as e:
         logger.error(f"Error in detect_image: {str(e)}")
         return Response({"error": str(e)}, status=500)
+
+
+@api_view(['GET'])
+def inference_metrics(request):
+    return Response(orchestrator.snapshot_metrics())
+
+
+@api_view(['GET'])
+def inference_health(request):
+    model_name = request.query_params.get(
+        'model_name',
+        getattr(settings, 'INFERENCE_DEFAULT_MODEL_NAME', 'yolo26_emsd_v1'),
+    )
+    try:
+        health = InferenceFactory.get_service(model_name).health_check()
+        return Response(health)
+    except Exception as exc:
+        return Response(
+            {'status': 'unavailable', 'error': str(exc)},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
 
 # ====================================
@@ -257,7 +537,9 @@ def detect_image(request):
 class AIModelViewSet(viewsets.ModelViewSet):
     queryset = AIModel.objects.all()
     serializer_class = AIModelSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminOrReadOnlyAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['compatible_components']
     
     @action(detail=True, methods=['post'])
     def activate(self, request, pk=None):
@@ -295,27 +577,39 @@ class AIModelViewSet(viewsets.ModelViewSet):
 class ComponentTypeViewSet(viewsets.ModelViewSet):
     queryset = ComponentType.objects.all()
     serializer_class = ComponentTypeSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminOrReadOnlyAuthenticated]
 
 
 class AdminSettingsViewSet(viewsets.ModelViewSet):
-    queryset = AdminSettings.objects.all().order_by('-id')
-    serializer_class = AdminSettingsSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    queryset = ActiveConfiguration.objects.all().order_by('-updated_at', '-id')
+    serializer_class = ActiveConfigurationSerializer
+    permission_classes = [IsAdminOrSuperAdmin]
 
     def perform_create(self, serializer):
-        serializer.save(admin=self.request.user)
+        serializer.save(created_by=self.request.user)
+
+    def create(self, request, *args, **kwargs):
+        """Override create to log serializer validation errors for debugging."""
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            logger.debug(
+                "AdminSettings create validation errors: %s | payload: %s",
+                serializer.errors,
+                request.data,
+            )
+            return Response(serializer.errors, status=400)
+        return super().create(request, *args, **kwargs)
     
     @action(detail=True, methods=['get'])
     def assigned_operator_sessions(self, request, pk=None):
         """Get all inference logs for assigned operator"""
         setting = self.get_object()
-        if not setting.assigned_operator:
+        if not setting.operator:
             return Response({'error': 'No operator assigned'}, status=400)
         
         logs = InferenceLog.objects.filter(
-            operator=setting.assigned_operator,
-            component=setting.component
+            operator=setting.operator,
+            component=setting.product
         ).order_by('-timestamp')[:100]
         
         serializer = InferenceLogSerializer(logs, many=True)
@@ -326,7 +620,8 @@ class InferenceLogViewSet(viewsets.ModelViewSet):
     queryset = InferenceLog.objects.all().order_by('-timestamp')
     serializer_class = InferenceLogSerializer
     permission_classes = [permissions.IsAuthenticated]
-    filterset_fields = ['operator', 'status', 'final_decision']
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['operator', 'status', 'final_decision', 'component']
     
     @action(detail=True, methods=['post'])
     def operator_override(self, request, pk=None):
@@ -336,6 +631,9 @@ class InferenceLogViewSet(viewsets.ModelViewSet):
         log.operator_override = True
         log.final_decision = request.data.get('final_decision', log.system_decision)
         log.operator_comment = request.data.get('comment', '')
+        log.operator_review_description = request.data.get('description', log.operator_review_description)
+        log.rejection_reason = request.data.get('rejection_reason', log.rejection_reason)
+        log.reviewed_at = timezone.now()
         log.status = 'APPROVED' if log.final_decision == 'PASS' else 'REJECTED'
         log.save()
         
@@ -348,6 +646,42 @@ class InferenceLogViewSet(viewsets.ModelViewSet):
             )
             logger.info(f"Queued inference {log.id} for retraining due to operator override")
         
+        return Response(InferenceLogSerializer(log).data)
+
+    @action(detail=True, methods=['post'])
+    def review(self, request, pk=None):
+        """Acknowledge or reject the inference result after auto-capture."""
+        log = self.get_object()
+        action_value = request.data.get('action')
+        description = (request.data.get('description') or '').strip()
+        rejection_reason = request.data.get('rejection_reason', '')
+        final_decision = request.data.get('final_decision', log.system_decision)
+
+        if action_value not in ('ACKNOWLEDGE', 'REJECT'):
+            return Response({'error': 'action must be ACKNOWLEDGE or REJECT'}, status=400)
+        if not description:
+            return Response({'error': 'description is required'}, status=400)
+        if action_value == 'REJECT' and not rejection_reason:
+            return Response({'error': 'rejection_reason is required when rejecting'}, status=400)
+        if final_decision not in ('PASS', 'FAIL'):
+            return Response({'error': 'final_decision must be PASS or FAIL'}, status=400)
+
+        log.operator_review_description = description
+        log.operator_comment = description
+        log.rejection_reason = rejection_reason if action_value == 'REJECT' else ''
+        log.final_decision = final_decision
+        log.operator_override = final_decision != log.system_decision or action_value == 'REJECT'
+        log.status = 'APPROVED' if action_value == 'ACKNOWLEDGE' else 'REJECTED'
+        log.reviewed_at = timezone.now()
+        log.save()
+
+        if log.status == 'REJECTED':
+            priority = 2 if rejection_reason in ('MISSED_DEFECT', 'BAD_ANNOTATION', 'WRONG_CLASS') else 1
+            RetrainingQueue.objects.get_or_create(
+                log_entry=log,
+                defaults={'priority': priority, 'status': 'PENDING'},
+            )
+
         return Response(InferenceLogSerializer(log).data)
     
     @action(detail=False, methods=['get'])
@@ -477,4 +811,4 @@ class DatasetBufferViewSet(viewsets.ReadOnlyModelViewSet):
 class OperatorViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = User.objects.filter(profile__role='OPERATOR').order_by('username')
     serializer_class = OperatorSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminOrSuperAdmin]

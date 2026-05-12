@@ -1,4 +1,5 @@
 import os
+from importlib.util import find_spec
 from dotenv import load_dotenv
 from pathlib import Path
 
@@ -22,17 +23,20 @@ ALLOWED_HOSTS = ['*']  # Set this to your domain or IP in production
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME'),
-        'USER': os.getenv('DB_USER'),
-        'PASSWORD': os.getenv('DB_PASSWORD'),
-        'HOST': 'localhost',
-        'PORT': '5432',
+        'NAME': os.getenv('DB_NAME', ''),
+        'USER': os.getenv('DB_USER', ''),
+        'PASSWORD': os.getenv('DB_PASSWORD', ''),
+        'HOST': os.getenv('DB_HOST', 'localhost'),
+        'PORT': os.getenv('DB_PORT', '5432'),
+        'CONN_MAX_AGE': 600,  # Connection pooling: reuse connections for up to 10 minutes
+        'OPTIONS': {
+            'connect_timeout': 10,
+        }
     }
 }
 
 # Installed Apps
 INSTALLED_APPS = [
-    'daphne',  # ✅ Channels ASGI server (must be first)
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -40,16 +44,24 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'django.contrib.sites',
-    'corsheaders',   # ✅ required for CORS
+    'corsheaders',
     'rest_framework',
-    'channels',  # ✅ WebSockets support
-    # 'django.contrib.redirects',   # ❌ disabled muna
+    'django_filters',
     'core',
 ]
+
+if find_spec('daphne') is not None:
+    INSTALLED_APPS.insert(0, 'daphne')
+
+if find_spec('channels') is not None:
+    INSTALLED_APPS.append('channels')
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_FILTER_BACKENDS': (
+        'django_filters.rest_framework.DjangoFilterBackend',
     )
 }
 
@@ -70,13 +82,15 @@ MIDDLEWARE = [
 CORS_ALLOWED_ORIGINS = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
 ]
 
 # For testing only (disable in production)
 # CORS_ALLOW_ALL_ORIGINS = True
 
 # ✅ Root URL configuration
-ROOT_URLCONF = 'backend.urls'
+ROOT_URLCONF = 'ai_ins_sys.urls'
 
 STATIC_URL = '/static/'
 
@@ -128,16 +142,17 @@ SITE_ID = 1
 # ✅ WebSocket & Real-time Support with Channels
 ASGI_APPLICATION = 'ai_ins_sys.asgi.application'
 
-CHANNEL_LAYERS = {
-    "default": {
-        "BACKEND": "channels_redis.core.RedisChannelLayer",
-        "CONFIG": {
-            "hosts": [("127.0.0.1", 6379)],
-            "capacity": 1500,
-            "expiry": 10,
+if find_spec('channels') is not None and find_spec('channels_redis') is not None:
+    CHANNEL_LAYERS = {
+        "default": {
+            "BACKEND": "channels_redis.core.RedisChannelLayer",
+            "CONFIG": {
+                "hosts": [("127.0.0.1", 6379)],
+                "capacity": 1500,
+                "expiry": 10,
+            },
         },
-    },
-}
+    }
 
 # ✅ Media Files Configuration (for model weights, images, etc.)
 MEDIA_URL = '/media/'
@@ -148,6 +163,22 @@ os.makedirs(MEDIA_ROOT, exist_ok=True)
 os.makedirs(os.path.join(MEDIA_ROOT, 'models', 'weights'), exist_ok=True)
 os.makedirs(os.path.join(MEDIA_ROOT, 'inference', 'snapshots'), exist_ok=True)
 os.makedirs(os.path.join(MEDIA_ROOT, 'retrain_queue'), exist_ok=True)
+os.makedirs(os.path.join(MEDIA_ROOT, 'captures', 'pending'), exist_ok=True)
+
+# AI inference pipeline defaults
+INFERENCE_DEFAULT_MODEL_NAME = os.getenv('INFERENCE_DEFAULT_MODEL_NAME', 'yolo26_emsd_v1')
+INFERENCE_SERVER_URL = os.getenv('INFERENCE_SERVER_URL', 'http://127.0.0.1:8091')
+INFERENCE_DEFAULT_WEIGHTS = os.getenv(
+    'INFERENCE_DEFAULT_WEIGHTS',
+    os.path.join(BASE_DIR, 'models', 'weights', 'tpcyolov26nv21gs_emsd.pt'),
+)
+INFERENCE_CONFIDENCE_THRESHOLD = float(os.getenv('INFERENCE_CONFIDENCE_THRESHOLD', '0.5'))
+INFERENCE_IOU_THRESHOLD = float(os.getenv('INFERENCE_IOU_THRESHOLD', '0.45'))
+INFERENCE_TIMEOUT_SECONDS = float(os.getenv('INFERENCE_TIMEOUT_SECONDS', '10'))
+INFERENCE_CACHE_MAX_ENTRIES = int(os.getenv('INFERENCE_CACHE_MAX_ENTRIES', '256'))
+INFERENCE_MODEL_ENDPOINTS = {
+    INFERENCE_DEFAULT_MODEL_NAME: INFERENCE_SERVER_URL,
+}
 
 # ✅ Celery Configuration for Async Tasks & Model Retraining
 CELERY_BROKER_URL = 'redis://127.0.0.1:6379/0'
@@ -162,10 +193,15 @@ CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 
 # Celery Beat Schedule for periodic tasks
-from celery.schedules import crontab
-CELERY_BEAT_SCHEDULE = {
-    'check-retraining-queue': {
-        'task': 'core.tasks.check_retraining_queue',
-        'schedule': crontab(minute='*/5'),  # Every 5 minutes
-    },
-}
+try:
+    from celery.schedules import crontab
+except ImportError:
+    crontab = None
+
+if crontab is not None:
+    CELERY_BEAT_SCHEDULE = {
+        'check-retraining-queue': {
+            'task': 'core.tasks.check_retraining_queue',
+            'schedule': crontab(minute='*/5'),  # Every 5 minutes
+        },
+    }
