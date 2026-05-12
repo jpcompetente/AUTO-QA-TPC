@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import Webcam from "react-webcam";
 import {
   createAdminSettings,
@@ -95,8 +95,9 @@ function AdminDashboard({ onLogout }) {
   const [form, setForm] = useState({
     product: "", model: "", threshold: 0.5, operator: "",
   });
+  const [detectionLogsLimit, setDetectionLogsLimit] = useState(20);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
       const [compRes, modelRes, opRes, settingsRes, logsRes] = await Promise.all([
@@ -117,9 +118,13 @@ function AdminDashboard({ onLogout }) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    void (async () => {
+      await fetchData();
+    })();
+  }, [fetchData]);
 
   const getCompatibleModels = () => {
     if (!form.product) return [];
@@ -371,6 +376,23 @@ function AdminDashboard({ onLogout }) {
               <div className="adash__section-header">
                 <h3>Detection records</h3>
                 <span className="adash__section-badge">{detectionLogs.length} rows</span>
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: '12px', alignItems: 'center' }}>
+                  <label style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>Show:</label>
+                  <select 
+                    value={detectionLogsLimit} 
+                    onChange={(e) => setDetectionLogsLimit(Number(e.target.value))}
+                    style={{padding: '6px 10px', fontSize: '12px', borderRadius: '4px', border: '1px solid #ccc'}}
+                  >
+                    <option value={20}>20 logs</option>
+                    <option value={50}>50 logs</option>
+                    <option value={detectionLogs.length}>All logs</option>
+                  </select>
+                  {detectionLogs.length > detectionLogsLimit && (
+                    <span style={{fontSize: '11px', color: '#666'}}>
+                      Showing {Math.min(detectionLogsLimit, detectionLogs.length)} of {detectionLogs.length}
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="adash__table-wrap">
@@ -387,7 +409,7 @@ function AdminDashboard({ onLogout }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {detectionLogs.map((log) => (
+                    {detectionLogs.slice(0, detectionLogsLimit).map((log) => (
                       <tr key={log.id}>
                         <td style={{ fontFamily: "var(--font-mono)", fontSize: "12px", color: "var(--text-3)" }}>#{log.id}</td>
                         <td>{log.operator_name || log.operator}</td>

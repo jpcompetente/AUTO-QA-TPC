@@ -36,7 +36,7 @@ def noop_reverse(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("core", "0007_restore_admin_permissions"),
+        ("core", "0007_active_configuration"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
 
