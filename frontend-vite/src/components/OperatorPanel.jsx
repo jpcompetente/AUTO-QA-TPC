@@ -12,7 +12,6 @@ const STABLE_CAPTURE_DELAY_MS  = 2000;
 const MOTION_SAMPLE_INTERVAL_MS = 250;
 const MOTION_THRESHOLD          = 9;   // For auto-capture (stable frame detection)
 const LIVE_INFERENCE_INTERVAL_MS = 1500;
-const LIVE_LABEL_CHANGE_COOLDOWN_MS = 1000;
 const LIVE_MOTION_THRESHOLD     = 20;  // Higher threshold for live feed (less noise)
 
 const REJECTION_REASONS = [
@@ -39,8 +38,6 @@ function OperatorPanel({ onLogout }) {
   const liveIntervalRef    = useRef(null);
   const livePreviousFrameRef = useRef(null);
   const waitForMotionAfterEmptyRef = useRef(false);
-  const lastLiveLabelRef   = useRef(null);
-  const lastCaptureCooldownRef = useRef(0);
 
   /* state */
   const [preset,                setPreset]               = useState(null);
@@ -134,8 +131,10 @@ function OperatorPanel({ onLogout }) {
 
   // Refresh logs when session filter changes
   useEffect(() => {
-    void fetchLogs();
-  }, [sessionFilter]);
+    void (async () => {
+      await fetchLogs();
+    })();
+  }, [fetchLogs]);
 
   /* ── Canvas overlay ─────────────────────────────────────────── */
   const drawOverlay = useCallback((result) => {
@@ -187,7 +186,7 @@ function OperatorPanel({ onLogout }) {
         return;
       }
       
-      (detections || []).forEach((detection, idx) => {
+      (detections || []).forEach((detection) => {
         const [x1, y1, x2, y2] = detection.bbox || [];
         const label = detection.label || detection.class_name || 'DETECTION';
         const confidence = Number(detection.confidence || 0);
@@ -195,8 +194,6 @@ function OperatorPanel({ onLogout }) {
         // Color scheme: Red for SCRATCH, Green for INTACT
         const isScratch = label === 'SCRATCH';
         const boxColor = isScratch ? '#ef4444' : '#22c55e';
-        const overlayRGB = isScratch ? [239, 68, 68] : [34, 197, 94];
-        
         // Draw filled polygon mask if available (with alpha blending)
         const polygon = detection.mask?.polygon || [];
         if (polygon.length > 2) {
@@ -257,7 +254,7 @@ function OperatorPanel({ onLogout }) {
     };
 
     drawDetections(result?.detections || []);
-  }, []);
+  }, [capturedFrame]);
 
   const drawLogOverlay = useCallback((logId, detections = []) => {
     const image  = document.getElementById(`log-image-${logId}`);
@@ -546,8 +543,11 @@ function OperatorPanel({ onLogout }) {
 
     const width = 96;
     const height = 72;
-    const canvas =
-      motionCanvasRef.current || (motionCanvasRef.current = document.createElement('canvas'));
+    let canvas = motionCanvasRef.current;
+    if (!canvas) {
+      canvas = document.createElement('canvas');
+      motionCanvasRef.current = canvas;
+    }
     canvas.width = width;
     canvas.height = height;
 
@@ -618,8 +618,7 @@ function OperatorPanel({ onLogout }) {
 
     const width = 64;
     const height = 48;
-    const canvas =
-      motionCanvasRef.current || (motionCanvasRef.current = document.createElement('canvas'));
+    const canvas = document.createElement('canvas');
     canvas.width = width;
     canvas.height = height;
 
@@ -711,7 +710,7 @@ function OperatorPanel({ onLogout }) {
     else stopLive();
 
     return () => stopLive();
-  }, [sessionStarted, preset, checkLiveInferenceMotion]);
+  }, [checkLiveInferenceMotion, preset, sessionId, sessionStarted]);
 
   /* ── Submit review ───────────────────────────────────────────── */
   const submitReview = async () => {
@@ -905,7 +904,7 @@ function OperatorPanel({ onLogout }) {
                 <button
                   className="primary-button"
                   onClick={() => void handleDetect('manual')}
-                  disabled={loading || reviewPendingRef.current}
+                  disabled={loading || reviewPending}
                   type="button"
                 >
                   {loading ? 'Capturing...' : 'Capture & Detect'}

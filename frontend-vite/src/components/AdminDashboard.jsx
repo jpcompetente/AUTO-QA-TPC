@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import Webcam from "react-webcam";
 import {
   createAdminSettings,
@@ -97,7 +97,7 @@ function AdminDashboard({ onLogout }) {
   });
   const [detectionLogsLimit, setDetectionLogsLimit] = useState(20);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
       const [compRes, modelRes, opRes, settingsRes, logsRes] = await Promise.all([
@@ -118,9 +118,13 @@ function AdminDashboard({ onLogout }) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => {
+    void (async () => {
+      await fetchData();
+    })();
+  }, [fetchData]);
 
   const getCompatibleModels = () => {
     if (!form.product) return [];

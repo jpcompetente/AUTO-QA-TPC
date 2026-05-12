@@ -1,4 +1,4 @@
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { useRef, useEffect, useState, useCallback } from 'react';
 import Webcam from 'react-webcam';
 import axios from 'axios';
 import '../styles/operator.css';
@@ -7,7 +7,7 @@ const OperatorDashboard = ({ onLogout }) => {
   const webcamRef = useRef(null);
   const [inference, setInference] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [sessionId, setSessionId] = useState(null);
+  const [sessionId, setSessionId] = useState(() => `operator_${Date.now()}`);
   const [sessionActive, setSessionActive] = useState(false);
   const [wsConnection, setWsConnection] = useState(null);
   const [confidenceThreshold, setConfidenceThreshold] = useState(0.5);
@@ -15,9 +15,6 @@ const OperatorDashboard = ({ onLogout }) => {
 
   /* ── WebSocket ─────────────────────────────────────────────── */
   useEffect(() => {
-    const id = `operator_${Date.now()}`;
-    setSessionId(id);
-
     const ws = new WebSocket('ws://localhost:8000/ws/metrics/');
 
     ws.onopen    = () => setWsConnection(ws);
