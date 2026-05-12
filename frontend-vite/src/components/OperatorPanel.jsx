@@ -1,6 +1,7 @@
 ﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import Webcam from 'react-webcam';
 import {
+  buildInferenceStreamUrl,
   detectImage,
   getDetectionLogs,
   getOperatorPreset,
@@ -37,6 +38,13 @@ function OperatorPanel({ onLogout }) {
   const reviewPendingRef   = useRef(false);
   const liveIntervalRef    = useRef(null);
   const livePreviousFrameRef = useRef(null);
+  const liveSocketRef      = useRef(null);
+  const liveRequestInFlightRef = useRef(false);
+  const reconnectAttemptsRef = useRef(0);
+  const reconnectTimerRef = useRef(null);
+  const streamEffectActiveRef = useRef(false);
+  const logsFetchInFlightRef = useRef(false);
+  const logsFetchQueuedRef = useRef(false);
   const waitForMotionAfterEmptyRef = useRef(false);
 
   /* state */
@@ -63,6 +71,8 @@ function OperatorPanel({ onLogout }) {
   const [activePanel,           setActivePanel]          = useState('camera');
   const [zoomedImage,           setZoomedImage]          = useState(null);
   const [logsLimit,             setLogsLimit]            = useState(20);
+  const [streamStatus,          setStreamStatus]         = useState('disconnected');
+  const [liveAnnotatedOverlaySrc, setLiveAnnotatedOverlaySrc] = useState('');
 
   /* ── Helpers ─────────────────────────────────────────────────── */
   const normalizeList = useCallback(
@@ -76,14 +86,42 @@ function OperatorPanel({ onLogout }) {
   }, []);
 
   const fetchLogs = useCallback(async () => {
+    if (logsFetchInFlightRef.current) {
+      logsFetchQueuedRef.current = true;
+      return;
+    }
+
+    logsFetchInFlightRef.current = true;
+
     const params = {};
     if (sessionFilter) params.session_id = sessionFilter;
-    const response = await getDetectionLogs(params);
-    const list = normalizeList(response.data);
-    setLogs(list);
-    if (!sessionFilter && list.length > 0 && !sessionStarted) {
-      const recentSession = list.find((l) => l.session_id);
-      if (recentSession) setSessionId(recentSession.session_id || '');
+
+    const runFetch = async () => {
+      const response = await getDetectionLogs(params);
+      const list = normalizeList(response.data);
+      setLogs(list);
+      if (!sessionFilter && list.length > 0 && !sessionStarted) {
+        const recentSession = list.find((l) => l.session_id);
+        if (recentSession) setSessionId(recentSession.session_id || '');
+      }
+    };
+
+    try {
+      await runFetch();
+    } catch (err) {
+      const isTransientNetworkError = !err?.response && !!err?.message;
+      if (isTransientNetworkError) {
+        await new Promise((resolve) => window.setTimeout(resolve, 200));
+        await runFetch();
+      } else {
+        throw err;
+      }
+    } finally {
+      logsFetchInFlightRef.current = false;
+      if (logsFetchQueuedRef.current) {
+        logsFetchQueuedRef.current = false;
+        void fetchLogs();
+      }
     }
   }, [normalizeList, sessionFilter, sessionStarted]);
 
@@ -94,6 +132,7 @@ function OperatorPanel({ onLogout }) {
       liveIntervalRef.current = null;
     }
     waitForMotionAfterEmptyRef.current = false;
+    setLiveAnnotatedOverlaySrc('');
     setSessionStarted(false);
     setSessionId('');
   }, []);
@@ -361,6 +400,12 @@ function OperatorPanel({ onLogout }) {
       
       // Only draw on live feed (not when captured frame is showing)
       if (!capturedFrame && video && video.readyState === 4) {
+        // Keep server-side rendered overlay on canvas when available.
+        if (detectionResult?.annotated_image_b64) {
+          animationFrameId = requestAnimationFrame(drawFrame);
+          return;
+        }
+
         // Draw detections if available
         if (detectionResult && detectionResult.detections && detectionResult.detections.length > 0) {
           drawOverlay(detectionResult);
@@ -398,6 +443,111 @@ function OperatorPanel({ onLogout }) {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [zoomedImage]);
+
+  useEffect(() => {
+    streamEffectActiveRef.current = true;
+
+    const closeStream = () => {
+      const socket = liveSocketRef.current;
+      if (socket) {
+        socket.close();
+        liveSocketRef.current = null;
+      }
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      liveRequestInFlightRef.current = false;
+      reconnectAttemptsRef.current = 0;
+      setStreamStatus('disconnected');
+    };
+
+    if (!sessionStarted || !preset) {
+      closeStream();
+      return undefined;
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setError('Missing access token for live stream. Please login again.');
+      setStreamStatus('auth-error');
+      return undefined;
+    }
+
+    const connectStream = () => {
+      if (!streamEffectActiveRef.current) return;
+
+      setStreamStatus('connecting');
+      const socket = new WebSocket(buildInferenceStreamUrl(token), [`jwt.${token}`]);
+      liveSocketRef.current = socket;
+
+      socket.onopen = () => {
+        reconnectAttemptsRef.current = 0;
+        setStreamStatus('connected');
+        setError('');
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data || '{}');
+          if (message.type === 'inference_result' && message.data) {
+            setDetectionResult(message.data);
+            if (message.data.annotated_image_b64) {
+              setLiveAnnotatedOverlaySrc(`data:image/png;base64,${message.data.annotated_image_b64}`);
+            } else {
+              setLiveAnnotatedOverlaySrc('');
+            }
+            liveRequestInFlightRef.current = false;
+            return;
+          }
+          if (message.type === 'inference_error') {
+            liveRequestInFlightRef.current = false;
+            console.warn('[InferenceStream] stream error:', message.error);
+            return;
+          }
+          if (message.type === 'inference_throttled') {
+            liveRequestInFlightRef.current = false;
+            return;
+          }
+        } catch (parseError) {
+          liveRequestInFlightRef.current = false;
+          console.warn('[InferenceStream] message parse error:', parseError);
+        }
+      };
+
+      socket.onerror = () => {
+        setStreamStatus('error');
+        liveRequestInFlightRef.current = false;
+      };
+
+      socket.onclose = () => {
+        liveRequestInFlightRef.current = false;
+        if (liveSocketRef.current === socket) {
+          liveSocketRef.current = null;
+        }
+
+        if (!streamEffectActiveRef.current || !sessionStarted) {
+          setStreamStatus('disconnected');
+          return;
+        }
+
+        const attempt = reconnectAttemptsRef.current + 1;
+        reconnectAttemptsRef.current = attempt;
+        const delayMs = Math.min(1000 * (2 ** (attempt - 1)), 8000);
+        setStreamStatus('reconnecting');
+        reconnectTimerRef.current = window.setTimeout(() => {
+          connectStream();
+        }, delayMs);
+      };
+    };
+
+    connectStream();
+
+    return () => {
+      streamEffectActiveRef.current = false;
+      closeStream();
+    };
+  }, [preset, sessionStarted]);
 
   /* ── Auto-annotate ───────────────────────────────────────────── */
   const autoAnnotateDetection = useCallback((result) => {
@@ -656,43 +806,35 @@ function OperatorPanel({ onLogout }) {
     const startLive = () => {
       if (liveIntervalRef.current) return;
       console.debug('[LiveInference] Starting live inference loop');
-      liveIntervalRef.current = window.setInterval(async () => {
+      liveIntervalRef.current = window.setInterval(() => {
         if (!sessionStarted || captureInFlightRef.current || reviewPendingRef.current || !preset) return;
         if (waitForMotionAfterEmptyRef.current) return;
+        if (liveRequestInFlightRef.current) return;
+
+        const socket = liveSocketRef.current;
+        if (!socket || socket.readyState !== WebSocket.OPEN) return;
+
         // Only send live inference when motion is detected
         if (!checkLiveInferenceMotion()) return;
-        try {
-          captureInFlightRef.current = true;
-          const imageSrc = webcamRef.current?.getScreenshot();
-          if (!imageSrc) return;
-          const imageBlob = await fetch(imageSrc).then((r) => r.blob());
-          const formData = new FormData();
-          formData.append('image',           imageBlob, `frame-${Date.now()}.png`);
-          formData.append('component',       preset.product);
-          formData.append('product_id',      preset.product);
-          formData.append('model',           preset.model);
-          formData.append('config_id',       preset.id);
-          formData.append('config_version',  preset.config_version || 1);
-          formData.append('config_hash',     preset.config_hash);
-          formData.append('trigger',         'live');
-          formData.append('session_id',      sessionId || '');
-          formData.append('session_active',  sessionStarted ? 'true' : 'false');
 
-          const detectResponse = await detectImage(formData);
-          const result = detectResponse.data;
-          console.debug('[LiveInference] Received result:', { 
-            detections: result?.detections?.length || 0, 
-            decision: result?.system_decision,
-            success: result?.success,
-            error: result?.error
-          });
-          setDetectionResult(result);
-        } catch (err) {
-          console.warn('[LiveInference] Error:', err.response?.data || err.message);
-          // ignore live polling errors
-        } finally {
-          captureInFlightRef.current = false;
-        }
+        const imageSrc = webcamRef.current?.getScreenshot();
+        if (!imageSrc) return;
+
+        liveRequestInFlightRef.current = true;
+        socket.send(JSON.stringify({
+          type: 'frame',
+          image: imageSrc,
+          filename: `frame-${Date.now()}.png`,
+          component: preset.product,
+          product_id: preset.product,
+          model: preset.model,
+          config_id: preset.id,
+          config_version: preset.config_version || 1,
+          config_hash: preset.config_hash,
+          trigger: 'live',
+          session_id: sessionId || '',
+          session_active: sessionStarted,
+        }));
       }, LIVE_INFERENCE_INTERVAL_MS);
     };
 
@@ -703,6 +845,7 @@ function OperatorPanel({ onLogout }) {
         liveIntervalRef.current = null;
       }
       livePreviousFrameRef.current = null;
+      liveRequestInFlightRef.current = false;
       waitForMotionAfterEmptyRef.current = false;
     };
 
@@ -746,6 +889,7 @@ function OperatorPanel({ onLogout }) {
       stableSinceRef.current    = null;
       setDetectionResult(null);
       setCapturedFrame('');
+      setLiveAnnotatedOverlaySrc('');
       setReviewDescription('');
       setCountdownMs(null);
       setMotionStatus(autoDetectEnabled ? 'Waiting for stable frame' : 'Auto-detect paused');
@@ -836,6 +980,23 @@ function OperatorPanel({ onLogout }) {
                     onLoad={() => drawOverlay(detectionResult)}
                   />
                 )}
+                {!capturedFrame && liveAnnotatedOverlaySrc && (
+                  <img
+                    src={liveAnnotatedOverlaySrc}
+                    className="webcam-overlay"
+                    alt="Live server annotation"
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      height: '100%',
+                      objectFit: 'cover',
+                      zIndex: 11,
+                      pointerEvents: 'none',
+                    }}
+                  />
+                )}
                 <canvas 
                   ref={overlayRef} 
                   className="webcam-overlay" 
@@ -884,6 +1045,9 @@ function OperatorPanel({ onLogout }) {
                 <div style={{display:'flex', flexDirection:'column', gap:6, alignItems:'flex-end'}}>
                   <div style={{fontSize:12}}>Session</div>
                   <strong style={{fontSize:12}}>{sessionStarted ? sessionId : 'Stopped'}</strong>
+                  <strong style={{fontSize:11, textTransform:'uppercase', color: streamStatus === 'connected' ? '#16a34a' : '#b45309'}}>
+                    Stream: {streamStatus}
+                  </strong>
                 </div>
                 <button className="ghost-button" onClick={toggleSession} type="button">
                   {sessionStarted ? 'Stop Session' : 'Start Session'}
