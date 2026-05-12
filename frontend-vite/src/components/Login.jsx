@@ -58,7 +58,7 @@ function Login({ onLogin }) {
           <div className="auth-brand__mark">
             <img src={logoMark} alt="Team Pacific Corporation" />
           </div>
-          <h1>Team Pacific Corporation</h1>
+          <h1>IC DETECTION</h1>
         </div>
 
         <div className="auth-card__title">
