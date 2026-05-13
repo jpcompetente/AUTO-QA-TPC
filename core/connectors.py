@@ -30,6 +30,7 @@ class InferenceServerClient:
         self.timeout_seconds = timeout_seconds or AppConfig.INFERENCE_TIMEOUT_SECONDS
         self.backoff_seconds = backoff_seconds or AppConfig.RETRY_BACKOFF_SCHEDULE
         self.session = requests.Session()
+        self.session.trust_env = False
         self._is_healthy = True
         self._health_check_attempted = False
 
