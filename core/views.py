@@ -179,6 +179,15 @@ def dashboard_stats(request):
     Returns: Accuracy, FRR, Latency, Total inspections
     Role-aware: Operators see their own stats, Admins see all stats
     """
+    if not request.user or not request.user.is_authenticated:
+        return Response({
+            "detection_accuracy": 0,
+            "false_reject_rate": 0,
+            "avg_inference_latency": 0,
+            "total_inspections": 0,
+            "message": "Authentication required",
+        }, status=200)
+
     # Build role-aware queryset
     role = user_role(request.user)
     if role in ('ADMIN', 'SUPER_ADMIN') or request.user.is_staff or request.user.is_superuser:

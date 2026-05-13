@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import Webcam from "react-webcam";
 import {
   createAdminSettings,
@@ -96,6 +96,8 @@ function AdminDashboard({ onLogout }) {
     product: "", model: "", threshold: 0.5, operator: "",
   });
   const [detectionLogsLimit, setDetectionLogsLimit] = useState(20);
+  const [logsSortField, setLogsSortField] = useState("timestamp");
+  const [logsSortOrder, setLogsSortOrder] = useState("desc");
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -125,6 +127,46 @@ function AdminDashboard({ onLogout }) {
       await fetchData();
     })();
   }, [fetchData]);
+
+  // Sort detection logs
+  const sortedDetectionLogs = useMemo(() => {
+    const sorted = [...detectionLogs];
+    sorted.sort((a, b) => {
+      let aVal, bVal;
+      
+      switch (logsSortField) {
+        case "operator":
+          aVal = (a.operator_name || a.operator || "").toLowerCase();
+          bVal = (b.operator_name || b.operator || "").toLowerCase();
+          break;
+        case "component":
+          aVal = (a.component_name || a.component || "").toLowerCase();
+          bVal = (b.component_name || b.component || "").toLowerCase();
+          break;
+        case "model":
+          aVal = (a.model_name || a.model_used || "").toLowerCase();
+          bVal = (b.model_name || b.model_used || "").toLowerCase();
+          break;
+        case "decision":
+          aVal = (a.final_decision || a.system_decision || "").toLowerCase();
+          bVal = (b.final_decision || b.system_decision || "").toLowerCase();
+          break;
+        case "status":
+          aVal = (a.status || "").toLowerCase();
+          bVal = (b.status || "").toLowerCase();
+          break;
+        case "timestamp":
+        default:
+          aVal = new Date(a.timestamp || a.created_at).getTime();
+          bVal = new Date(b.timestamp || b.created_at).getTime();
+      }
+      
+      if (aVal < bVal) return logsSortOrder === "asc" ? -1 : 1;
+      if (aVal > bVal) return logsSortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+    return sorted;
+  }, [detectionLogs, logsSortField, logsSortOrder]);
 
   const getCompatibleModels = () => {
     if (!form.product) return [];
@@ -376,22 +418,53 @@ function AdminDashboard({ onLogout }) {
               <div className="adash__section-header">
                 <h3>Detection records</h3>
                 <span className="adash__section-badge">{detectionLogs.length} rows</span>
-                <div style={{ marginLeft: 'auto', display: 'flex', gap: '12px', alignItems: 'center' }}>
-                  <label style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>Show:</label>
-                  <select 
-                    value={detectionLogsLimit} 
-                    onChange={(e) => setDetectionLogsLimit(Number(e.target.value))}
-                    style={{padding: '6px 10px', fontSize: '12px', borderRadius: '4px', border: '1px solid #ccc'}}
-                  >
-                    <option value={20}>20 logs</option>
-                    <option value={50}>50 logs</option>
-                    <option value={detectionLogs.length}>All logs</option>
-                  </select>
-                  {detectionLogs.length > detectionLogsLimit && (
-                    <span style={{fontSize: '11px', color: '#666'}}>
-                      Showing {Math.min(detectionLogsLimit, detectionLogs.length)} of {detectionLogs.length}
-                    </span>
-                  )}
+                <div style={{ marginLeft: 'auto', display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <label style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>Sort by:</label>
+                    <select 
+                      value={logsSortField}
+                      onChange={(e) => setLogsSortField(e.target.value)}
+                      style={{padding: '6px 10px', fontSize: '12px', borderRadius: '4px', border: '1px solid #ccc'}}
+                    >
+                      <option value="timestamp">Time (latest)</option>
+                      <option value="decision">Decision</option>
+                      <option value="status">Status</option>
+                      <option value="model">Model</option>
+                      <option value="operator">Operator</option>
+                      <option value="component">Component</option>
+                    </select>
+                    <button 
+                      onClick={() => setLogsSortOrder(logsSortOrder === 'asc' ? 'desc' : 'asc')}
+                      style={{
+                        padding: '6px 10px', 
+                        fontSize: '12px', 
+                        borderRadius: '4px', 
+                        border: '1px solid #ccc',
+                        background: '#f0f0f0',
+                        cursor: 'pointer',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {logsSortOrder === 'asc' ? '↑ Asc' : '↓ Desc'}
+                    </button>
+                  </div>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <label style={{ fontSize: '12px', whiteSpace: 'nowrap' }}>Show:</label>
+                    <select 
+                      value={detectionLogsLimit} 
+                      onChange={(e) => setDetectionLogsLimit(Number(e.target.value))}
+                      style={{padding: '6px 10px', fontSize: '12px', borderRadius: '4px', border: '1px solid #ccc'}}
+                    >
+                      <option value={20}>20 logs</option>
+                      <option value={50}>50 logs</option>
+                      <option value={detectionLogs.length}>All logs</option>
+                    </select>
+                    {detectionLogs.length > detectionLogsLimit && (
+                      <span style={{fontSize: '11px', color: '#666'}}>
+                        Showing {Math.min(detectionLogsLimit, detectionLogs.length)} of {detectionLogs.length}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -409,7 +482,7 @@ function AdminDashboard({ onLogout }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {detectionLogs.slice(0, detectionLogsLimit).map((log) => (
+                    {sortedDetectionLogs.slice(0, detectionLogsLimit).map((log) => (
                       <tr key={log.id}>
                         <td style={{ fontFamily: "var(--font-mono)", fontSize: "12px", color: "var(--text-3)" }}>#{log.id}</td>
                         <td>{log.operator_name || log.operator}</td>
