@@ -163,6 +163,8 @@ function AdminDashboard({ onLogout }) {
     operator: "",
   });
   const [detectionLogsLimit, setDetectionLogsLimit] = useState(20);
+  const [logsSortField, setLogsSortField] = useState("timestamp");
+  const [logsSortOrder, setLogsSortOrder] = useState("desc");
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -197,6 +199,46 @@ function AdminDashboard({ onLogout }) {
       await fetchData();
     })();
   }, [fetchData]);
+
+  // Sort detection logs
+  const sortedDetectionLogs = useMemo(() => {
+    const sorted = [...detectionLogs];
+    sorted.sort((a, b) => {
+      let aVal, bVal;
+      
+      switch (logsSortField) {
+        case "operator":
+          aVal = (a.operator_name || a.operator || "").toLowerCase();
+          bVal = (b.operator_name || b.operator || "").toLowerCase();
+          break;
+        case "component":
+          aVal = (a.component_name || a.component || "").toLowerCase();
+          bVal = (b.component_name || b.component || "").toLowerCase();
+          break;
+        case "model":
+          aVal = (a.model_name || a.model_used || "").toLowerCase();
+          bVal = (b.model_name || b.model_used || "").toLowerCase();
+          break;
+        case "decision":
+          aVal = (a.final_decision || a.system_decision || "").toLowerCase();
+          bVal = (b.final_decision || b.system_decision || "").toLowerCase();
+          break;
+        case "status":
+          aVal = (a.status || "").toLowerCase();
+          bVal = (b.status || "").toLowerCase();
+          break;
+        case "timestamp":
+        default:
+          aVal = new Date(a.timestamp || a.created_at).getTime();
+          bVal = new Date(b.timestamp || b.created_at).getTime();
+      }
+      
+      if (aVal < bVal) return logsSortOrder === "asc" ? -1 : 1;
+      if (aVal > bVal) return logsSortOrder === "asc" ? 1 : -1;
+      return 0;
+    });
+    return sorted;
+  }, [detectionLogs, logsSortField, logsSortOrder]);
 
   const getCompatibleModels = () => {
     if (!form.product) return [];
@@ -575,7 +617,7 @@ function AdminDashboard({ onLogout }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {detectionLogs.slice(0, detectionLogsLimit).map((log) => (
+                    {sortedDetectionLogs.slice(0, detectionLogsLimit).map((log) => (
                       <tr key={log.id}>
                         <td
                           style={{

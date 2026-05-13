@@ -7,7 +7,8 @@ import {
   getDetectionLogs,
   getOperatorPreset,
   reviewInferenceLog,
-} from "../api/backend";
+} from '../api/backend';
+import { ensureCameraPermission } from '../utils/camera';
 
 /* ── Constants ───────────────────────────────────────────────── */
 const STABLE_CAPTURE_DELAY_MS = 2000;
@@ -48,6 +49,7 @@ function OperatorPanel({ onLogout }) {
   const sessionStartedRef = useRef(false);
   const logsFetchInFlightRef = useRef(false);
   const logsFetchQueuedRef = useRef(false);
+  const liveMediaStreamRef = useRef(null);
   const fetchLogsRef = useRef(async () => {});
   const waitForMotionAfterEmptyRef = useRef(false);
 
@@ -149,7 +151,21 @@ function OperatorPanel({ onLogout }) {
       liveIntervalRef.current = null;
     }
     waitForMotionAfterEmptyRef.current = false;
-    setLiveAnnotatedOverlaySrc("");
+    setLiveAnnotatedOverlaySrc('');
+    try {
+      const stream = liveMediaStreamRef.current;
+      if (stream?.getTracks) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+    } catch (error) {
+      console.warn('Error stopping media stream', error);
+    }
+    liveMediaStreamRef.current = null;
+    try {
+      if (webcamRef.current?.video) webcamRef.current.video.srcObject = null;
+    } catch {
+      /* ignore */
+    }
     setSessionStarted(false);
     setSessionId("");
   }, []);
@@ -503,6 +519,22 @@ function OperatorPanel({ onLogout }) {
       liveRequestInFlightRef.current = false;
       reconnectAttemptsRef.current = 0;
       setStreamStatus("disconnected");
+      try {
+        const stream = liveMediaStreamRef.current;
+        if (stream?.getTracks) {
+          stream.getTracks().forEach((track) => track.stop());
+        }
+      } catch (error) {
+        console.warn('Error stopping media stream', error);
+      }
+      liveMediaStreamRef.current = null;
+      try {
+        const videoEl = webcamRef.current?.video;
+        if (videoEl) videoEl.srcObject = null;
+      } catch {
+        /* ignore */
+      }
+      setStreamStatus('disconnected');
     };
 
     if (!sessionStarted || !preset) {
@@ -518,6 +550,30 @@ function OperatorPanel({ onLogout }) {
       }, 0);
       return undefined;
     }
+
+    // Request camera permission and attach MediaStream to react-webcam
+    (async () => {
+      try {
+        const res = await ensureCameraPermission({ constraints: { video: true } });
+        if (res.granted && res.stream) {
+          liveMediaStreamRef.current = res.stream;
+          const videoEl = webcamRef.current?.video;
+          if (videoEl) {
+            try {
+              videoEl.srcObject = res.stream;
+            } catch (e) {
+              console.warn('Could not attach MediaStream to video element', e);
+            }
+          }
+        } else if (!res.granted) {
+          window.setTimeout(() => {
+            setError(res.error?.message || 'Camera permission denied');
+          }, 0);
+        }
+      } catch (e) {
+        console.warn('ensureCameraPermission error', e);
+      }
+    })();
 
     const connectStream = () => {
       if (!streamEffectActiveRef.current) return;

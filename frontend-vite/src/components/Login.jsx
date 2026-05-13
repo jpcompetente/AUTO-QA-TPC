@@ -161,9 +161,6 @@ function Login({ onLogin }) {
           >
             <span>Username</span>
             <div className="field-control">
-              <span className="field-icon" aria-hidden="true">
-                ◦
-              </span>
               <input
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
@@ -182,9 +179,6 @@ function Login({ onLogin }) {
           >
             <span>Password</span>
             <div className="field-control">
-              <span className="field-icon" aria-hidden="true">
-                ◦
-              </span>
               <input
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}

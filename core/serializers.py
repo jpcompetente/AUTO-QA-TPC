@@ -126,6 +126,13 @@ class InferenceLogSerializer(serializers.ModelSerializer):
     operator_name = serializers.CharField(source='operator.username', read_only=True)
     component_name = serializers.CharField(source='component.name', read_only=True)
     model_name = serializers.CharField(source='model_used.name', read_only=True)
+    image_snapshot_url = serializers.SerializerMethodField()
+
+    def get_image_snapshot_url(self, obj):
+        if not obj.image_snapshot:
+            return ''
+        # Keep media URL relative so browser uses the current secure origin.
+        return obj.image_snapshot.url
 
     class Meta:
         model = InferenceLog
