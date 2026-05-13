@@ -77,6 +77,11 @@ export default defineConfig(({ mode }) => {
           target: "http://127.0.0.1:8000",
           changeOrigin: true,
         },
+        // Forward uploaded media so inference snapshots render in the UI
+        "/media": {
+          target: "http://127.0.0.1:8000",
+          changeOrigin: true,
+        },
       },
     },
   };

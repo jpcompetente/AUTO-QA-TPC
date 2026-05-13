@@ -1262,10 +1262,10 @@ function OperatorPanel({ onLogout }) {
                           <div style={{overflow:'hidden', height:260, display:'flex', alignItems:'center', justifyContent:'center', position:'relative', cursor:'pointer'}}>
                             <img
                               id={`log-image-${log.id}`}
-                              src={log.image_snapshot || log.image_snapshot_url || log.image_url}
+                              src={log.image_snapshot_url || log.snapshot_url || log.image_snapshot || log.image_url}
                               alt="snapshot"
                               style={{maxWidth:'100%', maxHeight:'100%'}}
-                              onClick={() => setZoomedImage(log.image_snapshot || log.image_snapshot_url || log.image_url)}
+                              onClick={() => setZoomedImage(log.image_snapshot_url || log.snapshot_url || log.image_snapshot || log.image_url)}
                               onLoad={() => drawLogOverlay(log.id, log.detection_results?.detections || [])}
                               title="Click to zoom"
                             />
