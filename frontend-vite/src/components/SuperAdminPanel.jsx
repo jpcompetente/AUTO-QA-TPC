@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from "react";
+import { motion } from "framer-motion";
 import {
   getComponents,
   getOperators,
@@ -74,9 +75,24 @@ function SuperAdminPanel({ onLogout }) {
   }));
 
   return (
-    <div className="panel-page">
-      <div className="panel-shell superadmin-shell">
-        <header className="super-header">
+    <motion.div
+      className="panel-page"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.6 }}
+    >
+      <motion.div
+        className="panel-shell superadmin-shell"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.1 }}
+      >
+        <motion.header
+          className="super-header"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+        >
           <div className="super-header__title">
             <p className="eyebrow">Super admin</p>
             <h1>System oversight</h1>
@@ -117,10 +133,20 @@ function SuperAdminPanel({ onLogout }) {
               Logout
             </button>
           </div>
-        </header>
+        </motion.header>
 
-        <section className="kpi-row">
-          <button className="kpi-card" onClick={() => handleDrill("policies")}>
+        <motion.section
+          className="kpi-row"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6, delay: 0.3 }}
+        >
+          <motion.button
+            className="kpi-card"
+            onClick={() => handleDrill("policies")}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.98 }}
+          >
             <div className="kpi-icon kpi-icon--policies">P</div>
             <div className="kpi-body">
               <span className="kpi-label">Global Policies</span>
@@ -129,27 +155,40 @@ function SuperAdminPanel({ onLogout }) {
                 trend: {adminSettings.length ? "active" : "—"}
               </div>
             </div>
-          </button>
+          </motion.button>
 
-          <button className="kpi-card" onClick={() => handleDrill("teams")}>
+          <motion.button
+            className="kpi-card"
+            onClick={() => handleDrill("teams")}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.98 }}
+          >
             <div className="kpi-icon kpi-icon--teams">T</div>
             <div className="kpi-body">
               <span className="kpi-label">Teams Managed</span>
               <strong className="kpi-value">{teamsCount}</strong>
               <div className="kpi-trend">operators</div>
             </div>
-          </button>
+          </motion.button>
 
-          <button className="kpi-card" onClick={() => handleDrill("monitors")}>
+          <motion.button
+            className="kpi-card"
+            onClick={() => handleDrill("monitors")}
+          >
             <div className="kpi-icon kpi-icon--monitors">M</div>
             <div className="kpi-body">
               <span className="kpi-label">Active Monitors</span>
               <strong className="kpi-value">{monitorsCount}</strong>
               <div className="kpi-trend">components</div>
             </div>
-          </button>
+          </motion.button>
 
-          <button className="kpi-card" onClick={() => handleDrill("alerts")}>
+          <motion.button
+            className="kpi-card"
+            onClick={() => handleDrill("alerts")}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.98 }}
+          >
             <div className="kpi-icon kpi-icon--alerts">A</div>
             <div className="kpi-body">
               <span className="kpi-label">Alerts</span>
@@ -159,17 +198,22 @@ function SuperAdminPanel({ onLogout }) {
                 {logs.filter((l) => l.final_decision === "FAIL").length}
               </div>
             </div>
-          </button>
+          </motion.button>
 
-          <button className="kpi-card" onClick={() => handleDrill("health")}>
+          <motion.button
+            className="kpi-card"
+            onClick={() => handleDrill("health")}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.98 }}
+          >
             <div className="kpi-icon kpi-icon--health">H</div>
             <div className="kpi-body">
               <span className="kpi-label">System Health</span>
               <strong className="kpi-value">{healthScore}%</strong>
               <div className="kpi-trend">uptime est.</div>
             </div>
-          </button>
-        </section>
+          </motion.button>
+        </motion.section>
 
         <section className="grid-main">
           <div className="left-column">
@@ -354,8 +398,8 @@ function SuperAdminPanel({ onLogout }) {
             </section>
           </aside>
         </section>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 

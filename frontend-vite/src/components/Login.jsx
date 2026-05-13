@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { motion } from "framer-motion";
 import { loginUser } from "../api/backend";
 import loginBackground from "../assets/images/loginbgimage.webp";
 import logoMark from "../assets/images/TPCLOGOONLY.png";
@@ -51,22 +52,113 @@ function Login({ onLogin }) {
       className="auth-shell"
       style={{ backgroundImage: `url(${loginBackground})` }}
     >
+      {/* Animated background elements */}
+      <div className="animated-bg-container">
+        <motion.div
+          className="floating-orb floating-orb--1"
+          animate={{
+            y: [0, -20, 0],
+            x: [0, 10, 0],
+          }}
+          transition={{
+            duration: 8,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+        />
+        <motion.div
+          className="floating-orb floating-orb--2"
+          animate={{
+            y: [0, -25, 0],
+            x: [0, -15, 0],
+          }}
+          transition={{
+            duration: 10,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+        />
+        <motion.div
+          className="floating-orb floating-orb--3"
+          animate={{
+            y: [0, -15, 0],
+            x: [0, 20, 0],
+          }}
+          transition={{
+            duration: 9,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+        />
+        <motion.div
+          className="animated-gradient"
+          animate={{
+            backgroundPosition: ["0% 50%", "100% 50%", "0% 50%"],
+          }}
+          transition={{
+            duration: 6,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+        />
+      </div>
+
       <div className="auth-shell__overlay" />
 
-      <section className="auth-card">
-        <div className="auth-brand">
-          <div className="auth-brand__mark">
+      <motion.section
+        className="auth-card"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, ease: "easeOut" }}
+      >
+        <motion.div
+          className="auth-brand"
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+        >
+          <motion.div
+            className="auth-brand__mark"
+            animate={{ rotate: 360 }}
+            transition={{
+              duration: 20,
+              repeat: Infinity,
+              ease: "linear",
+            }}
+          >
             <img src={logoMark} alt="Team Pacific Corporation" />
-          </div>
-          <h1>IC DETECTION</h1>
-        </div>
+          </motion.div>
+          <motion.h1
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.5, delay: 0.4 }}
+          >
+            IC DETECTION
+          </motion.h1>
+        </motion.div>
 
-        <div className="auth-card__title">
+        <motion.div
+          className="auth-card__title"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.3 }}
+        >
           <h2>Login</h2>
-        </div>
+        </motion.div>
 
-        <form className="auth-form" onSubmit={handleSubmit}>
-          <label className="field field--login">
+        <motion.form
+          className="auth-form"
+          onSubmit={handleSubmit}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.4 }}
+        >
+          <motion.label
+            className="field field--login"
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.4, delay: 0.45 }}
+          >
             <span>Username</span>
             <div className="field-control">
               <span className="field-icon" aria-hidden="true">
@@ -80,9 +172,14 @@ function Login({ onLogin }) {
                 placeholder="Enter your username"
               />
             </div>
-          </label>
+          </motion.label>
 
-          <label className="field field--login">
+          <motion.label
+            className="field field--login"
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.4, delay: 0.5 }}
+          >
             <span>Password</span>
             <div className="field-control">
               <span className="field-icon" aria-hidden="true">
@@ -96,21 +193,33 @@ function Login({ onLogin }) {
                 placeholder="Enter your password"
               />
             </div>
-          </label>
+          </motion.label>
 
           {errorMessage ? (
-            <div className="notice notice--error">{errorMessage}</div>
+            <motion.div
+              className="notice notice--error"
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3 }}
+            >
+              {errorMessage}
+            </motion.div>
           ) : null}
 
-          <button
+          <motion.button
             className="primary-button primary-button--login"
             type="submit"
             disabled={isSubmitting}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, delay: 0.55 }}
           >
             {isSubmitting ? "Signing in..." : "Login"}
-          </button>
-        </form>
-      </section>
+          </motion.button>
+        </motion.form>
+      </motion.section>
     </div>
   );
 }

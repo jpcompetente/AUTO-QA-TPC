@@ -4,7 +4,8 @@
 :root {
   --text: #1a2c3e;
   --border: #e2e8f0;
-  --shadow: 0 25px 40px -12px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.02);
+  --shadow:
+    0 25px 40px -12px rgba(0, 0, 0, 0.15), 0 1px 2px rgba(0, 0, 0, 0.02);
   --focus-ring: rgba(0, 0, 0, 0.08);
   --input-bg: rgba(255, 255, 255, 0.7);
   --button-primary-bg: #1f2a3e;
@@ -33,6 +34,59 @@
   z-index: 0;
 }
 
+/* Animated background container */
+.animated-bg-container {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.floating-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: 0.3;
+}
+
+.floating-orb--1 {
+  width: 300px;
+  height: 300px;
+  background: radial-gradient(circle, rgba(31, 42, 62, 0.4), transparent);
+  top: -50px;
+  left: -100px;
+}
+
+.floating-orb--2 {
+  width: 250px;
+  height: 250px;
+  background: radial-gradient(circle, rgba(44, 95, 138, 0.3), transparent);
+  bottom: -80px;
+  right: -50px;
+}
+
+.floating-orb--3 {
+  width: 200px;
+  height: 200px;
+  background: radial-gradient(circle, rgba(32, 74, 110, 0.3), transparent);
+  top: 50%;
+  right: 5%;
+}
+
+.animated-gradient {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    45deg,
+    rgba(255, 255, 255, 0.05) 0%,
+    rgba(31, 42, 62, 0.08) 50%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  background-size: 200% 200%;
+  pointer-events: none;
+}
+
 .auth-card {
   position: relative;
   z-index: 1;
@@ -44,7 +98,9 @@
   box-shadow: var(--shadow);
   backdrop-filter: blur(14px);
   color: var(--text);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
 }
 
 .auth-card:hover {
@@ -154,7 +210,9 @@
 .auth-form__input:-webkit-autofill:focus {
   -webkit-background-clip: text;
   background-clip: text;
-  transition: background-color 0s 600000s, color 0s 600000s;
+  transition:
+    background-color 0s 600000s,
+    color 0s 600000s;
 }
 
 /* Helper text / error messages */
