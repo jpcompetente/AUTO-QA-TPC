@@ -43,8 +43,11 @@ function OperatorPanel({ onLogout }) {
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef(null);
   const streamEffectActiveRef = useRef(false);
+  const sessionFilterRef = useRef('');
+  const sessionStartedRef = useRef(false);
   const logsFetchInFlightRef = useRef(false);
   const logsFetchQueuedRef = useRef(false);
+  const fetchLogsRef = useRef(async () => {});
   const waitForMotionAfterEmptyRef = useRef(false);
 
   /* state */
@@ -74,6 +77,11 @@ function OperatorPanel({ onLogout }) {
   const [streamStatus,          setStreamStatus]         = useState('disconnected');
   const [liveAnnotatedOverlaySrc, setLiveAnnotatedOverlaySrc] = useState('');
 
+  useEffect(() => {
+    sessionFilterRef.current = sessionFilter;
+    sessionStartedRef.current = sessionStarted;
+  }, [sessionFilter, sessionStarted]);
+
   /* ── Helpers ─────────────────────────────────────────────────── */
   const normalizeList = useCallback(
     (payload) => payload?.results || payload || [],
@@ -85,45 +93,47 @@ function OperatorPanel({ onLogout }) {
     setPreset(response.data);
   }, []);
 
-  const fetchLogs = useCallback(async () => {
-    if (logsFetchInFlightRef.current) {
-      logsFetchQueuedRef.current = true;
-      return;
-    }
+  useEffect(() => {
+    fetchLogsRef.current = async () => {
+      if (logsFetchInFlightRef.current) {
+        logsFetchQueuedRef.current = true;
+        return;
+      }
 
-    logsFetchInFlightRef.current = true;
+      logsFetchInFlightRef.current = true;
 
-    const params = {};
-    if (sessionFilter) params.session_id = sessionFilter;
+      const params = {};
+      if (sessionFilterRef.current) params.session_id = sessionFilterRef.current;
 
-    const runFetch = async () => {
-      const response = await getDetectionLogs(params);
-      const list = normalizeList(response.data);
-      setLogs(list);
-      if (!sessionFilter && list.length > 0 && !sessionStarted) {
-        const recentSession = list.find((l) => l.session_id);
-        if (recentSession) setSessionId(recentSession.session_id || '');
+      const runFetch = async () => {
+        const response = await getDetectionLogs(params);
+        const list = normalizeList(response.data);
+        setLogs(list);
+        if (!sessionFilterRef.current && list.length > 0 && !sessionStartedRef.current) {
+          const recentSession = list.find((l) => l.session_id);
+          if (recentSession) setSessionId(recentSession.session_id || '');
+        }
+      };
+
+      try {
+        await runFetch();
+      } catch (err) {
+        const isTransientNetworkError = !err?.response && !!err?.message;
+        if (isTransientNetworkError) {
+          await new Promise((resolve) => window.setTimeout(resolve, 200));
+          await runFetch();
+        } else {
+          throw err;
+        }
+      } finally {
+        logsFetchInFlightRef.current = false;
+        if (logsFetchQueuedRef.current) {
+          logsFetchQueuedRef.current = false;
+          void fetchLogsRef.current();
+        }
       }
     };
-
-    try {
-      await runFetch();
-    } catch (err) {
-      const isTransientNetworkError = !err?.response && !!err?.message;
-      if (isTransientNetworkError) {
-        await new Promise((resolve) => window.setTimeout(resolve, 200));
-        await runFetch();
-      } else {
-        throw err;
-      }
-    } finally {
-      logsFetchInFlightRef.current = false;
-      if (logsFetchQueuedRef.current) {
-        logsFetchQueuedRef.current = false;
-        void fetchLogs();
-      }
-    }
-  }, [normalizeList, sessionFilter, sessionStarted]);
+  }, [normalizeList]);
 
   /* ── Session ─────────────────────────────────────────────────── */
   const stopSession = useCallback(() => {
@@ -156,7 +166,7 @@ function OperatorPanel({ onLogout }) {
     const load = async () => {
       try {
         await fetchOptions();
-        await fetchLogs();
+        await fetchLogsRef.current();
       } catch (err) {
         setError(
           err.response?.data?.error ||
@@ -166,14 +176,14 @@ function OperatorPanel({ onLogout }) {
       }
     };
     void load();
-  }, [fetchLogs, fetchOptions]);
+  }, [fetchOptions]);
 
   // Refresh logs when session filter changes
   useEffect(() => {
     void (async () => {
-      await fetchLogs();
+      await fetchLogsRef.current();
     })();
-  }, [fetchLogs]);
+  }, [sessionFilter, sessionStarted]);
 
   /* ── Canvas overlay ─────────────────────────────────────────── */
   const drawOverlay = useCallback((result) => {
@@ -469,8 +479,10 @@ function OperatorPanel({ onLogout }) {
 
     const token = localStorage.getItem('token');
     if (!token) {
-      setError('Missing access token for live stream. Please login again.');
-      setStreamStatus('auth-error');
+      window.setTimeout(() => {
+        setError('Missing access token for live stream. Please login again.');
+        setStreamStatus('auth-error');
+      }, 0);
       return undefined;
     }
 
@@ -638,7 +650,7 @@ function OperatorPanel({ onLogout }) {
       setMotionStatus('Review required');
       setCountdownMs(null);
 
-      await fetchLogs();
+      await fetchLogsRef.current();
     } catch (requestError) {
       const errorMsg = requestError.response?.data?.error || requestError.message || 'Detection request failed.';
       console.error('[DetectError] Full error:', {msg: errorMsg, response: requestError.response?.data, err: requestError});
@@ -647,7 +659,7 @@ function OperatorPanel({ onLogout }) {
       setLoading(false);
       captureInFlightRef.current = false;
     }
-  }, [autoAnnotateDetection, fetchLogs, preset, sessionId, sessionStarted]);
+  }, [autoAnnotateDetection, preset, sessionId, sessionStarted]);
 
   /* ── Motion detection ────────────────────────────────────────── */
   // Monitor camera status and provide feedback
@@ -893,7 +905,7 @@ function OperatorPanel({ onLogout }) {
       setReviewDescription('');
       setCountdownMs(null);
       setMotionStatus(autoDetectEnabled ? 'Waiting for stable frame' : 'Auto-detect paused');
-      await fetchLogs();
+      await fetchLogsRef.current();
     } catch (requestError) {
       setError(requestError.response?.data?.error || 'Unable to submit review.');
     } finally {
@@ -1151,7 +1163,7 @@ function OperatorPanel({ onLogout }) {
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
-              <button className="ghost-button" onClick={() => { void fetchLogs(); }} type="button">Refresh</button>
+              <button className="ghost-button" onClick={() => { void fetchLogsRef.current(); }} type="button">Refresh</button>
               
               <span style={{fontSize:12, marginLeft: 'auto'}}>Show:</span>
               <select value={logsLimit} onChange={(e) => setLogsLimit(Number(e.target.value))} style={{padding: '4px 8px', fontSize: 12}}>
