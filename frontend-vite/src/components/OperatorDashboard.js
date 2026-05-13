@@ -1,6 +1,6 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import Webcam from 'react-webcam';
-import axios from 'axios';
+import api, { buildWebSocketUrl } from '../api/backend';
 import '../styles/operator.css';
 
 const OperatorDashboard = ({ onLogout }) => {
@@ -15,7 +15,7 @@ const OperatorDashboard = ({ onLogout }) => {
 
   /* ── WebSocket ─────────────────────────────────────────────── */
   useEffect(() => {
-    const ws = new WebSocket('ws://localhost:8000/ws/metrics/');
+    const ws = new WebSocket(buildWebSocketUrl('/ws/metrics/'));
 
     ws.onopen    = () => setWsConnection(ws);
     ws.onerror   = (e) => console.error('WebSocket error:', e);
@@ -32,10 +32,7 @@ const OperatorDashboard = ({ onLogout }) => {
       setLoading(true);
       const imageSrc = webcamRef.current.getScreenshot();
 
-      const response = await axios.post(
-        'http://localhost:8000/api/core/inference/detect/',
-        { image: imageSrc },
-      );
+      const response = await api.post('/inference/detect/', { image: imageSrc });
 
       const result = response.data;
       setInference({ ...result, timestamp: new Date(), image: imageSrc });
@@ -68,8 +65,8 @@ const OperatorDashboard = ({ onLogout }) => {
   const handleOperatorDecision = async (finalDecision) => {
     if (!inference) return;
     try {
-      const response = await axios.post(
-        `http://localhost:8000/api/core/inference-logs/${inference.id}/operator_override/`,
+      const response = await api.post(
+        `/inference-logs/${inference.id}/operator_override/`,
         {
           final_decision: finalDecision,
           comment: `Operator ${finalDecision === 'PASS' ? 'Approved' : 'Rejected'}`,

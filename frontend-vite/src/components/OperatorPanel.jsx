@@ -7,6 +7,7 @@ import {
   getOperatorPreset,
   reviewInferenceLog,
 } from '../api/backend';
+import { ensureCameraPermission } from '../utils/camera';
 
 /* ── Constants ───────────────────────────────────────────────── */
 const STABLE_CAPTURE_DELAY_MS  = 2000;
@@ -47,6 +48,7 @@ function OperatorPanel({ onLogout }) {
   const sessionStartedRef = useRef(false);
   const logsFetchInFlightRef = useRef(false);
   const logsFetchQueuedRef = useRef(false);
+  const liveMediaStreamRef = useRef(null);
   const fetchLogsRef = useRef(async () => {});
   const waitForMotionAfterEmptyRef = useRef(false);
 
@@ -143,6 +145,17 @@ function OperatorPanel({ onLogout }) {
     }
     waitForMotionAfterEmptyRef.current = false;
     setLiveAnnotatedOverlaySrc('');
+    // stop attached camera stream if present
+    try {
+      const s = liveMediaStreamRef.current;
+      if (s && s.getTracks) s.getTracks().forEach((t) => t.stop());
+    } catch {
+      console.warn('Error stopping media stream');
+    }
+    liveMediaStreamRef.current = null;
+    try { if (webcamRef.current?.video) webcamRef.current.video.srcObject = null; } catch {
+      /* ignore */
+    }
     setSessionStarted(false);
     setSessionId('');
   }, []);
@@ -469,6 +482,22 @@ function OperatorPanel({ onLogout }) {
       }
       liveRequestInFlightRef.current = false;
       reconnectAttemptsRef.current = 0;
+      // Stop any attached MediaStream
+      try {
+        const s = liveMediaStreamRef.current;
+        if (s && s.getTracks) {
+          s.getTracks().forEach((t) => t.stop());
+        }
+      } catch (e) {
+        console.warn('Error stopping media stream', e);
+      }
+      liveMediaStreamRef.current = null;
+      try {
+        const videoEl = webcamRef.current?.video;
+        if (videoEl) videoEl.srcObject = null;
+      } catch {
+        /* ignore */
+      }
       setStreamStatus('disconnected');
     };
 
@@ -485,6 +514,30 @@ function OperatorPanel({ onLogout }) {
       }, 0);
       return undefined;
     }
+
+    // Request camera permission and attach MediaStream to react-webcam
+    (async () => {
+      try {
+        const res = await ensureCameraPermission({ constraints: { video: true } });
+        if (res.granted && res.stream) {
+          liveMediaStreamRef.current = res.stream;
+          const videoEl = webcamRef.current?.video;
+          if (videoEl) {
+            try {
+              videoEl.srcObject = res.stream;
+            } catch (e) {
+              console.warn('Could not attach MediaStream to video element', e);
+            }
+          }
+        } else if (!res.granted) {
+          window.setTimeout(() => {
+            setError(res.error?.message || 'Camera permission denied');
+          }, 0);
+        }
+      } catch (e) {
+        console.warn('ensureCameraPermission error', e);
+      }
+    })();
 
     const connectStream = () => {
       if (!streamEffectActiveRef.current) return;
@@ -596,6 +649,8 @@ function OperatorPanel({ onLogout }) {
   /* ── Detect ──────────────────────────────────────────────────── */
   const handleDetect = useCallback(async (trigger = 'manual') => {
     const imageSrc = webcamRef.current?.getScreenshot();
+      // ensure we have permission before taking screenshots
+      if (!navigator?.mediaDevices) return;
 
     if (!imageSrc || !preset?.product || !preset?.model || !preset?.config_hash) {
       setError('No active inspection preset is assigned to this operator.');
@@ -1207,10 +1262,10 @@ function OperatorPanel({ onLogout }) {
                           <div style={{overflow:'hidden', height:260, display:'flex', alignItems:'center', justifyContent:'center', position:'relative', cursor:'pointer'}}>
                             <img
                               id={`log-image-${log.id}`}
-                              src={log.image_snapshot || log.image_snapshot_url || log.image_url}
+                              src={log.image_snapshot_url || log.snapshot_url || log.image_snapshot || log.image_url}
                               alt="snapshot"
                               style={{maxWidth:'100%', maxHeight:'100%'}}
-                              onClick={() => setZoomedImage(log.image_snapshot || log.image_snapshot_url || log.image_url)}
+                              onClick={() => setZoomedImage(log.image_snapshot_url || log.snapshot_url || log.image_snapshot || log.image_url)}
                               onLoad={() => drawLogOverlay(log.id, log.detection_results?.detections || [])}
                               title="Click to zoom"
                             />
