@@ -78,4 +78,13 @@ export const createDetectionLog = (data) => api.post("/inference-logs/", data);
 export const reviewInferenceLog = (id, data) =>
   api.post(`/inference-logs/${id}/review/`, data);
 
+export const buildInferenceStreamUrl = (token) => {
+  const configuredBase = import.meta.env.VITE_WS_BASE_URL;
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  const defaultBase = `${protocol}://${window.location.host}`;
+  const wsBase = (configuredBase || defaultBase).replace(/\/$/, "");
+  const encodedToken = encodeURIComponent(token || "");
+  return `${wsBase}/ws/inference-stream/?token=${encodedToken}`;
+};
+
 export default api;
