@@ -18,7 +18,6 @@ const OperatorDashboard = ({ onLogout }) => {
   /* ── WebSocket ─────────────────────────────────────────────── */
   useEffect(() => {
     const ws = new WebSocket(buildWebSocketUrl("/ws/metrics/"));
-    const ws = new WebSocket("ws://localhost:8000/ws/metrics/");
 
     ws.onopen = () => setWsConnection(ws);
     ws.onerror = (e) => console.error("WebSocket error:", e);
