@@ -1,79 +1,87 @@
 # AUTO-QA TPC
 
-The active frontend is now the Vite app in [frontend-vite](frontend-vite). Use the root scripts to work with it from the repository root.
+AUTO-QA TPC is an integrated inspection and quality-assurance platform combining a Django backend, a Vite + React frontend, and an inference service for automated visual inspection. The app includes role-based dashboards (Superadmin, Admin, Operator, Inspector), real-time metrics, and a lightweight retraining pipeline.
 
-## Scripts
+## Quick overview
 
-- `npm run dev` starts the Vite frontend.
-- `npm run build` produces a production build.
-- `npm run lint` runs the frontend lint checks.
-- `npm run preview` serves the production build locally.
+- Backend: Django REST API serving `/api` endpoints, JWT auth, Celery tasks for background work.
+- Frontend: Vite + React app in `frontend-vite/` with role-driven panels and live camera capture.
+- Inference: Local inference service (see `inference_server/`) that runs model detection and reports results back to the backend.
 
-## Backend
+## Quick start (development)
 
-The React app talks to Django through `/api` routes, with JWT auth and role-based dashboard panels already wired in.
+Prerequisites:
 
-## Running the project (development)
+- Python 3.10+ and Node.js 16+ installed.
+- PostgreSQL (recommended) or a compatible DB for production workflows.
 
 Backend (Django):
 
-1. Create and activate a Python virtualenv (from repo root):
+1. Create and activate a virtual environment (from repo root):
 
 ```powershell
 python -m venv .venv
-.\\.venv\\Scripts\\Activate.ps1
+.\.venv\Scripts\Activate.ps1
 ```
 
-2. Install dependencies and create `.env` with these values (example):
+2. Install Python dependencies and create a `.env` with required values:
 
 ```powershell
 pip install -r requirements.txt
-# Create a .env file in the repo root with at minimum:
-# SECRET_KEY=admin
-# DB_NAME=
-# DB_USER=
-# DB_PASSWORD=
+# create .env at repo root with at minimum:
+# SECRET_KEY=your-secret
+# DB_NAME=...
+# DB_USER=...
+# DB_PASSWORD=...
 # DB_HOST=localhost
 # DB_PORT=5432
 ```
 
-3. Apply migrations (this will also seed default users):
+3. Apply migrations and seed default users:
 
 ```powershell
-.\\.venv\\Scripts\\python.exe manage.py migrate --noinput
+.\.venv\Scripts\python.exe manage.py migrate --noinput
 ```
 
-4. (Optional) Create a superuser if you want custom admin credentials:
+4. Run the development server:
 
 ```powershell
-.\\.venv\\Scripts\\python.exe manage.py createsuperuser
+.\.venv\Scripts\python.exe manage.py runserver
 ```
 
-5. Run the dev server:
-
-```powershell
-.\\.venv\\Scripts\\python.exe manage.py runserver
-```
-
-Default seeded users (created by migrations):
+Default seeded users (for dev/testing):
 
 - Admin: `admin` / `admin` (admin)
 - Superadmin: `superadmin` / `superadmin` (superadmin)
-- Inspector (operator role): `inspector` / `inspector`
+- Inspector: `inspector` / `inspector`
 
-Frontend (Vite React):
+Frontend (Vite + React):
 
-1. Install Node deps and run the dev server (from `frontend-vite`):
+1. From `frontend-vite/` install dependencies and run the dev server:
 
 ```powershell
 cd frontend-vite
 npm install
-npm run build
 npm run dev
 ```
 
-2. The frontend expects the API at `/api` by default. If your backend is running on a different host/port, set `VITE_API_BASE_URL` in `frontend-vite/.env` (e.g. `VITE_API_BASE_URL=http://localhost:8000/api`).
+2. The frontend expects the API at `/api` by default. To point to a different backend, set `VITE_API_BASE_URL` in `frontend-vite/.env`, e.g.:
 
-Notes:
-- Login uses JWT tokens and the frontend reads the `role` claim in the token to route users to the proper dashboard.
-- If login fails, check backend logs and ensure the backend URL and credentials match the seeded users above.
+```text
+VITE_API_BASE_URL=http://localhost:8000/api
+```
+
+## Useful notes
+
+- Authentication: frontend reads `role` from the JWT token to route to the correct dashboard.
+- Inference models and weights live under `models/weights/` and the inference server is at `inference_server/app.py`.
+- Media and captured images are stored in `media/` during runtime; ensure proper storage configuration for production.
+
+## Contributing & Support
+
+- Run linters and tests before opening PRs. Frontend linting is available under `frontend-vite` via `npm run lint`.
+- See `SYSTEM_OVERVIEW.md` for a detailed architecture and developer notes.
+
+---
+
+This README is a concise developer entry point — for a full architectural overview see `SYSTEM_OVERVIEW.md`.

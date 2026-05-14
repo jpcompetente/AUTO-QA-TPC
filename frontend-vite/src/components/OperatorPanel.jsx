@@ -27,7 +27,7 @@ const REJECTION_REASONS = [
 ];
 
 /* ── Component ───────────────────────────────────────────────── */
-function OperatorPanel({ onLogout }) {
+function OperatorPanel({ onLogout, username = "Operator" }) {
   /* refs */
   const webcamRef = useRef(null);
   const frameRef = useRef(null);
@@ -1096,15 +1096,18 @@ function OperatorPanel({ onLogout }) {
               selected configuration.
             </p>
           </div>
-          <motion.button
-            className="ghost-button"
-            onClick={onLogout}
-            type="button"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.98 }}
-          >
-            Logout
-          </motion.button>
+          <div className="panel-header__right">
+            <div className="profile">{username}</div>
+            <motion.button
+              className="ghost-button"
+              onClick={onLogout}
+              type="button"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              Logout
+            </motion.button>
+          </div>
         </motion.header>
 
         {/* ── Tab switcher ── */}

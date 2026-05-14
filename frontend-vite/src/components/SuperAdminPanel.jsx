@@ -7,7 +7,7 @@ import {
   getDetectionLogs,
 } from "../api/backend";
 
-function SuperAdminPanel({ onLogout }) {
+function SuperAdminPanel({ onLogout, username = "superadmin" }) {
   const [components, setComponents] = useState([]);
   const [operators, setOperators] = useState([]);
   const [adminSettings, setAdminSettings] = useState([]);
@@ -128,7 +128,7 @@ function SuperAdminPanel({ onLogout }) {
             </div>
           </div>
           <div className="super-header__actions">
-            <div className="profile">superadmin</div>
+            <div className="profile">{username}</div>
             <button className="ghost-button" onClick={onLogout} type="button">
               Logout
             </button>
