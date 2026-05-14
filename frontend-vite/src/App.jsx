@@ -45,6 +45,19 @@ function readRole(token) {
   }
 }
 
+function readUsername(token) {
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const decoded = jwtDecode(token);
+    return decoded.username || decoded.sub || "User";
+  } catch {
+    return null;
+  }
+}
+
 function readStoredToken() {
   const storedToken = localStorage.getItem("token");
 
@@ -66,6 +79,7 @@ function App() {
   const [apiMessage, setApiMessage] = useState("Connecting to backend...");
 
   const role = useMemo(() => readRole(token), [token]);
+  const username = useMemo(() => readUsername(token), [token]);
 
   const handleLogin = (accessToken) => {
     localStorage.setItem("token", accessToken);
@@ -97,11 +111,11 @@ function App() {
   }
 
   if (role === "superadmin") {
-    return <SuperAdminPanel onLogout={handleLogout} />;
+    return <SuperAdminPanel onLogout={handleLogout} username={username} />;
   }
 
   if (role === "operator") {
-    return <OperatorPanel onLogout={handleLogout} />;
+    return <OperatorPanel onLogout={handleLogout} username={username} />;
   }
 
   if (role === "inspector") {
