@@ -1,10 +1,7 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
-import Webcam from 'react-webcam';
-import api, { buildWebSocketUrl } from '../api/backend';
-import '../styles/operator.css';
 import { useRef, useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import Webcam from "react-webcam";
+import api, { buildWebSocketUrl } from "../api/backend";
 import axios from "axios";
 import "../styles/operator.css";
 
@@ -20,7 +17,7 @@ const OperatorDashboard = ({ onLogout }) => {
 
   /* ── WebSocket ─────────────────────────────────────────────── */
   useEffect(() => {
-    const ws = new WebSocket(buildWebSocketUrl('/ws/metrics/'));
+    const ws = new WebSocket(buildWebSocketUrl("/ws/metrics/"));
     const ws = new WebSocket("ws://localhost:8000/ws/metrics/");
 
     ws.onopen = () => setWsConnection(ws);
@@ -40,7 +37,9 @@ const OperatorDashboard = ({ onLogout }) => {
       setLoading(true);
       const imageSrc = webcamRef.current.getScreenshot();
 
-      const response = await api.post('/inference/detect/', { image: imageSrc });
+      const response = await api.post("/inference/detect/", {
+        image: imageSrc,
+      });
       const response = await axios.post(
         "http://localhost:8000/api/core/inference/detect/",
         { image: imageSrc },
