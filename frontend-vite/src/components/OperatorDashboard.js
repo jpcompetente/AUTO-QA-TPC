@@ -2,7 +2,7 @@ import { useRef, useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import Webcam from "react-webcam";
 import api, { buildWebSocketUrl } from "../api/backend";
-import axios from "axios";
+import "axios";
 import "../styles/operator.css";
 
 const OperatorDashboard = ({ onLogout }) => {
@@ -39,10 +39,6 @@ const OperatorDashboard = ({ onLogout }) => {
       const response = await api.post("/inference/detect/", {
         image: imageSrc,
       });
-      const response = await axios.post(
-        "http://localhost:8000/api/core/inference/detect/",
-        { image: imageSrc },
-      );
 
       const result = response.data;
       setInference({ ...result, timestamp: new Date(), image: imageSrc });
