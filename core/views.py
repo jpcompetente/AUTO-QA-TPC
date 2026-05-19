@@ -529,8 +529,10 @@ def detect_image(request):
             confidence_score=result.confidence,
             system_decision=result.system_decision,
             final_decision=result.system_decision,
+            is_confidence_below_threshold=result.confidence < confidence,
             status='PENDING',
             session_id=request.data.get('session_id', ''),
+            manufacturing_order=request.data.get('manufacturing_order', ''),
         )
 
         payload = result.to_dict()

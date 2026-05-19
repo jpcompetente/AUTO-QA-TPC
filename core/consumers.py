@@ -486,8 +486,10 @@ class InferenceStreamConsumer(AsyncWebsocketConsumer):
                 confidence_score=result.confidence,
                 system_decision=result.system_decision,
                 final_decision=result.system_decision,
+                is_confidence_below_threshold=result.confidence < confidence,
                 status="PENDING",
                 session_id=payload.get("session_id", ""),
+                manufacturing_order=payload.get("manufacturing_order", ""),
             )
 
             response_payload = result.to_dict()

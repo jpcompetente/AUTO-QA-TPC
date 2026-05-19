@@ -13,6 +13,16 @@ The active frontend is now the Vite app in [frontend-vite](frontend-vite). Use t
 
 The React app talks to Django through `/api` routes, with JWT auth and role-based dashboard panels already wired in.
 
+### Inference server
+
+The standalone inference service lives in [inference_server/app.py](inference_server/app.py). For local development on Windows, use the bundled launcher instead of `uvicorn --workers 2`:
+
+```powershell
+.\.venv\Scripts\python.exe inference_server\run_server.py
+```
+
+On Linux or macOS you can still set `INFERENCE_SERVER_WORKERS` for higher concurrency.
+
 ## Running the project (development)
 
 Backend (Django):
