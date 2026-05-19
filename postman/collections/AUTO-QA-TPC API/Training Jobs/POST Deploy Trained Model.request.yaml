@@ -1,0 +1,19 @@
+$kind: http-request
+name: POST Deploy Trained Model
+method: POST
+url: '{{baseUrl}}/api/core/training-jobs/{{jobId}}/deploy/'
+order: 3000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "model_name": "yolo_retrained_v2"
+    }

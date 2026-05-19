@@ -1,0 +1,23 @@
+$kind: http-request
+name: POST Create Configuration
+method: POST
+url: '{{baseUrl}}/api/core/admin-settings/'
+order: 2000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "operator": 1,
+      "product": 1,
+      "model": 1,
+      "threshold": 0.5,
+      "is_active": true
+    }

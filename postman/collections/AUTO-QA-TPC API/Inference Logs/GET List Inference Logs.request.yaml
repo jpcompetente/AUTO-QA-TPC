@@ -1,0 +1,27 @@
+$kind: http-request
+name: GET List Inference Logs
+method: GET
+url: '{{baseUrl}}/api/core/inference-logs/'
+order: 1000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'
+queryParams:
+  - key: operator
+    value: ''
+    description: Filter by operator
+    disabled: true
+  - key: status
+    value: ''
+    description: 'Filter by status: PENDING, APPROVED, REJECTED'
+    disabled: true
+  - key: final_decision
+    value: ''
+    description: 'Filter by final decision: PASS, FAIL'
+    disabled: true
+  - key: component
+    value: ''
+    description: Filter by component
+    disabled: true

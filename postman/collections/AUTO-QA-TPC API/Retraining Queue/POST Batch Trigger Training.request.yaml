@@ -1,0 +1,22 @@
+$kind: http-request
+name: POST Batch Trigger Training
+method: POST
+url: '{{baseUrl}}/api/core/retraining-queue/batch_trigger_training/'
+order: 4000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "sample_ids": [1, 2, 3],
+      "epochs": 50,
+      "batch_size": 32,
+      "learning_rate": 0.001
+    }

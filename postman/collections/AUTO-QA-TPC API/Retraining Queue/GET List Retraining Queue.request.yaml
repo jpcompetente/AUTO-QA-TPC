@@ -1,0 +1,10 @@
+$kind: http-request
+name: GET List Retraining Queue
+method: GET
+url: '{{baseUrl}}/api/core/retraining-queue/'
+order: 1000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'
