@@ -1,5 +1,41 @@
 // Utility helpers for camera permission and access
 
+function isMobileOrTabletDevice() {
+  if (typeof navigator === 'undefined' || typeof window === 'undefined') {
+    return false;
+  }
+
+  const userAgent = navigator.userAgent || '';
+  const userAgentDataMobile = navigator.userAgentData?.mobile;
+  const touchDevice = navigator.maxTouchPoints > 1;
+  const coarsePointer =
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(pointer: coarse)').matches;
+
+  return Boolean(
+    userAgentDataMobile ||
+      /Android|iPhone|iPad|iPod|Mobile|Tablet/i.test(userAgent) ||
+      (touchDevice && coarsePointer),
+  );
+}
+
+export function buildCameraConstraints({
+  preferRearCamera = true,
+  width = { ideal: 1280 },
+  height = { ideal: 720 },
+} = {}) {
+  const useRearCamera = preferRearCamera && isMobileOrTabletDevice();
+
+  return {
+    audio: false,
+    video: {
+      facingMode: useRearCamera ? { ideal: 'environment' } : { ideal: 'user' },
+      width,
+      height,
+    },
+  };
+}
+
 // Requests camera permission and returns an object with result.
 // Returns: { granted: boolean, stream?: MediaStream, error?: Error }
 export async function requestCameraPermission(constraints = { video: true }) {
@@ -20,6 +56,31 @@ export async function requestCameraPermission(constraints = { video: true }) {
     const stream = await navigator.mediaDevices.getUserMedia(constraints);
     return { granted: true, stream };
   } catch (err) {
+    const hasRearCameraPreference =
+      constraints?.video?.facingMode?.ideal === 'environment' ||
+      constraints?.video?.facingMode === 'environment';
+
+    if (hasRearCameraPreference) {
+      try {
+        const fallbackConstraints = {
+          ...constraints,
+          video:
+            typeof constraints.video === 'object'
+              ? {
+                  ...constraints.video,
+                  facingMode: { ideal: 'user' },
+                }
+              : { facingMode: { ideal: 'user' } },
+        };
+        const fallbackStream = await navigator.mediaDevices.getUserMedia(
+          fallbackConstraints,
+        );
+        return { granted: true, stream: fallbackStream };
+      } catch (fallbackError) {
+        return { granted: false, error: fallbackError };
+      }
+    }
+
     return { granted: false, error: err };
   }
 }

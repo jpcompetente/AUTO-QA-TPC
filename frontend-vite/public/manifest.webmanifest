@@ -1,0 +1,18 @@
+{
+  "name": "AUTO-QA TPC Camera",
+  "short_name": "TPC Camera",
+  "description": "Installable camera mode for using a phone or tablet as the inspection camera.",
+  "start_url": "/?mode=camera",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

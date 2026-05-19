@@ -15,6 +15,16 @@ Prerequisites:
 - Python 3.10+ and Node.js 16+ installed.
 - PostgreSQL (recommended) or a compatible DB for production workflows.
 
+### Inference server
+
+The standalone inference service lives in [inference_server/app.py](inference_server/app.py). For local development on Windows, use the bundled launcher instead of `uvicorn --workers 2`:
+
+```powershell
+.\.venv\Scripts\python.exe inference_server\run_server.py
+```
+
+On Linux or macOS you can still set `INFERENCE_SERVER_WORKERS` for higher concurrency.
+
 Backend (Django):
 
 1. Create and activate a virtual environment (from repo root):

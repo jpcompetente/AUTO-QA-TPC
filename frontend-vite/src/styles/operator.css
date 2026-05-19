@@ -134,6 +134,17 @@ body { background: var(--bg); min-height: 100vh; }
   box-shadow: var(--shadow);
 }
 
+.camera-mode-note {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(53, 109, 255, 0.08);
+  border: 1px solid rgba(53, 109, 255, 0.18);
+  color: var(--text2);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 /* ─── BUTTONS ───────────────────────────────────────────────── */
 .ghost-button,
 .logout-btn {

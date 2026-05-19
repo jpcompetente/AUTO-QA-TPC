@@ -2,7 +2,6 @@ import { useRef, useEffect, useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import Webcam from "react-webcam";
 import api, { buildWebSocketUrl } from "../api/backend";
-import "axios";
 import "../styles/operator.css";
 
 const OperatorDashboard = ({ onLogout }) => {

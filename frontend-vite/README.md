@@ -13,6 +13,8 @@ This Vite app is the active frontend for the project.
 
 The app starts with the login screen, then routes into admin, operator, or super admin panels based on the JWT role returned by Django.
 
+For mobile and tablet camera setup without third-party apps, see [MOBILE_OTG_CAMERA_GUIDE.md](MOBILE_OTG_CAMERA_GUIDE.md).
+
 ## HTTPS For LAN Camera Access
 
 Camera access on a LAN IP requires a secure context. The Vite dev server will use HTTPS automatically when it finds a trusted local cert pair in `frontend-vite/certs/`:
