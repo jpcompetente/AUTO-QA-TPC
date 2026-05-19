@@ -625,3 +625,51 @@ class TrainingProgressConsumer(AsyncWebsocketConsumer):
     async def progress_update(self, event):
         """Send training progress update"""
         await self.send(text_data=json.dumps(event))
+
+
+class WebRTCSignalingConsumer(AsyncWebsocketConsumer):
+    """
+    Minimal signaling relay for WebRTC SDP/ICE exchange.
+    Expects JSON messages: { type: 'offer'|'answer'|'ice', from: 'sender'|'receiver', data: ... }
+    The consumer simply relays messages to all other participants in the same session group.
+    """
+
+    async def connect(self):
+        self.session_id = self.scope['url_route']['kwargs'].get('session_id')
+        if not self.session_id:
+            await self.close(code=4001)
+            return
+
+        self.room_group_name = f'webrtc_{self.session_id}'
+        await self.channel_layer.group_add(self.room_group_name, self.channel_name)
+        await self.accept()
+
+    async def disconnect(self, close_code):
+        await self.channel_layer.group_discard(self.room_group_name, self.channel_name)
+
+    async def receive(self, text_data=None, bytes_data=None):
+        # Accept text JSON messages and forward to group
+        if not text_data:
+            return
+        try:
+            # Basic validation to ensure JSON
+            payload = json.loads(text_data)
+        except Exception:
+            # Ignore invalid payloads
+            return
+
+        # Broadcast the raw message to the group; include sender channel to avoid echo
+        await self.channel_layer.group_send(
+            self.room_group_name,
+            {
+                'type': 'webrtc.message',
+                'message': text_data,
+                'sender_channel': self.channel_name,
+            },
+        )
+
+    async def webrtc_message(self, event):
+        # Don't echo back to the sender
+        if event.get('sender_channel') == self.channel_name:
+            return
+        await self.send(text_data=event.get('message') or '')

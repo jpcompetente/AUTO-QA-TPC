@@ -6,6 +6,8 @@ import Login from "./components/Login";
 import InspectorDashboard from "./components/InspectorDashboard";
 import OperatorPanel from "./components/OperatorPanel";
 import SuperAdminPanel from "./components/SuperAdminPanel";
+import CameraSender from "./components/CameraSender";
+import CameraReceiver from "./components/CameraReceiver";
 import "./App.css";
 
 function normalizeRole(role) {
@@ -61,9 +63,23 @@ function readStoredToken() {
   return storedToken;
 }
 
+function readAppMode() {
+  if (typeof window === "undefined") {
+    return "standard";
+  }
+
+  const mode = new URLSearchParams(window.location.search).get("mode");
+  if (!mode) return "standard";
+  if (mode === "camera") return "camera";
+  if (mode === "relay-sender") return "relay-sender";
+  if (mode === "relay-receiver") return "relay-receiver";
+  return "standard";
+}
+
 function App() {
   const [token, setToken] = useState(() => readStoredToken());
   const [apiMessage, setApiMessage] = useState("Connecting to backend...");
+  const appMode = useMemo(() => readAppMode(), []);
 
   const role = useMemo(() => readRole(token), [token]);
 
@@ -100,8 +116,16 @@ function App() {
     return <SuperAdminPanel onLogout={handleLogout} />;
   }
 
+  if (appMode === "relay-sender") {
+    return <CameraSender />;
+  }
+
+  if (appMode === "relay-receiver") {
+    return <CameraReceiver />;
+  }
+
   if (role === "operator") {
-    return <OperatorPanel onLogout={handleLogout} />;
+    return <OperatorPanel onLogout={handleLogout} cameraOnly={appMode === "camera"} />;
   }
 
   if (role === "inspector") {

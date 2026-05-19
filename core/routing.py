@@ -17,4 +17,6 @@ websocket_urlpatterns = [
     
     # Training progress updates
     path('ws/training-progress/<int:training_job_id>/', consumers.TrainingProgressConsumer.as_asgi()),
+    # Simple WebRTC signaling relay (room by session_id)
+    path('ws/webrtc/<str:session_id>/', consumers.WebRTCSignalingConsumer.as_asgi()),
 ]
