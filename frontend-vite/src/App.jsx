@@ -47,6 +47,19 @@ function readRole(token) {
   }
 }
 
+function readUsername(token) {
+  if (!token) {
+    return null;
+  }
+
+  try {
+    const decoded = jwtDecode(token);
+    return decoded.username || decoded.sub || "User";
+  } catch {
+    return null;
+  }
+}
+
 function readStoredToken() {
   const storedToken = localStorage.getItem("token");
 
@@ -82,6 +95,7 @@ function App() {
   const appMode = useMemo(() => readAppMode(), []);
 
   const role = useMemo(() => readRole(token), [token]);
+  const username = useMemo(() => readUsername(token), [token]);
 
   const handleLogin = (accessToken) => {
     localStorage.setItem("token", accessToken);
@@ -113,7 +127,7 @@ function App() {
   }
 
   if (role === "superadmin") {
-    return <SuperAdminPanel onLogout={handleLogout} />;
+    return <SuperAdminPanel onLogout={handleLogout} username={username} />;
   }
 
   if (appMode === "relay-sender") {
@@ -125,7 +139,13 @@ function App() {
   }
 
   if (role === "operator") {
-    return <OperatorPanel onLogout={handleLogout} cameraOnly={appMode === "camera"} />;
+    return (
+      <OperatorPanel
+        onLogout={handleLogout}
+        username={username}
+        cameraOnly={appMode === "camera"}
+      />
+    );
   }
 
   if (role === "inspector") {
