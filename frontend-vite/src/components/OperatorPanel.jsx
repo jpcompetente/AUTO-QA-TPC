@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import Webcam from "react-webcam";
 import {
@@ -7,8 +7,11 @@ import {
   getDetectionLogs,
   getOperatorPreset,
   reviewInferenceLog,
-} from '../api/backend';
-import { buildCameraConstraints, ensureCameraPermission } from '../utils/camera';
+} from "../api/backend";
+import {
+  buildCameraConstraints,
+  ensureCameraPermission,
+} from "../utils/camera";
 
 /* ── Constants ───────────────────────────────────────────────── */
 const STABLE_CAPTURE_DELAY_MS = 2000;
@@ -27,8 +30,12 @@ const REJECTION_REASONS = [
 ];
 
 /* ── Component ───────────────────────────────────────────────── */
-function OperatorPanel({ onLogout, username = "Operator", cameraOnly = false }) {
-  const cameraConstraints = buildCameraConstraints();
+function OperatorPanel({
+  onLogout,
+  username = "Operator",
+  cameraOnly = false,
+}) {
+  const cameraConstraints = useMemo(() => buildCameraConstraints(), []);
   /* refs */
   const webcamRef = useRef(null);
   const frameRef = useRef(null);
@@ -83,15 +90,17 @@ function OperatorPanel({ onLogout, username = "Operator", cameraOnly = false }) 
   const [liveAnnotatedOverlaySrc, setLiveAnnotatedOverlaySrc] = useState("");
 
   useEffect(() => {
-    if (cameraOnly) {
-      setActivePanel("camera");
-    }
-  }, [cameraOnly]);
-
-  useEffect(() => {
     sessionFilterRef.current = sessionFilter;
     sessionStartedRef.current = sessionStarted;
   }, [sessionFilter, sessionStarted]);
+
+  // Ensure camera-only mode shows the camera panel without causing
+  // a synchronous setState inside an effect (avoids cascading renders).
+  useEffect(() => {
+    if (!cameraOnly) return undefined;
+    const id = window.setTimeout(() => setActivePanel("camera"), 0);
+    return () => window.clearTimeout(id);
+  }, [cameraOnly]);
 
   /* ── Helpers ─────────────────────────────────────────────────── */
   const normalizeList = useCallback(
@@ -158,14 +167,14 @@ function OperatorPanel({ onLogout, username = "Operator", cameraOnly = false }) 
       liveIntervalRef.current = null;
     }
     waitForMotionAfterEmptyRef.current = false;
-    setLiveAnnotatedOverlaySrc('');
+    setLiveAnnotatedOverlaySrc("");
     try {
       const stream = liveMediaStreamRef.current;
       if (stream?.getTracks) {
         stream.getTracks().forEach((track) => track.stop());
       }
     } catch (error) {
-      console.warn('Error stopping media stream', error);
+      console.warn("Error stopping media stream", error);
     }
     liveMediaStreamRef.current = null;
     try {
@@ -532,7 +541,7 @@ function OperatorPanel({ onLogout, username = "Operator", cameraOnly = false }) 
           stream.getTracks().forEach((track) => track.stop());
         }
       } catch (error) {
-        console.warn('Error stopping media stream', error);
+        console.warn("Error stopping media stream", error);
       }
       liveMediaStreamRef.current = null;
       try {
@@ -541,7 +550,7 @@ function OperatorPanel({ onLogout, username = "Operator", cameraOnly = false }) 
       } catch {
         /* ignore */
       }
-      setStreamStatus('disconnected');
+      setStreamStatus("disconnected");
     };
 
     if (!sessionStarted || !preset) {
@@ -571,16 +580,16 @@ function OperatorPanel({ onLogout, username = "Operator", cameraOnly = false }) 
             try {
               videoEl.srcObject = res.stream;
             } catch (e) {
-              console.warn('Could not attach MediaStream to video element', e);
+              console.warn("Could not attach MediaStream to video element", e);
             }
           }
         } else if (!res.granted) {
           window.setTimeout(() => {
-            setError(res.error?.message || 'Camera permission denied');
+            setError(res.error?.message || "Camera permission denied");
           }, 0);
         }
       } catch (e) {
-        console.warn('ensureCameraPermission error', e);
+        console.warn("ensureCameraPermission error", e);
       }
     })();
 
@@ -661,7 +670,7 @@ function OperatorPanel({ onLogout, username = "Operator", cameraOnly = false }) 
       streamEffectActiveRef.current = false;
       closeStream();
     };
-  }, [preset, sessionStarted]);
+  }, [preset, sessionStarted, cameraConstraints]);
 
   /* ── Auto-annotate ───────────────────────────────────────────── */
   const autoAnnotateDetection = useCallback((result) => {
