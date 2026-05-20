@@ -1,0 +1,10 @@
+$kind: http-request
+name: GET List Training Jobs
+method: GET
+url: '{{baseUrl}}/api/core/training-jobs/'
+order: 1000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'

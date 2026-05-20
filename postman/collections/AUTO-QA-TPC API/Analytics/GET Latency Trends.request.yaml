@@ -1,0 +1,15 @@
+$kind: http-request
+name: GET Latency Trends
+method: GET
+url: '{{baseUrl}}/api/core/analytics/latency-trends/'
+order: 2000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'
+queryParams:
+  - key: days
+    value: '7'
+    description: Number of days (default 7)
+    disabled: true

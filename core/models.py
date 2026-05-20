@@ -117,11 +117,13 @@ class InferenceLog(models.Model):
     DECISION_CHOICES = (
         ('PASS', 'Pass'),
         ('FAIL', 'Fail'),
+        ('ERROR', 'Error - Manual Review Required'),
     )
     STATUS_CHOICES = (
         ('PENDING', 'Pending Operator Review'),
         ('APPROVED', 'Operator Approved'),
         ('REJECTED', 'Operator Rejected'),
+        ('ERROR', 'Error - Flagged for Manual Review'),
         ('ARCHIVED', 'Archived'),
     )
     REJECTION_REASON_CHOICES = (
@@ -130,6 +132,7 @@ class InferenceLog(models.Model):
         ('BLURRY_CAPTURE', 'Blurry capture'),
         ('BAD_ANNOTATION', 'Bad annotation'),
         ('WRONG_CLASS', 'Wrong class'),
+        ('CONFIDENCE_BELOW_THRESHOLD', 'Confidence below threshold (requires manual review)'),
         ('OTHER', 'Other'),
     )
     
@@ -159,6 +162,11 @@ class InferenceLog(models.Model):
     # Real-time Streaming Metadata
     session_id = models.CharField(max_length=100, blank=True, db_index=True)  # WebSocket session identifier
     stream_timestamp = models.DateTimeField(null=True, blank=True)  # When streamed to Super Admin
+    manufacturing_order = models.CharField(max_length=100, blank=True, db_index=True)
+    is_confidence_below_threshold = models.BooleanField(
+        default=False,
+        help_text='Flagged when confidence is too low on both PASS/FAIL classifications',
+    )
     
     # Status Tracking
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
@@ -177,6 +185,17 @@ class InferenceLog(models.Model):
     
     def __str__(self):
         return f"Log {self.id} - {self.operator.username} ({self.final_decision})"
+
+    def check_and_flag_low_confidence(self, threshold=0.5):
+        """Flag low-confidence results for manual review."""
+        if self.confidence_score < threshold:
+            self.system_decision = 'ERROR'
+            self.final_decision = 'ERROR'
+            self.is_confidence_below_threshold = True
+            self.status = 'ERROR'
+            self.rejection_reason = 'CONFIDENCE_BELOW_THRESHOLD'
+            return True
+        return False
 
 # 📈 Retraining & Dataset Queue (Logic 1.5)
 class RetrainingQueue(models.Model):

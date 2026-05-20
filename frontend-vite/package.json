@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "axios": "^1.8.4",
+    "framer-motion": "^11.0.3",
     "jwt-decode": "^4.0.0",
     "mkcert": "^3.2.0",
     "prop-types": "^15.8.1",

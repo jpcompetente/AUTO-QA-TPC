@@ -94,6 +94,15 @@ body { background: var(--bg); min-height: 100vh; }
   gap: 8px;
 }
 
+.panel-header__right .profile {
+  padding: 6px 10px;
+  background: var(--surface2);
+  border-radius: 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
 /* ─── TAB SWITCHER ──────────────────────────────────────────── */
 .panel-switcher {
   display: inline-flex;
@@ -123,6 +132,17 @@ body { background: var(--bg); min-height: 100vh; }
   background: var(--surface);
   color: var(--text);
   box-shadow: var(--shadow);
+}
+
+.camera-mode-note {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(53, 109, 255, 0.08);
+  border: 1px solid rgba(53, 109, 255, 0.18);
+  color: var(--text2);
+  font-size: 13px;
+  line-height: 1.45;
 }
 
 /* ─── BUTTONS ───────────────────────────────────────────────── */

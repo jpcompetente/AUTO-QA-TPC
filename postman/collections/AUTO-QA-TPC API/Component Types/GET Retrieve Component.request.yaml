@@ -1,0 +1,10 @@
+$kind: http-request
+name: GET Retrieve Component
+method: GET
+url: '{{baseUrl}}/api/core/components/{{componentId}}/'
+order: 3000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'

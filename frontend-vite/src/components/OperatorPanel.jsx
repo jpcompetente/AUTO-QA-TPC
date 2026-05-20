@@ -1,50 +1,59 @@
-﻿import { useCallback, useEffect, useRef, useState } from 'react';
-import Webcam from 'react-webcam';
+﻿import { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import { motion } from "framer-motion";
+import Webcam from "react-webcam";
 import {
   buildInferenceStreamUrl,
   detectImage,
   getDetectionLogs,
   getOperatorPreset,
   reviewInferenceLog,
-} from '../api/backend';
-import { ensureCameraPermission } from '../utils/camera';
+} from "../api/backend";
+import {
+  buildCameraConstraints,
+  ensureCameraPermission,
+} from "../utils/camera";
 
 /* ── Constants ───────────────────────────────────────────────── */
-const STABLE_CAPTURE_DELAY_MS  = 2000;
+const STABLE_CAPTURE_DELAY_MS = 2000;
 const MOTION_SAMPLE_INTERVAL_MS = 250;
-const MOTION_THRESHOLD          = 9;   // For auto-capture (stable frame detection)
+const MOTION_THRESHOLD = 9; // For auto-capture (stable frame detection)
 const LIVE_INFERENCE_INTERVAL_MS = 1500;
-const LIVE_MOTION_THRESHOLD     = 20;  // Higher threshold for live feed (less noise)
+const LIVE_MOTION_THRESHOLD = 20; // Higher threshold for live feed (less noise)
 
 const REJECTION_REASONS = [
-  ['MISSED_DEFECT',  'Missed a defect'],
-  ['FALSE_POSITIVE', 'False positive'],
-  ['BLURRY_CAPTURE', 'Blurry capture'],
-  ['BAD_ANNOTATION', 'Bad annotation'],
-  ['WRONG_CLASS',    'Wrong class'],
-  ['OTHER',          'Other'],
+  ["MISSED_DEFECT", "Missed a defect"],
+  ["FALSE_POSITIVE", "False positive"],
+  ["BLURRY_CAPTURE", "Blurry capture"],
+  ["BAD_ANNOTATION", "Bad annotation"],
+  ["WRONG_CLASS", "Wrong class"],
+  ["OTHER", "Other"],
 ];
 
 /* ── Component ───────────────────────────────────────────────── */
-function OperatorPanel({ onLogout }) {
+function OperatorPanel({
+  onLogout,
+  username = "Operator",
+  cameraOnly = false,
+}) {
+  const cameraConstraints = useMemo(() => buildCameraConstraints(), []);
   /* refs */
-  const webcamRef          = useRef(null);
-  const frameRef           = useRef(null);
-  const overlayRef         = useRef(null);
-  const motionCanvasRef    = useRef(null);
-  const previousFrameRef   = useRef(null);
+  const webcamRef = useRef(null);
+  const frameRef = useRef(null);
+  const overlayRef = useRef(null);
+  const motionCanvasRef = useRef(null);
+  const previousFrameRef = useRef(null);
   const lastCapturedFrameRef = useRef(null);
-  const stableSinceRef     = useRef(null);
+  const stableSinceRef = useRef(null);
   const captureInFlightRef = useRef(false);
-  const reviewPendingRef   = useRef(false);
-  const liveIntervalRef    = useRef(null);
+  const reviewPendingRef = useRef(false);
+  const liveIntervalRef = useRef(null);
   const livePreviousFrameRef = useRef(null);
-  const liveSocketRef      = useRef(null);
+  const liveSocketRef = useRef(null);
   const liveRequestInFlightRef = useRef(false);
   const reconnectAttemptsRef = useRef(0);
   const reconnectTimerRef = useRef(null);
   const streamEffectActiveRef = useRef(false);
-  const sessionFilterRef = useRef('');
+  const sessionFilterRef = useRef("");
   const sessionStartedRef = useRef(false);
   const logsFetchInFlightRef = useRef(false);
   const logsFetchQueuedRef = useRef(false);
@@ -53,36 +62,45 @@ function OperatorPanel({ onLogout }) {
   const waitForMotionAfterEmptyRef = useRef(false);
 
   /* state */
-  const [preset,                setPreset]               = useState(null);
-  const [logs,                  setLogs]                 = useState([]);
-  const [loading,               setLoading]              = useState(false);
-  const [error,                 setError]                = useState('');
-  const [detectionResult,       setDetectionResult]      = useState(null);
-  const [capturedFrame,         setCapturedFrame]        = useState('');
-  const [autoDetectEnabled,     setAutoDetectEnabled]    = useState(true);
-  const [sessionStarted,        setSessionStarted]       = useState(false);
-  const [sessionId,             setSessionId]            = useState('');
-  const [sessionFilter,         setSessionFilter]        = useState('');
-  const [expandedLogId,         setExpandedLogId]        = useState(null);
-  const [rawOpenMap,            setRawOpenMap]           = useState({});
-  const [motionStatus,          setMotionStatus]         = useState('Waiting for camera');
-  const [countdownMs,           setCountdownMs]          = useState(null);
-  const [reviewMode,            setReviewMode]           = useState('ACKNOWLEDGE');
-  const [reviewDescription,     setReviewDescription]    = useState('');
-  const [reviewFinalDecision,   setReviewFinalDecision]  = useState('PASS');
-  const [reviewRejectionReason, setReviewRejectionReason] = useState('MISSED_DEFECT');
-  const [submittingReview,      setSubmittingReview]     = useState(false);
-  const [reviewPending,         setReviewPending]        = useState(false);
-  const [activePanel,           setActivePanel]          = useState('camera');
-  const [zoomedImage,           setZoomedImage]          = useState(null);
-  const [logsLimit,             setLogsLimit]            = useState(20);
-  const [streamStatus,          setStreamStatus]         = useState('disconnected');
-  const [liveAnnotatedOverlaySrc, setLiveAnnotatedOverlaySrc] = useState('');
+  const [preset, setPreset] = useState(null);
+  const [logs, setLogs] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [detectionResult, setDetectionResult] = useState(null);
+  const [capturedFrame, setCapturedFrame] = useState("");
+  const [autoDetectEnabled, setAutoDetectEnabled] = useState(true);
+  const [sessionStarted, setSessionStarted] = useState(false);
+  const [sessionId, setSessionId] = useState("");
+  const [sessionFilter, setSessionFilter] = useState("");
+  const [expandedLogId, setExpandedLogId] = useState(null);
+  const [rawOpenMap, setRawOpenMap] = useState({});
+  const [motionStatus, setMotionStatus] = useState("Waiting for camera");
+  const [countdownMs, setCountdownMs] = useState(null);
+  const [reviewMode, setReviewMode] = useState("ACKNOWLEDGE");
+  const [reviewDescription, setReviewDescription] = useState("");
+  const [reviewFinalDecision, setReviewFinalDecision] = useState("PASS");
+  const [reviewRejectionReason, setReviewRejectionReason] =
+    useState("MISSED_DEFECT");
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [reviewPending, setReviewPending] = useState(false);
+  const [activePanel, setActivePanel] = useState("camera");
+  const [zoomedImage, setZoomedImage] = useState(null);
+  const [logsLimit, setLogsLimit] = useState(20);
+  const [streamStatus, setStreamStatus] = useState("disconnected");
+  const [liveAnnotatedOverlaySrc, setLiveAnnotatedOverlaySrc] = useState("");
 
   useEffect(() => {
     sessionFilterRef.current = sessionFilter;
     sessionStartedRef.current = sessionStarted;
   }, [sessionFilter, sessionStarted]);
+
+  // Ensure camera-only mode shows the camera panel without causing
+  // a synchronous setState inside an effect (avoids cascading renders).
+  useEffect(() => {
+    if (!cameraOnly) return undefined;
+    const id = window.setTimeout(() => setActivePanel("camera"), 0);
+    return () => window.clearTimeout(id);
+  }, [cameraOnly]);
 
   /* ── Helpers ─────────────────────────────────────────────────── */
   const normalizeList = useCallback(
@@ -105,15 +123,20 @@ function OperatorPanel({ onLogout }) {
       logsFetchInFlightRef.current = true;
 
       const params = {};
-      if (sessionFilterRef.current) params.session_id = sessionFilterRef.current;
+      if (sessionFilterRef.current)
+        params.session_id = sessionFilterRef.current;
 
       const runFetch = async () => {
         const response = await getDetectionLogs(params);
         const list = normalizeList(response.data);
         setLogs(list);
-        if (!sessionFilterRef.current && list.length > 0 && !sessionStartedRef.current) {
+        if (
+          !sessionFilterRef.current &&
+          list.length > 0 &&
+          !sessionStartedRef.current
+        ) {
           const recentSession = list.find((l) => l.session_id);
-          if (recentSession) setSessionId(recentSession.session_id || '');
+          if (recentSession) setSessionId(recentSession.session_id || "");
         }
       };
 
@@ -144,20 +167,23 @@ function OperatorPanel({ onLogout }) {
       liveIntervalRef.current = null;
     }
     waitForMotionAfterEmptyRef.current = false;
-    setLiveAnnotatedOverlaySrc('');
-    // stop attached camera stream if present
+    setLiveAnnotatedOverlaySrc("");
     try {
-      const s = liveMediaStreamRef.current;
-      if (s && s.getTracks) s.getTracks().forEach((t) => t.stop());
-    } catch {
-      console.warn('Error stopping media stream');
+      const stream = liveMediaStreamRef.current;
+      if (stream?.getTracks) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
+    } catch (error) {
+      console.warn("Error stopping media stream", error);
     }
     liveMediaStreamRef.current = null;
-    try { if (webcamRef.current?.video) webcamRef.current.video.srcObject = null; } catch {
+    try {
+      if (webcamRef.current?.video) webcamRef.current.video.srcObject = null;
+    } catch {
       /* ignore */
     }
     setSessionStarted(false);
-    setSessionId('');
+    setSessionId("");
   }, []);
 
   const toggleSession = useCallback(() => {
@@ -170,9 +196,13 @@ function OperatorPanel({ onLogout }) {
     setSessionStarted(true);
   }, [sessionStarted, stopSession]);
 
-  useEffect(() => () => {
-    if (liveIntervalRef.current) window.clearInterval(liveIntervalRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (liveIntervalRef.current)
+        window.clearInterval(liveIntervalRef.current);
+    },
+    [],
+  );
 
   /* ── Boot ────────────────────────────────────────────────────── */
   useEffect(() => {
@@ -183,8 +213,8 @@ function OperatorPanel({ onLogout }) {
       } catch (err) {
         setError(
           err.response?.data?.error ||
-          err.response?.data?.detail ||
-          'No active inspection preset is assigned to this operator.',
+            err.response?.data?.detail ||
+            "No active inspection preset is assigned to this operator.",
         );
       }
     };
@@ -199,138 +229,144 @@ function OperatorPanel({ onLogout }) {
   }, [sessionFilter, sessionStarted]);
 
   /* ── Canvas overlay ─────────────────────────────────────────── */
-  const drawOverlay = useCallback((result) => {
-    const canvas = overlayRef.current;
-    // For live feed: use video, for captured frame: use image
-    const media = capturedFrame ? frameRef.current : webcamRef.current?.video;
-    if (!canvas || !media) return;
+  const drawOverlay = useCallback(
+    (result) => {
+      const canvas = overlayRef.current;
+      // For live feed: use video, for captured frame: use image
+      const media = capturedFrame ? frameRef.current : webcamRef.current?.video;
+      if (!canvas || !media) return;
 
-    // Get display dimensions from canvas container
-    const displayWidth = canvas.offsetWidth || media.clientWidth || 640;
-    const displayHeight = canvas.offsetHeight || media.clientHeight || 480;
-    
-    // Get source dimensions - handle both video and img elements
-    let sourceWidth, sourceHeight;
-    if (media.tagName === 'VIDEO') {
-      sourceWidth = media.videoWidth || media.naturalWidth || displayWidth;
-      sourceHeight = media.videoHeight || media.naturalHeight || displayHeight;
-    } else {
-      sourceWidth = media.naturalWidth || media.width || displayWidth;
-      sourceHeight = media.naturalHeight || media.height || displayHeight;
-    }
+      // Get display dimensions from canvas container
+      const displayWidth = canvas.offsetWidth || media.clientWidth || 640;
+      const displayHeight = canvas.offsetHeight || media.clientHeight || 480;
 
-    // Only proceed if we have valid dimensions
-    if (!sourceWidth || !sourceHeight) {
-      return;
-    }
+      // Get source dimensions - handle both video and img elements
+      let sourceWidth, sourceHeight;
+      if (media.tagName === "VIDEO") {
+        sourceWidth = media.videoWidth || media.naturalWidth || displayWidth;
+        sourceHeight =
+          media.videoHeight || media.naturalHeight || displayHeight;
+      } else {
+        sourceWidth = media.naturalWidth || media.width || displayWidth;
+        sourceHeight = media.naturalHeight || media.height || displayHeight;
+      }
 
-    // Set canvas resolution to match display size
-    canvas.width = displayWidth;
-    canvas.height = displayHeight;
-    
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    
-    // Clear canvas before drawing
-    ctx.clearRect(0, 0, displayWidth, displayHeight);
-
-    const sourceRatio = sourceWidth / sourceHeight;
-    const displayRatio = displayWidth / displayHeight;
-    const renderedWidth = displayRatio > sourceRatio ? displayHeight * sourceRatio : displayWidth;
-    const renderedHeight = displayRatio > sourceRatio ? displayHeight : displayWidth / sourceRatio;
-    const offsetX = (displayWidth - renderedWidth) / 2;
-    const offsetY = (displayHeight - renderedHeight) / 2;
-    const scaleX = renderedWidth / sourceWidth;
-    const scaleY = renderedHeight / sourceHeight;
-
-    const drawDetections = (detections) => {
-      if (!detections || detections.length === 0) {
+      // Only proceed if we have valid dimensions
+      if (!sourceWidth || !sourceHeight) {
         return;
       }
-      
-      (detections || []).forEach((detection) => {
-        const [x1, y1, x2, y2] = detection.bbox || [];
-        const label = detection.label || detection.class_name || 'DETECTION';
-        const confidence = Number(detection.confidence || 0);
-        
-        // Color scheme: Red for SCRATCH, Green for INTACT
-        const isScratch = label === 'SCRATCH';
-        const boxColor = isScratch ? '#ef4444' : '#22c55e';
-        // Draw filled polygon mask if available (with alpha blending)
-        const polygon = detection.mask?.polygon || [];
-        if (polygon.length > 2) {
-          // Semi-transparent fill matching OpenCV approach
-          ctx.fillStyle = isScratch 
-            ? 'rgba(239, 68, 68, 0.35)'  // Red with 35% alpha
-            : 'rgba(34, 197, 94, 0.20)'; // Green with 20% alpha
-          
-          ctx.beginPath();
-          polygon.forEach(([x, y], index) => {
-            const px = offsetX + x * scaleX;
-            const py = offsetY + y * scaleY;
-            if (index === 0) {
-              ctx.moveTo(px, py);
-            } else {
-              ctx.lineTo(px, py);
-            }
-          });
-          ctx.closePath();
-          ctx.fill();
-          
-          // Draw contour around mask
-          ctx.strokeStyle = boxColor;
-          ctx.lineWidth = 2;
-          ctx.stroke();
+
+      // Set canvas resolution to match display size
+      canvas.width = displayWidth;
+      canvas.height = displayHeight;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      // Clear canvas before drawing
+      ctx.clearRect(0, 0, displayWidth, displayHeight);
+
+      const sourceRatio = sourceWidth / sourceHeight;
+      const displayRatio = displayWidth / displayHeight;
+      const renderedWidth =
+        displayRatio > sourceRatio ? displayHeight * sourceRatio : displayWidth;
+      const renderedHeight =
+        displayRatio > sourceRatio ? displayHeight : displayWidth / sourceRatio;
+      const offsetX = (displayWidth - renderedWidth) / 2;
+      const offsetY = (displayHeight - renderedHeight) / 2;
+      const scaleX = renderedWidth / sourceWidth;
+      const scaleY = renderedHeight / sourceHeight;
+
+      const drawDetections = (detections) => {
+        if (!detections || detections.length === 0) {
+          return;
         }
 
-        // Draw bounding box
-        if ([x1, y1, x2, y2].every((value) => Number.isFinite(value))) {
-          const left = offsetX + x1 * scaleX;
-          const top = offsetY + y1 * scaleY;
-          const width = (x2 - x1) * scaleX;
-          const height = (y2 - y1) * scaleY;
+        (detections || []).forEach((detection) => {
+          const [x1, y1, x2, y2] = detection.bbox || [];
+          const label = detection.label || detection.class_name || "DETECTION";
+          const confidence = Number(detection.confidence || 0);
 
-          // Draw rectangle (2px stroke matching OpenCV)
-          ctx.strokeStyle = boxColor;
-          ctx.lineWidth = 2;
-          ctx.strokeRect(left, top, width, height);
-          
-          // Draw label with background (matching OpenCV style)
-          const text = `${label} ${(confidence * 100).toFixed(1)}%`;
-          ctx.font = '600 14px Arial, sans-serif';
-          const textMetrics = ctx.measureText(text);
-          const textWidth = textMetrics.width + 8;
-          const textHeight = 18;
-          const labelX = left;
-          const labelY = Math.max(top - textHeight - 4, 16);
-          
-          // Label background
-          ctx.fillStyle = boxColor;
-          ctx.fillRect(labelX, labelY, textWidth, textHeight);
-          
-          // Label text
-          ctx.fillStyle = '#ffffff';
-          ctx.fillText(text, labelX + 4, labelY + 14);
-        }
-      });
-    };
+          // Color scheme: Red for SCRATCH, Green for INTACT
+          const isScratch = label === "SCRATCH";
+          const boxColor = isScratch ? "#ef4444" : "#22c55e";
+          // Draw filled polygon mask if available (with alpha blending)
+          const polygon = detection.mask?.polygon || [];
+          if (polygon.length > 2) {
+            // Semi-transparent fill matching OpenCV approach
+            ctx.fillStyle = isScratch
+              ? "rgba(239, 68, 68, 0.35)" // Red with 35% alpha
+              : "rgba(34, 197, 94, 0.20)"; // Green with 20% alpha
 
-    drawDetections(result?.detections || []);
-  }, [capturedFrame]);
+            ctx.beginPath();
+            polygon.forEach(([x, y], index) => {
+              const px = offsetX + x * scaleX;
+              const py = offsetY + y * scaleY;
+              if (index === 0) {
+                ctx.moveTo(px, py);
+              } else {
+                ctx.lineTo(px, py);
+              }
+            });
+            ctx.closePath();
+            ctx.fill();
+
+            // Draw contour around mask
+            ctx.strokeStyle = boxColor;
+            ctx.lineWidth = 2;
+            ctx.stroke();
+          }
+
+          // Draw bounding box
+          if ([x1, y1, x2, y2].every((value) => Number.isFinite(value))) {
+            const left = offsetX + x1 * scaleX;
+            const top = offsetY + y1 * scaleY;
+            const width = (x2 - x1) * scaleX;
+            const height = (y2 - y1) * scaleY;
+
+            // Draw rectangle (2px stroke matching OpenCV)
+            ctx.strokeStyle = boxColor;
+            ctx.lineWidth = 2;
+            ctx.strokeRect(left, top, width, height);
+
+            // Draw label with background (matching OpenCV style)
+            const text = `${label} ${(confidence * 100).toFixed(1)}%`;
+            ctx.font = "600 14px Arial, sans-serif";
+            const textMetrics = ctx.measureText(text);
+            const textWidth = textMetrics.width + 8;
+            const textHeight = 18;
+            const labelX = left;
+            const labelY = Math.max(top - textHeight - 4, 16);
+
+            // Label background
+            ctx.fillStyle = boxColor;
+            ctx.fillRect(labelX, labelY, textWidth, textHeight);
+
+            // Label text
+            ctx.fillStyle = "#ffffff";
+            ctx.fillText(text, labelX + 4, labelY + 14);
+          }
+        });
+      };
+
+      drawDetections(result?.detections || []);
+    },
+    [capturedFrame],
+  );
 
   const drawLogOverlay = useCallback((logId, detections = []) => {
-    const image  = document.getElementById(`log-image-${logId}`);
+    const image = document.getElementById(`log-image-${logId}`);
     const canvas = document.getElementById(`log-overlay-${logId}`);
     if (!image || !canvas) return;
 
-    const cW = image.clientWidth  || 1;
+    const cW = image.clientWidth || 1;
     const cH = image.clientHeight || 1;
-    const sW = image.naturalWidth  || cW;
+    const sW = image.naturalWidth || cW;
     const sH = image.naturalHeight || cH;
-    canvas.width  = cW;
+    canvas.width = cW;
     canvas.height = cH;
 
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     if (!ctx) return;
     ctx.clearRect(0, 0, cW, cH);
 
@@ -345,10 +381,10 @@ function OperatorPanel({ onLogout }) {
 
     (detections || []).forEach((det) => {
       const [x1, y1, x2, y2] = det.bbox || [];
-      const isDefect = det.label === 'SCRATCH' || det.label === 'DEFECT';
-      const stroke   = isDefect ? '#ef4444' : '#22c55e';
-      const fill     = isDefect ? 'rgba(239,68,68,.35)' : 'rgba(34,197,94,.16)';
-      const polygon  = det.mask?.polygon || [];
+      const isDefect = det.label === "SCRATCH" || det.label === "DEFECT";
+      const stroke = isDefect ? "#ef4444" : "#22c55e";
+      const fill = isDefect ? "rgba(239,68,68,.35)" : "rgba(34,197,94,.16)";
+      const polygon = det.mask?.polygon || [];
 
       if (polygon.length > 2) {
         ctx.beginPath();
@@ -360,15 +396,20 @@ function OperatorPanel({ onLogout }) {
         ctx.closePath();
         ctx.fillStyle = fill;
         ctx.fill();
-        ctx.lineWidth   = 2;
+        ctx.lineWidth = 2;
         ctx.strokeStyle = stroke;
         ctx.stroke();
       }
 
       if ([x1, y1, x2, y2].every(Number.isFinite)) {
-        ctx.lineWidth   = 2;
+        ctx.lineWidth = 2;
         ctx.strokeStyle = stroke;
-        ctx.strokeRect(ox + x1 * sx, oy + y1 * sy, (x2 - x1) * sx, (y2 - y1) * sy);
+        ctx.strokeRect(
+          ox + x1 * sx,
+          oy + y1 * sy,
+          (x2 - x1) * sx,
+          (y2 - y1) * sy,
+        );
       }
     });
   }, []);
@@ -394,20 +435,25 @@ function OperatorPanel({ onLogout }) {
       img.onload = () => {
         const canvas = overlayRef.current;
         if (!canvas) return;
-        
+
         canvas.width = img.width;
         canvas.height = img.height;
-        const ctx = canvas.getContext('2d');
+        const ctx = canvas.getContext("2d");
         if (ctx) {
           ctx.drawImage(img, 0, 0);
-          console.debug('[ServerAnnotation] Rendered annotated image:', {width: img.width, height: img.height});
+          console.debug("[ServerAnnotation] Rendered annotated image:", {
+            width: img.width,
+            height: img.height,
+          });
         }
       };
       img.onerror = (err) => {
-        console.error('[ServerAnnotation] Image load error:', err);
+        console.error("[ServerAnnotation] Image load error:", err);
       };
       img.src = `data:image/png;base64,${detectionResult.annotated_image_b64}`;
-      console.debug('[ServerAnnotation] Loading base64 image:', {size: detectionResult.annotated_image_b64?.length || 0});
+      console.debug("[ServerAnnotation] Loading base64 image:", {
+        size: detectionResult.annotated_image_b64?.length || 0,
+      });
     }
   }, [detectionResult?.annotated_image_b64]);
 
@@ -417,10 +463,10 @@ function OperatorPanel({ onLogout }) {
     if (!canvas) return;
 
     let animationFrameId;
-    
+
     const drawFrame = () => {
       const video = webcamRef.current?.video;
-      
+
       // Only draw on live feed (not when captured frame is showing)
       if (!capturedFrame && video && video.readyState === 4) {
         // Keep server-side rendered overlay on canvas when available.
@@ -430,28 +476,34 @@ function OperatorPanel({ onLogout }) {
         }
 
         // Draw detections if available
-        if (detectionResult && detectionResult.detections && detectionResult.detections.length > 0) {
+        if (
+          detectionResult &&
+          detectionResult.detections &&
+          detectionResult.detections.length > 0
+        ) {
           drawOverlay(detectionResult);
         } else {
           // Clear canvas if no detections
           const displayWidth = canvas.offsetWidth || video.clientWidth || 640;
-          const displayHeight = canvas.offsetHeight || video.clientHeight || 480;
+          const displayHeight =
+            canvas.offsetHeight || video.clientHeight || 480;
           canvas.width = displayWidth;
           canvas.height = displayHeight;
-          const ctx = canvas.getContext('2d');
+          const ctx = canvas.getContext("2d");
           if (ctx) ctx.clearRect(0, 0, displayWidth, displayHeight);
         }
       } else if (capturedFrame) {
         // Clear canvas when showing captured frame (annotations handled separately)
-        const ctx = canvas.getContext('2d');
-        if (ctx && canvas.width > 0) ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const ctx = canvas.getContext("2d");
+        if (ctx && canvas.width > 0)
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
       }
-      
+
       animationFrameId = requestAnimationFrame(drawFrame);
     };
-    
+
     drawFrame();
-    
+
     return () => {
       if (animationFrameId) cancelAnimationFrame(animationFrameId);
     };
@@ -459,12 +511,12 @@ function OperatorPanel({ onLogout }) {
 
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && zoomedImage) {
+      if (e.key === "Escape" && zoomedImage) {
         setZoomedImage(null);
       }
     };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
   }, [zoomedImage]);
 
   useEffect(() => {
@@ -482,14 +534,14 @@ function OperatorPanel({ onLogout }) {
       }
       liveRequestInFlightRef.current = false;
       reconnectAttemptsRef.current = 0;
-      // Stop any attached MediaStream
+      setStreamStatus("disconnected");
       try {
-        const s = liveMediaStreamRef.current;
-        if (s && s.getTracks) {
-          s.getTracks().forEach((t) => t.stop());
+        const stream = liveMediaStreamRef.current;
+        if (stream?.getTracks) {
+          stream.getTracks().forEach((track) => track.stop());
         }
-      } catch (e) {
-        console.warn('Error stopping media stream', e);
+      } catch (error) {
+        console.warn("Error stopping media stream", error);
       }
       liveMediaStreamRef.current = null;
       try {
@@ -498,7 +550,7 @@ function OperatorPanel({ onLogout }) {
       } catch {
         /* ignore */
       }
-      setStreamStatus('disconnected');
+      setStreamStatus("disconnected");
     };
 
     if (!sessionStarted || !preset) {
@@ -506,11 +558,11 @@ function OperatorPanel({ onLogout }) {
       return undefined;
     }
 
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem("token");
     if (!token) {
       window.setTimeout(() => {
-        setError('Missing access token for live stream. Please login again.');
-        setStreamStatus('auth-error');
+        setError("Missing access token for live stream. Please login again.");
+        setStreamStatus("auth-error");
       }, 0);
       return undefined;
     }
@@ -518,7 +570,9 @@ function OperatorPanel({ onLogout }) {
     // Request camera permission and attach MediaStream to react-webcam
     (async () => {
       try {
-        const res = await ensureCameraPermission({ constraints: { video: true } });
+        const res = await ensureCameraPermission({
+          constraints: cameraConstraints,
+        });
         if (res.granted && res.stream) {
           liveMediaStreamRef.current = res.stream;
           const videoEl = webcamRef.current?.video;
@@ -526,62 +580,66 @@ function OperatorPanel({ onLogout }) {
             try {
               videoEl.srcObject = res.stream;
             } catch (e) {
-              console.warn('Could not attach MediaStream to video element', e);
+              console.warn("Could not attach MediaStream to video element", e);
             }
           }
         } else if (!res.granted) {
           window.setTimeout(() => {
-            setError(res.error?.message || 'Camera permission denied');
+            setError(res.error?.message || "Camera permission denied");
           }, 0);
         }
       } catch (e) {
-        console.warn('ensureCameraPermission error', e);
+        console.warn("ensureCameraPermission error", e);
       }
     })();
 
     const connectStream = () => {
       if (!streamEffectActiveRef.current) return;
 
-      setStreamStatus('connecting');
-      const socket = new WebSocket(buildInferenceStreamUrl(token), [`jwt.${token}`]);
+      setStreamStatus("connecting");
+      const socket = new WebSocket(buildInferenceStreamUrl(token), [
+        `jwt.${token}`,
+      ]);
       liveSocketRef.current = socket;
 
       socket.onopen = () => {
         reconnectAttemptsRef.current = 0;
-        setStreamStatus('connected');
-        setError('');
+        setStreamStatus("connected");
+        setError("");
       };
 
       socket.onmessage = (event) => {
         try {
-          const message = JSON.parse(event.data || '{}');
-          if (message.type === 'inference_result' && message.data) {
+          const message = JSON.parse(event.data || "{}");
+          if (message.type === "inference_result" && message.data) {
             setDetectionResult(message.data);
             if (message.data.annotated_image_b64) {
-              setLiveAnnotatedOverlaySrc(`data:image/png;base64,${message.data.annotated_image_b64}`);
+              setLiveAnnotatedOverlaySrc(
+                `data:image/png;base64,${message.data.annotated_image_b64}`,
+              );
             } else {
-              setLiveAnnotatedOverlaySrc('');
+              setLiveAnnotatedOverlaySrc("");
             }
             liveRequestInFlightRef.current = false;
             return;
           }
-          if (message.type === 'inference_error') {
+          if (message.type === "inference_error") {
             liveRequestInFlightRef.current = false;
-            console.warn('[InferenceStream] stream error:', message.error);
+            console.warn("[InferenceStream] stream error:", message.error);
             return;
           }
-          if (message.type === 'inference_throttled') {
+          if (message.type === "inference_throttled") {
             liveRequestInFlightRef.current = false;
             return;
           }
         } catch (parseError) {
           liveRequestInFlightRef.current = false;
-          console.warn('[InferenceStream] message parse error:', parseError);
+          console.warn("[InferenceStream] message parse error:", parseError);
         }
       };
 
       socket.onerror = () => {
-        setStreamStatus('error');
+        setStreamStatus("error");
         liveRequestInFlightRef.current = false;
       };
 
@@ -592,14 +650,14 @@ function OperatorPanel({ onLogout }) {
         }
 
         if (!streamEffectActiveRef.current || !sessionStarted) {
-          setStreamStatus('disconnected');
+          setStreamStatus("disconnected");
           return;
         }
 
         const attempt = reconnectAttemptsRef.current + 1;
         reconnectAttemptsRef.current = attempt;
-        const delayMs = Math.min(1000 * (2 ** (attempt - 1)), 8000);
-        setStreamStatus('reconnecting');
+        const delayMs = Math.min(1000 * 2 ** (attempt - 1), 8000);
+        setStreamStatus("reconnecting");
         reconnectTimerRef.current = window.setTimeout(() => {
           connectStream();
         }, delayMs);
@@ -612,23 +670,28 @@ function OperatorPanel({ onLogout }) {
       streamEffectActiveRef.current = false;
       closeStream();
     };
-  }, [preset, sessionStarted]);
+  }, [preset, sessionStarted, cameraConstraints]);
 
   /* ── Auto-annotate ───────────────────────────────────────────── */
   const autoAnnotateDetection = useCallback((result) => {
     if (!result || !result.detections || result.detections.length === 0) {
-      return 'No defects detected. Product appears intact.';
+      return "No defects detected. Product appears intact.";
     }
 
     const detections = result.detections || [];
-    const scratches = detections.filter((d) => d.label === 'SCRATCH' || d.label === 'DEFECT');
-    const intact    = detections.filter((d) => d.label === 'INTACT'  || d.label === 'GOOD');
+    const scratches = detections.filter(
+      (d) => d.label === "SCRATCH" || d.label === "DEFECT",
+    );
+    const intact = detections.filter(
+      (d) => d.label === "INTACT" || d.label === "GOOD",
+    );
 
     const detectionSummary = [];
 
     if (scratches.length > 0) {
       const avgConfidence = (
-        scratches.reduce((sum, d) => sum + (d.confidence || 0), 0) / scratches.length
+        scratches.reduce((sum, d) => sum + (d.confidence || 0), 0) /
+        scratches.length
       ).toFixed(2);
       detectionSummary.push(
         `Found ${scratches.length} defect(s) with avg confidence ${avgConfidence}`,
@@ -640,105 +703,122 @@ function OperatorPanel({ onLogout }) {
     }
 
     detectionSummary.push(
-      `Latency: ${result.latency_ms || 0}ms | Cache: ${result.cache_hit ? 'HIT' : 'MISS'}`,
+      `Latency: ${result.latency_ms || 0}ms | Cache: ${result.cache_hit ? "HIT" : "MISS"}`,
     );
 
-    return detectionSummary.join('. ');
+    return detectionSummary.join(". ");
   }, []);
 
   /* ── Detect ──────────────────────────────────────────────────── */
-  const handleDetect = useCallback(async (trigger = 'manual') => {
-    const imageSrc = webcamRef.current?.getScreenshot();
-      // ensure we have permission before taking screenshots
-      if (!navigator?.mediaDevices) return;
+  const handleDetect = useCallback(
+    async (trigger = "manual") => {
+      const imageSrc = webcamRef.current?.getScreenshot();
 
-    if (!imageSrc || !preset?.product || !preset?.model || !preset?.config_hash) {
-      setError('No active inspection preset is assigned to this operator.');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-    captureInFlightRef.current = true;
-
-    try {
-      const imageBlob = await fetch(imageSrc).then((response) => response.blob());
-      const formData = new FormData();
-      formData.append('image',           imageBlob, `frame-${Date.now()}.png`);
-      formData.append('component',       preset.product);
-      formData.append('product_id',      preset.product);
-      formData.append('model',           preset.model);
-      formData.append('config_id',       preset.id);
-      formData.append('config_version',  preset.config_version || 1);
-      formData.append('config_hash',     preset.config_hash);
-      formData.append('trigger',         trigger);
-      formData.append('session_id',      sessionId || '');
-      formData.append('session_active',  sessionStarted ? 'true' : 'false');
-
-      const detectResponse = await detectImage(formData);
-      const result = detectResponse.data;
-      const detections = result?.detections || [];
-      const isManualCapture = trigger === 'manual';
-
-      if (!isManualCapture && detections.length === 0) {
-        setDetectionResult(null);
-        setCapturedFrame('');
-        setCountdownMs(null);
-        setMotionStatus('No change in image. Waiting for motion or manual capture.');
-        waitForMotionAfterEmptyRef.current = true;
+      if (
+        !imageSrc ||
+        !preset?.product ||
+        !preset?.model ||
+        !preset?.config_hash
+      ) {
+        setError("No active inspection preset is assigned to this operator.");
         return;
       }
 
-      waitForMotionAfterEmptyRef.current = false;
-      setCapturedFrame(imageSrc);
-      // Store captured frame for future change verification
-      lastCapturedFrameRef.current = imageSrc;
+      setLoading(true);
+      setError("");
+      captureInFlightRef.current = true;
 
-      setDetectionResult(result);
-      setReviewMode('ACKNOWLEDGE');
-      const autoDescription = autoAnnotateDetection(result);
-      setReviewDescription(autoDescription);
-      setReviewFinalDecision(result.system_decision || 'PASS');
-      setReviewRejectionReason('MISSED_DEFECT');
-      reviewPendingRef.current = true;
-      setReviewPending(true);
-      setMotionStatus('Review required');
-      setCountdownMs(null);
+      try {
+        const imageBlob = await fetch(imageSrc).then((response) =>
+          response.blob(),
+        );
+        const formData = new FormData();
+        formData.append("image", imageBlob, `frame-${Date.now()}.png`);
+        formData.append("component", preset.product);
+        formData.append("product_id", preset.product);
+        formData.append("model", preset.model);
+        formData.append("config_id", preset.id);
+        formData.append("config_version", preset.config_version || 1);
+        formData.append("config_hash", preset.config_hash);
+        formData.append("trigger", trigger);
+        formData.append("session_id", sessionId || "");
+        formData.append("session_active", sessionStarted ? "true" : "false");
 
-      await fetchLogsRef.current();
-    } catch (requestError) {
-      const errorMsg = requestError.response?.data?.error || requestError.message || 'Detection request failed.';
-      console.error('[DetectError] Full error:', {msg: errorMsg, response: requestError.response?.data, err: requestError});
-      setError(errorMsg);
-    } finally {
-      setLoading(false);
-      captureInFlightRef.current = false;
-    }
-  }, [autoAnnotateDetection, preset, sessionId, sessionStarted]);
+        const detectResponse = await detectImage(formData);
+        const result = detectResponse.data;
+        const detections = result?.detections || [];
+        const isManualCapture = trigger === "manual";
+
+        if (!isManualCapture && detections.length === 0) {
+          setDetectionResult(null);
+          setCapturedFrame("");
+          setCountdownMs(null);
+          setMotionStatus(
+            "No change in image. Waiting for motion or manual capture.",
+          );
+          waitForMotionAfterEmptyRef.current = true;
+          return;
+        }
+
+        waitForMotionAfterEmptyRef.current = false;
+        setCapturedFrame(imageSrc);
+        // Store captured frame for future change verification
+        lastCapturedFrameRef.current = imageSrc;
+
+        setDetectionResult(result);
+        setReviewMode("ACKNOWLEDGE");
+        const autoDescription = autoAnnotateDetection(result);
+        setReviewDescription(autoDescription);
+        setReviewFinalDecision(result.system_decision || "PASS");
+        setReviewRejectionReason("MISSED_DEFECT");
+        reviewPendingRef.current = true;
+        setReviewPending(true);
+        setMotionStatus("Review required");
+        setCountdownMs(null);
+
+        await fetchLogsRef.current();
+      } catch (requestError) {
+        const errorMsg =
+          requestError.response?.data?.error ||
+          requestError.message ||
+          "Detection request failed.";
+        console.error("[DetectError] Full error:", {
+          msg: errorMsg,
+          response: requestError.response?.data,
+          err: requestError,
+        });
+        setError(errorMsg);
+      } finally {
+        setLoading(false);
+        captureInFlightRef.current = false;
+      }
+    },
+    [autoAnnotateDetection, preset, sessionId, sessionStarted],
+  );
 
   /* ── Motion detection ────────────────────────────────────────── */
   // Monitor camera status and provide feedback
   useEffect(() => {
     const interval = window.setInterval(() => {
       const video = webcamRef.current?.video;
-      
+
       // If no session started, check camera readiness
       if (!sessionStarted) {
         if (!video) {
-          setMotionStatus('Waiting for camera');
+          setMotionStatus("Waiting for camera");
         } else if (video.readyState < 2) {
-          setMotionStatus('Camera initializing...');
+          setMotionStatus("Camera initializing...");
         } else if (!preset) {
-          setMotionStatus('No active preset assigned');
+          setMotionStatus("No active preset assigned");
         } else if (!autoDetectEnabled) {
-          setMotionStatus('Auto-detect paused');
+          setMotionStatus("Auto-detect paused");
         } else {
-          setMotionStatus('Ready to start session');
+          setMotionStatus("Ready to start session");
         }
       }
       // If session started, motion detection handles the status
     }, 1000);
-    
+
     return () => window.clearInterval(interval);
   }, [sessionStarted, preset, autoDetectEnabled]);
 
@@ -762,13 +842,13 @@ function OperatorPanel({ onLogout }) {
     const height = 72;
     let canvas = motionCanvasRef.current;
     if (!canvas) {
-      canvas = document.createElement('canvas');
+      canvas = document.createElement("canvas");
       motionCanvasRef.current = canvas;
     }
     canvas.width = width;
     canvas.height = height;
 
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return;
     ctx.drawImage(video, 0, 0, width, height);
     const frame = ctx.getImageData(0, 0, width, height).data;
@@ -777,7 +857,7 @@ function OperatorPanel({ onLogout }) {
 
     if (!previous) {
       stableSinceRef.current = null;
-      setMotionStatus('Calibrating camera');
+      setMotionStatus("Calibrating camera");
       return;
     }
 
@@ -785,9 +865,13 @@ function OperatorPanel({ onLogout }) {
     const pixels = width * height;
     for (let index = 0; index < frame.length; index += 4) {
       const currentGray =
-        frame[index] * 0.299 + frame[index + 1] * 0.587 + frame[index + 2] * 0.114;
+        frame[index] * 0.299 +
+        frame[index + 1] * 0.587 +
+        frame[index + 2] * 0.114;
       const previousGray =
-        previous[index] * 0.299 + previous[index + 1] * 0.587 + previous[index + 2] * 0.114;
+        previous[index] * 0.299 +
+        previous[index + 1] * 0.587 +
+        previous[index + 2] * 0.114;
       diff += Math.abs(currentGray - previousGray);
     }
 
@@ -798,13 +882,15 @@ function OperatorPanel({ onLogout }) {
       waitForMotionAfterEmptyRef.current = false;
       stableSinceRef.current = null;
       setCountdownMs(null);
-      setMotionStatus('Motion detected');
+      setMotionStatus("Motion detected");
       return;
     }
 
     if (waitForMotionAfterEmptyRef.current) {
       setCountdownMs(null);
-      setMotionStatus('No change in image. Move product/camera or capture manually.');
+      setMotionStatus(
+        "No change in image. Move product/camera or capture manually.",
+      );
       return;
     }
 
@@ -815,16 +901,21 @@ function OperatorPanel({ onLogout }) {
     const elapsed = now - stableSinceRef.current;
     const remaining = Math.max(0, STABLE_CAPTURE_DELAY_MS - elapsed);
     setCountdownMs(remaining);
-    setMotionStatus(remaining > 0 ? 'Stable frame countdown' : 'Capturing stable frame');
+    setMotionStatus(
+      remaining > 0 ? "Stable frame countdown" : "Capturing stable frame",
+    );
 
     if (remaining <= 0) {
       stableSinceRef.current = null;
-      void handleDetect('auto_stable');
+      void handleDetect("auto_stable");
     }
   }, [autoDetectEnabled, handleDetect, loading, preset, sessionStarted]);
 
   useEffect(() => {
-    const interval = window.setInterval(sampleMotion, MOTION_SAMPLE_INTERVAL_MS);
+    const interval = window.setInterval(
+      sampleMotion,
+      MOTION_SAMPLE_INTERVAL_MS,
+    );
     return () => window.clearInterval(interval);
   }, [sampleMotion]);
 
@@ -835,13 +926,13 @@ function OperatorPanel({ onLogout }) {
 
     const width = 64;
     const height = 48;
-    const canvas = document.createElement('canvas');
+    const canvas = document.createElement("canvas");
     canvas.width = width;
     canvas.height = height;
 
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return false;
-    
+
     ctx.drawImage(video, 0, 0, width, height);
     const frame = ctx.getImageData(0, 0, width, height).data;
     const previous = livePreviousFrameRef.current;
@@ -856,15 +947,21 @@ function OperatorPanel({ onLogout }) {
     const pixels = width * height;
     for (let index = 0; index < frame.length; index += 4) {
       const currentGray =
-        frame[index] * 0.299 + frame[index + 1] * 0.587 + frame[index + 2] * 0.114;
+        frame[index] * 0.299 +
+        frame[index + 1] * 0.587 +
+        frame[index + 2] * 0.114;
       const previousGray =
-        previous[index] * 0.299 + previous[index + 1] * 0.587 + previous[index + 2] * 0.114;
+        previous[index] * 0.299 +
+        previous[index + 1] * 0.587 +
+        previous[index + 2] * 0.114;
       diff += Math.abs(currentGray - previousGray);
     }
 
     const motionScore = diff / pixels;
     const hasMotion = motionScore > LIVE_MOTION_THRESHOLD;
-    console.debug(`[LiveMotion] Score: ${motionScore.toFixed(1)} vs threshold ${LIVE_MOTION_THRESHOLD} → ${hasMotion ? 'SEND' : 'SKIP'}`);
+    console.debug(
+      `[LiveMotion] Score: ${motionScore.toFixed(1)} vs threshold ${LIVE_MOTION_THRESHOLD} → ${hasMotion ? "SEND" : "SKIP"}`,
+    );
     return hasMotion;
   }, []);
 
@@ -872,9 +969,15 @@ function OperatorPanel({ onLogout }) {
   useEffect(() => {
     const startLive = () => {
       if (liveIntervalRef.current) return;
-      console.debug('[LiveInference] Starting live inference loop');
+      console.debug("[LiveInference] Starting live inference loop");
       liveIntervalRef.current = window.setInterval(() => {
-        if (!sessionStarted || captureInFlightRef.current || reviewPendingRef.current || !preset) return;
+        if (
+          !sessionStarted ||
+          captureInFlightRef.current ||
+          reviewPendingRef.current ||
+          !preset
+        )
+          return;
         if (waitForMotionAfterEmptyRef.current) return;
         if (liveRequestInFlightRef.current) return;
 
@@ -888,26 +991,28 @@ function OperatorPanel({ onLogout }) {
         if (!imageSrc) return;
 
         liveRequestInFlightRef.current = true;
-        socket.send(JSON.stringify({
-          type: 'frame',
-          image: imageSrc,
-          filename: `frame-${Date.now()}.png`,
-          component: preset.product,
-          product_id: preset.product,
-          model: preset.model,
-          config_id: preset.id,
-          config_version: preset.config_version || 1,
-          config_hash: preset.config_hash,
-          trigger: 'live',
-          session_id: sessionId || '',
-          session_active: sessionStarted,
-        }));
+        socket.send(
+          JSON.stringify({
+            type: "frame",
+            image: imageSrc,
+            filename: `frame-${Date.now()}.png`,
+            component: preset.product,
+            product_id: preset.product,
+            model: preset.model,
+            config_id: preset.id,
+            config_version: preset.config_version || 1,
+            config_hash: preset.config_hash,
+            trigger: "live",
+            session_id: sessionId || "",
+            session_active: sessionStarted,
+          }),
+        );
       }, LIVE_INFERENCE_INTERVAL_MS);
     };
 
     const stopLive = () => {
       if (liveIntervalRef.current) {
-        console.debug('[LiveInference] Stopping live inference loop');
+        console.debug("[LiveInference] Stopping live inference loop");
         window.clearInterval(liveIntervalRef.current);
         liveIntervalRef.current = null;
       }
@@ -927,61 +1032,80 @@ function OperatorPanel({ onLogout }) {
     const logId = detectionResult?.log_id || detectionResult?.id;
 
     if (!logId) {
-      setError('No inference log is available for review.');
+      setError("No inference log is available for review.");
       return;
     }
     if (!reviewDescription.trim()) {
-      setError('Review description is required.');
+      setError("Review description is required.");
       return;
     }
-    if (reviewMode === 'REJECT' && !reviewRejectionReason) {
-      setError('Rejection reason is required.');
+    if (reviewMode === "REJECT" && !reviewRejectionReason) {
+      setError("Rejection reason is required.");
       return;
     }
 
     setSubmittingReview(true);
-    setError('');
+    setError("");
 
     try {
       await reviewInferenceLog(logId, {
-        action:           reviewMode,
-        description:      reviewDescription.trim(),
-        final_decision:   reviewFinalDecision,
-        rejection_reason: reviewMode === 'REJECT' ? reviewRejectionReason : '',
+        action: reviewMode,
+        description: reviewDescription.trim(),
+        final_decision: reviewFinalDecision,
+        rejection_reason: reviewMode === "REJECT" ? reviewRejectionReason : "",
       });
 
-      reviewPendingRef.current  = false;
+      reviewPendingRef.current = false;
       setReviewPending(false);
-      previousFrameRef.current  = null;
-      stableSinceRef.current    = null;
+      previousFrameRef.current = null;
+      stableSinceRef.current = null;
       setDetectionResult(null);
-      setCapturedFrame('');
-      setLiveAnnotatedOverlaySrc('');
-      setReviewDescription('');
+      setCapturedFrame("");
+      setLiveAnnotatedOverlaySrc("");
+      setReviewDescription("");
       setCountdownMs(null);
-      setMotionStatus(autoDetectEnabled ? 'Waiting for stable frame' : 'Auto-detect paused');
+      setMotionStatus(
+        autoDetectEnabled ? "Waiting for stable frame" : "Auto-detect paused",
+      );
       await fetchLogsRef.current();
     } catch (requestError) {
-      setError(requestError.response?.data?.error || 'Unable to submit review.');
+      setError(
+        requestError.response?.data?.error || "Unable to submit review.",
+      );
     } finally {
       setSubmittingReview(false);
     }
   };
 
   /* ── Derived ─────────────────────────────────────────────────── */
-  const countdownSeconds = countdownMs === null ? '--' : String(Math.ceil(countdownMs / 1000));
-  const filteredLogs     = sessionFilter
+  const countdownSeconds =
+    countdownMs === null ? "--" : String(Math.ceil(countdownMs / 1000));
+  const filteredLogs = sessionFilter
     ? logs.filter((l) => l.session_id === sessionFilter)
     : logs;
-  const displayedLogs    = filteredLogs.slice(0, logsLimit);
+  const displayedLogs = filteredLogs.slice(0, logsLimit);
 
   /* ── Render ──────────────────────────────────────────────────── */
   return (
-    <div className="panel-page">
-      <div className="panel-shell">
-
+    <motion.div
+      className="panel-page"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.6 }}
+    >
+      <motion.div
+        className="panel-shell"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.1 }}
+      >
         {/* ── Header / nav ── */}
-        <header className="panel-header">
+        <motion.header
+          className="panel-header"
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+        >
           <div>
             <p className="eyebrow">Operator console</p>
             <h1>Live inspection workflow</h1>
@@ -990,35 +1114,57 @@ function OperatorPanel({ onLogout }) {
               selected configuration.
             </p>
           </div>
-          <button className="ghost-button" onClick={onLogout} type="button">
-            Logout
-          </button>
-        </header>
+          <div className="panel-header__right">
+            <div className="profile">{username}</div>
+            <motion.button
+              className="ghost-button"
+              onClick={onLogout}
+              type="button"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              Logout
+            </motion.button>
+          </div>
+        </motion.header>
 
         {/* ── Tab switcher ── */}
-        <div className="panel-switcher" role="tablist" aria-label="Operator pages" style={{ marginBottom: 16 }}>
-          <button
-            className={`choice-button${activePanel === 'camera' ? ' choice-button--active' : ''}`}
-            onClick={() => setActivePanel('camera')}
+        <motion.div
+          className="panel-switcher"
+          role="tablist"
+          aria-label="Operator pages"
+          style={{ marginBottom: 16 }}
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.3 }}
+        >
+          <motion.button
+            className={`choice-button${activePanel === "camera" ? " choice-button--active" : ""}`}
+            onClick={() => setActivePanel("camera")}
             type="button"
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.98 }}
           >
             Camera Feed
-          </button>
-          <button
-            className={`choice-button${activePanel === 'logs' ? ' choice-button--active' : ''}`}
-            onClick={() => setActivePanel('logs')}
-            type="button"
-          >
-            Detection Logs
-          </button>
-        </div>
+          </motion.button>
+          {!cameraOnly && (
+            <motion.button
+              className={`choice-button${activePanel === "logs" ? " choice-button--active" : ""}`}
+              onClick={() => setActivePanel("logs")}
+              type="button"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              Detection Logs
+            </motion.button>
+          )}
+        </motion.div>
 
         {/* ════════════════════════════════════════════════
             CAMERA PANEL
         ════════════════════════════════════════════════ */}
-        {activePanel === 'camera' && (
+        {activePanel === "camera" && (
           <section className="content-grid content-grid--operator">
-
             {/* ── Left: camera card ── */}
             <div className="section-card section-card--camera">
               <div className="section-heading">
@@ -1026,16 +1172,27 @@ function OperatorPanel({ onLogout }) {
                 <h2>Prepare the frame</h2>
               </div>
 
+              {cameraOnly && (
+                <p className="camera-mode-note">
+                  Phone camera mode is active. Keep this device pointed at the
+                  inspection area and capture from the browser.
+                </p>
+              )}
+
               {/* Webcam */}
-              <div className="webcam-frame-wrap" style={{ position: 'relative' }}>
+              <div
+                className="webcam-frame-wrap"
+                style={{ position: "relative" }}
+              >
                 <Webcam
                   ref={webcamRef}
                   screenshotFormat="image/png"
                   audio={false}
+                  videoConstraints={cameraConstraints.video}
                   className={
                     capturedFrame
-                      ? 'webcam-frame webcam-frame--capture-source'
-                      : 'webcam-frame'
+                      ? "webcam-frame webcam-frame--capture-source"
+                      : "webcam-frame"
                   }
                 />
                 {capturedFrame && (
@@ -1053,27 +1210,27 @@ function OperatorPanel({ onLogout }) {
                     className="webcam-overlay"
                     alt="Live server annotation"
                     style={{
-                      position: 'absolute',
+                      position: "absolute",
                       top: 0,
                       left: 0,
-                      width: '100%',
-                      height: '100%',
-                      objectFit: 'cover',
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
                       zIndex: 11,
-                      pointerEvents: 'none',
+                      pointerEvents: "none",
                     }}
                   />
                 )}
-                <canvas 
-                  ref={overlayRef} 
-                  className="webcam-overlay" 
+                <canvas
+                  ref={overlayRef}
+                  className="webcam-overlay"
                   aria-hidden="true"
                   style={{
-                    position: 'absolute',
+                    position: "absolute",
                     top: 0,
                     left: 0,
-                    width: '100%',
-                    height: '100%',
+                    width: "100%",
+                    height: "100%",
                     zIndex: 10,
                   }}
                 />
@@ -1083,18 +1240,22 @@ function OperatorPanel({ onLogout }) {
               <div className="preset-summary">
                 <div>
                   <span>Product</span>
-                  <strong>{preset?.product_name || preset?.component_name || 'Unassigned'}</strong>
+                  <strong>
+                    {preset?.product_name ||
+                      preset?.component_name ||
+                      "Unassigned"}
+                  </strong>
                 </div>
                 <div>
                   <span>Model</span>
-                  <strong>{preset?.model_name || 'Unassigned'}</strong>
+                  <strong>{preset?.model_name || "Unassigned"}</strong>
                 </div>
                 <div>
                   <span>Confidence</span>
                   <strong>
                     {preset?.confidence_threshold !== undefined
                       ? Number(preset.confidence_threshold).toFixed(2)
-                      : '--'}
+                      : "--"}
                   </strong>
                 </div>
               </div>
@@ -1103,21 +1264,49 @@ function OperatorPanel({ onLogout }) {
               {error && <div className="notice notice--error">{error}</div>}
 
               {/* Auto-detect / controls bar */}
-              <div className="auto-detect-panel" style={{display:'flex', gap:12, alignItems:'center', flexWrap:'wrap'}}>
-                <div style={{flex:1}}>
+              <div
+                className="auto-detect-panel"
+                style={{
+                  display: "flex",
+                  gap: 12,
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                }}
+              >
+                <div style={{ flex: 1 }}>
                   <span>Auto-detect</span>
                   <strong>{motionStatus}</strong>
                 </div>
                 <div className="countdown-badge">{countdownSeconds}s</div>
-                <div style={{display:'flex', flexDirection:'column', gap:6, alignItems:'flex-end'}}>
-                  <div style={{fontSize:12}}>Session</div>
-                  <strong style={{fontSize:12}}>{sessionStarted ? sessionId : 'Stopped'}</strong>
-                  <strong style={{fontSize:11, textTransform:'uppercase', color: streamStatus === 'connected' ? '#16a34a' : '#b45309'}}>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 6,
+                    alignItems: "flex-end",
+                  }}
+                >
+                  <div style={{ fontSize: 12 }}>Session</div>
+                  <strong style={{ fontSize: 12 }}>
+                    {sessionStarted ? sessionId : "Stopped"}
+                  </strong>
+                  <strong
+                    style={{
+                      fontSize: 11,
+                      textTransform: "uppercase",
+                      color:
+                        streamStatus === "connected" ? "#16a34a" : "#b45309",
+                    }}
+                  >
                     Stream: {streamStatus}
                   </strong>
                 </div>
-                <button className="ghost-button" onClick={toggleSession} type="button">
-                  {sessionStarted ? 'Stop Session' : 'Start Session'}
+                <button
+                  className="ghost-button"
+                  onClick={toggleSession}
+                  type="button"
+                >
+                  {sessionStarted ? "Stop Session" : "Start Session"}
                 </button>
                 <button
                   className="ghost-button"
@@ -1126,19 +1315,21 @@ function OperatorPanel({ onLogout }) {
                     setAutoDetectEnabled(next);
                     stableSinceRef.current = null;
                     setCountdownMs(null);
-                    setMotionStatus(next ? 'Waiting for stable frame' : 'Auto-detect paused');
+                    setMotionStatus(
+                      next ? "Waiting for stable frame" : "Auto-detect paused",
+                    );
                   }}
                   type="button"
                 >
-                  {autoDetectEnabled ? 'Pause' : 'Resume'}
+                  {autoDetectEnabled ? "Pause" : "Resume"}
                 </button>
                 <button
                   className="primary-button"
-                  onClick={() => void handleDetect('manual')}
+                  onClick={() => void handleDetect("manual")}
                   disabled={loading || reviewPending}
                   type="button"
                 >
-                  {loading ? 'Capturing...' : 'Capture & Detect'}
+                  {loading ? "Capturing..." : "Capture & Detect"}
                 </button>
               </div>
             </div>
@@ -1155,7 +1346,7 @@ function OperatorPanel({ onLogout }) {
                   <div className="result-card__status">
                     {detectionResult.system_decision ||
                       detectionResult.error ||
-                      'Ready'}
+                      "Ready"}
                   </div>
                   <dl>
                     <div>
@@ -1174,20 +1365,26 @@ function OperatorPanel({ onLogout }) {
                     </div>
                     <div>
                       <dt>Cache</dt>
-                      <dd>{detectionResult.cache_hit ? 'Hit' : 'Miss'}</dd>
+                      <dd>{detectionResult.cache_hit ? "Hit" : "Miss"}</dd>
                     </div>
                   </dl>
                   <div className="detection-list">
-                    {(detectionResult.detections || []).map((detection, index) => (
-                      <div
-                        className={`detection-row detection-row--${(detection.label || 'unknown').toLowerCase()}`}
-                        key={`${detection.class_id}-${index}`}
-                      >
-                        <strong>{detection.label || detection.class_name}</strong>
-                        <span>{`${((detection.confidence || 0) * 100).toFixed(1)}%`}</span>
-                        <span>{detection.mask?.polygon?.length ? 'Mask' : 'Box'}</span>
-                      </div>
-                    ))}
+                    {(detectionResult.detections || []).map(
+                      (detection, index) => (
+                        <div
+                          className={`detection-row detection-row--${(detection.label || "unknown").toLowerCase()}`}
+                          key={`${detection.class_id}-${index}`}
+                        >
+                          <strong>
+                            {detection.label || detection.class_name}
+                          </strong>
+                          <span>{`${((detection.confidence || 0) * 100).toFixed(1)}%`}</span>
+                          <span>
+                            {detection.mask?.polygon?.length ? "Mask" : "Box"}
+                          </span>
+                        </div>
+                      ),
+                    )}
                   </div>
                 </div>
               ) : (
@@ -1202,7 +1399,7 @@ function OperatorPanel({ onLogout }) {
         {/* ════════════════════════════════════════════════
             LOGS PANEL
         ════════════════════════════════════════════════ */}
-        {activePanel === 'logs' && (
+        {activePanel === "logs" && (
           <section className="section-card section-card--logs">
             <div className="section-heading">
               <p className="eyebrow">Detection logs</p>
@@ -1210,24 +1407,53 @@ function OperatorPanel({ onLogout }) {
             </div>
 
             {/* Filter row */}
-            <div style={{display:'flex', gap:12, alignItems:'center', marginBottom:12, flexWrap: 'wrap'}}>
-              <label style={{fontSize:12}}>Filter by session</label>
-              <select value={sessionFilter} onChange={(e) => { setSessionFilter(e.target.value); }}>
+            <div
+              style={{
+                display: "flex",
+                gap: 12,
+                alignItems: "center",
+                marginBottom: 12,
+                flexWrap: "wrap",
+              }}
+            >
+              <label style={{ fontSize: 12 }}>Filter by session</label>
+              <select
+                value={sessionFilter}
+                onChange={(e) => {
+                  setSessionFilter(e.target.value);
+                }}
+              >
                 <option value="">All sessions</option>
-                {Array.from(new Set(logs.map((l) => l.session_id).filter(Boolean))).map((s) => (
-                  <option key={s} value={s}>{s}</option>
+                {Array.from(
+                  new Set(logs.map((l) => l.session_id).filter(Boolean)),
+                ).map((s) => (
+                  <option key={s} value={s}>
+                    {s}
+                  </option>
                 ))}
               </select>
-              <button className="ghost-button" onClick={() => { void fetchLogsRef.current(); }} type="button">Refresh</button>
-              
-              <span style={{fontSize:12, marginLeft: 'auto'}}>Show:</span>
-              <select value={logsLimit} onChange={(e) => setLogsLimit(Number(e.target.value))} style={{padding: '4px 8px', fontSize: 12}}>
+              <button
+                className="ghost-button"
+                onClick={() => {
+                  void fetchLogsRef.current();
+                }}
+                type="button"
+              >
+                Refresh
+              </button>
+
+              <span style={{ fontSize: 12, marginLeft: "auto" }}>Show:</span>
+              <select
+                value={logsLimit}
+                onChange={(e) => setLogsLimit(Number(e.target.value))}
+                style={{ padding: "4px 8px", fontSize: 12 }}
+              >
                 <option value={20}>20 logs</option>
                 <option value={50}>50 logs</option>
                 <option value={filteredLogs.length}>All logs</option>
               </select>
               {filteredLogs.length > logsLimit && (
-                <span style={{fontSize: 11, color: '#999'}}>
+                <span style={{ fontSize: 11, color: "#999" }}>
                   Showing {displayedLogs.length} of {filteredLogs.length}
                 </span>
               )}
@@ -1236,88 +1462,266 @@ function OperatorPanel({ onLogout }) {
             {/* Log list */}
             <div className="log-list">
               {!logs || logs.length === 0 ? (
-                <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>
-                  No detection logs yet. Capture a frame and run detection to create logs.
+                <div
+                  style={{
+                    padding: "40px",
+                    textAlign: "center",
+                    color: "#999",
+                  }}
+                >
+                  No detection logs yet. Capture a frame and run detection to
+                  create logs.
                 </div>
               ) : displayedLogs && displayedLogs.length > 0 ? (
                 displayedLogs.map((log) => (
-                <div key={log.id} className={`log-item log-item--${(log.final_decision||log.system_decision||'').toLowerCase()}`}>
-                  <div className="log-row" onClick={() => setExpandedLogId(expandedLogId === log.id ? null : log.id)}>
-                    <div style={{flex:1}}>
-                      <strong>{log.id || 'Untitled'}</strong> &nbsp; {log.component_name || log.product_name || log.component || 'N/A'}
-                      <div style={{fontSize:12, color:'#777', marginTop: 4}}>{log.timestamp || log.created_at ? new Date(log.timestamp || log.created_at).toLocaleString() : 'N/A'}</div>
-                    </div>
-                    <div style={{textAlign:'right', whiteSpace: 'nowrap'}}>
-                      <div style={{fontWeight: 500}}>{log.final_decision || log.system_decision || log.status || '—'}</div>
-                      <div style={{fontSize:12, marginTop: 4}}>{(log.confidence_score || log.confidence || 0) ? `${(Number(log.confidence_score||log.confidence||0)*100).toFixed(1)}%` : '—'}</div>
-                    </div>
-                  </div>
-                  {expandedLogId === log.id ? (
-                    <div className="log-expanded">
-                      <div style={{display:'flex', gap:12}}>
-                        <div style={{flex:'0 0 320px', border:'1px solid #ddd', padding:8, background:'#fff'}}>
-                          <div style={{display:'flex', justifyContent:'space-between', alignItems:'center'}}>
-                            <strong>Inference Image</strong>
-                          </div>
-                          <div style={{overflow:'hidden', height:260, display:'flex', alignItems:'center', justifyContent:'center', position:'relative', cursor:'pointer'}}>
-                            <img
-                              id={`log-image-${log.id}`}
-                              src={log.image_snapshot_url || log.snapshot_url || log.image_snapshot || log.image_url}
-                              alt="snapshot"
-                              style={{maxWidth:'100%', maxHeight:'100%'}}
-                              onClick={() => setZoomedImage(log.image_snapshot_url || log.snapshot_url || log.image_snapshot || log.image_url)}
-                              onLoad={() => drawLogOverlay(log.id, log.detection_results?.detections || [])}
-                              title="Click to zoom"
-                            />
-                          </div>
+                  <div
+                    key={log.id}
+                    className={`log-item log-item--${(log.final_decision || log.system_decision || "").toLowerCase()}`}
+                  >
+                    <div
+                      className="log-row"
+                      onClick={() =>
+                        setExpandedLogId(
+                          expandedLogId === log.id ? null : log.id,
+                        )
+                      }
+                    >
+                      <div style={{ flex: 1 }}>
+                        <strong>{log.id || "Untitled"}</strong> &nbsp;{" "}
+                        {log.component_name ||
+                          log.product_name ||
+                          log.component ||
+                          "N/A"}
+                        <div
+                          style={{ fontSize: 12, color: "#777", marginTop: 4 }}
+                        >
+                          {log.timestamp || log.created_at
+                            ? new Date(
+                                log.timestamp || log.created_at,
+                              ).toLocaleString()
+                            : "N/A"}
                         </div>
-                        <div style={{flex:1}}>
-                          <h4>Detections</h4>
-                          {(log.detection_results?.detections || []).map((d, idx) => (
-                            <div key={idx} style={{padding:6, borderBottom:'1px solid #eee'}}>
-                              <strong>{d.label || d.class_name}</strong>
-                              <div>Confidence: {((d.confidence||0)*100).toFixed(1)}%</div>
-                              <div>Box: {d.bbox ? d.bbox.join(', ') : 'n/a'}</div>
-                              {d.mask?.polygon ? <div>Mask points: {d.mask.polygon.length}</div> : null}
-                            </div>
-                          ))}
-
-                          <h4>Details</h4>
-                          <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:8}}>
-                            <div>
-                              <div><strong>System decision:</strong> {log.system_decision || log.detection_results?.system_decision || '-'}</div>
-                              <div><strong>Final decision:</strong> {log.final_decision || '-'}</div>
-                              <div><strong>Status:</strong> {log.status || '-'}</div>
-                              <div><strong>Confidence:</strong> {log.confidence_score ? `${(Number(log.confidence_score)*100).toFixed(1)}%` : (log.detection_results?.confidence ? `${(Number(log.detection_results.confidence)*100).toFixed(1)}%` : '-')}</div>
-                              <div><strong>Latency:</strong> {log.latency_ms ? `${log.latency_ms} ms` : (log.detection_results?.latency_ms ? `${log.detection_results.latency_ms} ms` : '-')}</div>
-                            </div>
-                            <div>
-                              <div><strong>Cache hit:</strong> {String(log.detection_results?.cache_hit ?? log.cache_hit ?? false)}</div>
-                              <div><strong>Image hash:</strong> {log.detection_results?.image_hash || log.image_hash || '-'}</div>
-                              <div><strong>Defect area %:</strong> {log.defect_area_percent !== undefined ? `${log.defect_area_percent}%` : (log.detection_results?.defect_area_percent ? `${log.detection_results.defect_area_percent}%` : '-')}</div>
-                              <div><strong>Segmentation polygons:</strong> {log.segmentation_data?.mask_polygons?.length ?? (log.detection_results?.mask_polygons ? log.detection_results.mask_polygons.length : 0)}</div>
-                            </div>
-                          </div>
-                          <div style={{marginBottom:8}}>
-                            <button
-                              className="ghost-button"
-                              onClick={() => setRawOpenMap((m) => ({...m, [log.id]: !m[log.id]}))}
-                              type="button"
-                            >
-                              {rawOpenMap[log.id] ? 'Hide raw JSON' : 'Show raw JSON'}
-                            </button>
-                          </div>
-                          {rawOpenMap[log.id] ? (
-                            <pre style={{whiteSpace:'pre-wrap', fontSize:12, background:'#fbfbfb', padding:8, borderRadius:4}}>{JSON.stringify(log.detection_results || log, null, 2)}</pre>
-                          ) : null}
+                      </div>
+                      <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                        <div style={{ fontWeight: 500 }}>
+                          {log.final_decision ||
+                            log.system_decision ||
+                            log.status ||
+                            "—"}
+                        </div>
+                        <div style={{ fontSize: 12, marginTop: 4 }}>
+                          {log.confidence_score || log.confidence || 0
+                            ? `${(Number(log.confidence_score || log.confidence || 0) * 100).toFixed(1)}%`
+                            : "—"}
                         </div>
                       </div>
                     </div>
-                  ) : null}
-                </div>
-              ))
+                    {expandedLogId === log.id ? (
+                      <div className="log-expanded">
+                        <div style={{ display: "flex", gap: 12 }}>
+                          <div
+                            style={{
+                              flex: "0 0 320px",
+                              border: "1px solid #ddd",
+                              padding: 8,
+                              background: "#fff",
+                            }}
+                          >
+                            <div
+                              style={{
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                              }}
+                            >
+                              <strong>Inference Image</strong>
+                            </div>
+                            <div
+                              style={{
+                                overflow: "hidden",
+                                height: 260,
+                                display: "flex",
+                                alignItems: "center",
+                                justifyContent: "center",
+                                position: "relative",
+                                cursor: "pointer",
+                              }}
+                            >
+                              <img
+                                id={`log-image-${log.id}`}
+                                src={
+                                  log.image_snapshot ||
+                                  log.image_snapshot_url ||
+                                  log.image_url
+                                }
+                                alt="snapshot"
+                                style={{ maxWidth: "100%", maxHeight: "100%" }}
+                                onClick={() =>
+                                  setZoomedImage(
+                                    log.image_snapshot ||
+                                      log.image_snapshot_url ||
+                                      log.image_url,
+                                  )
+                                }
+                                onLoad={() =>
+                                  drawLogOverlay(
+                                    log.id,
+                                    log.detection_results?.detections || [],
+                                  )
+                                }
+                                title="Click to zoom"
+                              />
+                            </div>
+                          </div>
+                          <div style={{ flex: 1 }}>
+                            <h4>Detections</h4>
+                            {(log.detection_results?.detections || []).map(
+                              (d, idx) => (
+                                <div
+                                  key={idx}
+                                  style={{
+                                    padding: 6,
+                                    borderBottom: "1px solid #eee",
+                                  }}
+                                >
+                                  <strong>{d.label || d.class_name}</strong>
+                                  <div>
+                                    Confidence:{" "}
+                                    {((d.confidence || 0) * 100).toFixed(1)}%
+                                  </div>
+                                  <div>
+                                    Box: {d.bbox ? d.bbox.join(", ") : "n/a"}
+                                  </div>
+                                  {d.mask?.polygon ? (
+                                    <div>
+                                      Mask points: {d.mask.polygon.length}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ),
+                            )}
+
+                            <h4>Details</h4>
+                            <div
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "1fr 1fr",
+                                gap: 12,
+                                marginBottom: 8,
+                              }}
+                            >
+                              <div>
+                                <div>
+                                  <strong>System decision:</strong>{" "}
+                                  {log.system_decision ||
+                                    log.detection_results?.system_decision ||
+                                    "-"}
+                                </div>
+                                <div>
+                                  <strong>Final decision:</strong>{" "}
+                                  {log.final_decision || "-"}
+                                </div>
+                                <div>
+                                  <strong>Status:</strong> {log.status || "-"}
+                                </div>
+                                <div>
+                                  <strong>Confidence:</strong>{" "}
+                                  {log.confidence_score
+                                    ? `${(Number(log.confidence_score) * 100).toFixed(1)}%`
+                                    : log.detection_results?.confidence
+                                      ? `${(Number(log.detection_results.confidence) * 100).toFixed(1)}%`
+                                      : "-"}
+                                </div>
+                                <div>
+                                  <strong>Latency:</strong>{" "}
+                                  {log.latency_ms
+                                    ? `${log.latency_ms} ms`
+                                    : log.detection_results?.latency_ms
+                                      ? `${log.detection_results.latency_ms} ms`
+                                      : "-"}
+                                </div>
+                              </div>
+                              <div>
+                                <div>
+                                  <strong>Cache hit:</strong>{" "}
+                                  {String(
+                                    log.detection_results?.cache_hit ??
+                                      log.cache_hit ??
+                                      false,
+                                  )}
+                                </div>
+                                <div>
+                                  <strong>Image hash:</strong>{" "}
+                                  {log.detection_results?.image_hash ||
+                                    log.image_hash ||
+                                    "-"}
+                                </div>
+                                <div>
+                                  <strong>Defect area %:</strong>{" "}
+                                  {log.defect_area_percent !== undefined
+                                    ? `${log.defect_area_percent}%`
+                                    : log.detection_results?.defect_area_percent
+                                      ? `${log.detection_results.defect_area_percent}%`
+                                      : "-"}
+                                </div>
+                                <div>
+                                  <strong>Segmentation polygons:</strong>{" "}
+                                  {log.segmentation_data?.mask_polygons
+                                    ?.length ??
+                                    (log.detection_results?.mask_polygons
+                                      ? log.detection_results.mask_polygons
+                                          .length
+                                      : 0)}
+                                </div>
+                              </div>
+                            </div>
+                            <div style={{ marginBottom: 8 }}>
+                              <button
+                                className="ghost-button"
+                                onClick={() =>
+                                  setRawOpenMap((m) => ({
+                                    ...m,
+                                    [log.id]: !m[log.id],
+                                  }))
+                                }
+                                type="button"
+                              >
+                                {rawOpenMap[log.id]
+                                  ? "Hide raw JSON"
+                                  : "Show raw JSON"}
+                              </button>
+                            </div>
+                            {rawOpenMap[log.id] ? (
+                              <pre
+                                style={{
+                                  whiteSpace: "pre-wrap",
+                                  fontSize: 12,
+                                  background: "#fbfbfb",
+                                  padding: 8,
+                                  borderRadius: 4,
+                                }}
+                              >
+                                {JSON.stringify(
+                                  log.detection_results || log,
+                                  null,
+                                  2,
+                                )}
+                              </pre>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ))
               ) : (
-                <div style={{ padding: '40px', textAlign: 'center', color: '#999' }}>
+                <div
+                  style={{
+                    padding: "40px",
+                    textAlign: "center",
+                    color: "#999",
+                  }}
+                >
                   No logs to display for the selected session.
                 </div>
               )}
@@ -1328,7 +1732,7 @@ function OperatorPanel({ onLogout }) {
         {/* ════════════════════════════════════════════════
             REVIEW MODAL
         ════════════════════════════════════════════════ */}
-        {activePanel === 'camera' && detectionResult && (
+        {activePanel === "camera" && detectionResult && (
           <div className="review-modal" role="dialog" aria-modal="true">
             <div className="review-modal__panel">
               <div className="section-heading">
@@ -1338,18 +1742,28 @@ function OperatorPanel({ onLogout }) {
 
               <div className="review-choice">
                 <button
-                  className={reviewMode === 'ACKNOWLEDGE' ? 'choice-button choice-button--active' : 'choice-button'}
+                  className={
+                    reviewMode === "ACKNOWLEDGE"
+                      ? "choice-button choice-button--active"
+                      : "choice-button"
+                  }
                   onClick={() => {
-                    setReviewMode('ACKNOWLEDGE');
-                    setReviewFinalDecision(detectionResult.system_decision || 'PASS');
+                    setReviewMode("ACKNOWLEDGE");
+                    setReviewFinalDecision(
+                      detectionResult.system_decision || "PASS",
+                    );
                   }}
                   type="button"
                 >
                   Acknowledge inference
                 </button>
                 <button
-                  className={reviewMode === 'REJECT' ? 'choice-button choice-button--active' : 'choice-button'}
-                  onClick={() => setReviewMode('REJECT')}
+                  className={
+                    reviewMode === "REJECT"
+                      ? "choice-button choice-button--active"
+                      : "choice-button"
+                  }
+                  onClick={() => setReviewMode("REJECT")}
                   type="button"
                 >
                   Reject inference
@@ -1366,13 +1780,15 @@ function OperatorPanel({ onLogout }) {
                 />
               </label>
 
-              {reviewMode === 'REJECT' ? (
+              {reviewMode === "REJECT" ? (
                 <>
                   <label className="field">
                     <span>Reason for rejection</span>
                     <select
                       value={reviewRejectionReason}
-                      onChange={(event) => setReviewRejectionReason(event.target.value)}
+                      onChange={(event) =>
+                        setReviewRejectionReason(event.target.value)
+                      }
                     >
                       {REJECTION_REASONS.map(([value, label]) => (
                         <option key={value} value={value}>
@@ -1386,7 +1802,9 @@ function OperatorPanel({ onLogout }) {
                     <span>Correct final decision</span>
                     <select
                       value={reviewFinalDecision}
-                      onChange={(event) => setReviewFinalDecision(event.target.value)}
+                      onChange={(event) =>
+                        setReviewFinalDecision(event.target.value)
+                      }
                     >
                       <option value="PASS">PASS</option>
                       <option value="FAIL">FAIL</option>
@@ -1403,7 +1821,7 @@ function OperatorPanel({ onLogout }) {
                 disabled={submittingReview}
                 type="button"
               >
-                {submittingReview ? 'Saving review...' : 'Submit review'}
+                {submittingReview ? "Saving review..." : "Submit review"}
               </button>
             </div>
           </div>
@@ -1413,25 +1831,25 @@ function OperatorPanel({ onLogout }) {
         {zoomedImage && (
           <div
             style={{
-              position: 'fixed',
+              position: "fixed",
               top: 0,
               left: 0,
               right: 0,
               bottom: 0,
-              background: 'rgba(0,0,0,0.85)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
+              background: "rgba(0,0,0,0.85)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
               zIndex: 9999,
-              padding: '20px',
+              padding: "20px",
             }}
             onClick={() => setZoomedImage(null)}
           >
             <div
               style={{
-                maxWidth: '90vw',
-                maxHeight: '90vh',
-                position: 'relative',
+                maxWidth: "90vw",
+                maxHeight: "90vh",
+                position: "relative",
               }}
               onClick={(e) => e.stopPropagation()}
             >
@@ -1439,37 +1857,43 @@ function OperatorPanel({ onLogout }) {
                 src={zoomedImage}
                 alt="zoomed inspection"
                 style={{
-                  width: '100%',
-                  height: '100%',
-                  objectFit: 'contain',
+                  width: "100%",
+                  height: "100%",
+                  objectFit: "contain",
                 }}
               />
               <button
                 onClick={() => setZoomedImage(null)}
                 style={{
-                  position: 'absolute',
-                  top: '10px',
-                  right: '10px',
-                  background: '#fff',
-                  border: 'none',
-                  padding: '8px 12px',
-                  cursor: 'pointer',
-                  borderRadius: '4px',
-                  fontSize: '16px',
-                  fontWeight: 'bold',
+                  position: "absolute",
+                  top: "10px",
+                  right: "10px",
+                  background: "#fff",
+                  border: "none",
+                  padding: "8px 12px",
+                  cursor: "pointer",
+                  borderRadius: "4px",
+                  fontSize: "16px",
+                  fontWeight: "bold",
                 }}
               >
                 ✕
               </button>
-              <div style={{ color: '#999', textAlign: 'center', marginTop: '10px', fontSize: '12px' }}>
+              <div
+                style={{
+                  color: "#999",
+                  textAlign: "center",
+                  marginTop: "10px",
+                  fontSize: "12px",
+                }}
+              >
                 Click to close or press Esc
               </div>
             </div>
           </div>
         )}
-
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 }
 

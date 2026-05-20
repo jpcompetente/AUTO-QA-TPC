@@ -1,0 +1,22 @@
+$kind: http-request
+name: POST Review Inference Log
+method: POST
+url: '{{baseUrl}}/api/core/inference-logs/{{logId}}/review/'
+order: 4000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "action": "ACKNOWLEDGE",
+      "description": "Defect confirmed",
+      "final_decision": "FAIL",
+      "rejection_reason": ""
+    }

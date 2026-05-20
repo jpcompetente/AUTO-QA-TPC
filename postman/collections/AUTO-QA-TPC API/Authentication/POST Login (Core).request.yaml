@@ -1,0 +1,15 @@
+$kind: http-request
+name: 'POST Login (Core)'
+method: POST
+url: '{{baseUrl}}/api/core/auth/token/'
+order: 3000
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "username": "{{username}}",
+      "password": "{{password}}"
+    }

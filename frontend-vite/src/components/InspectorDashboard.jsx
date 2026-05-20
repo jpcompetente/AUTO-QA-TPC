@@ -1,10 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { motion } from "framer-motion";
 import Webcam from "react-webcam";
-import {
-  getComponents,
-  getDetectionLogs,
-  getModels,
-} from "../api/backend";
+import { getComponents, getDetectionLogs, getModels } from "../api/backend";
 
 const PAGES = [
   { id: "live", label: "Viewer Mode" },
@@ -77,8 +74,18 @@ function InspectorDashboard({ onLogout }) {
     : 0;
 
   return (
-    <div className="dashboard-shell dashboard-shell--inspector">
-      <aside className="dashboard-sidebar">
+    <motion.div
+      className="dashboard-shell dashboard-shell--inspector"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.6 }}
+    >
+      <motion.aside
+        className="dashboard-sidebar"
+        initial={{ opacity: 0, x: -30 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.5, delay: 0.1 }}
+      >
         <div>
           <p className="eyebrow">Inspector viewer</p>
           <h1>Inspector viewer mode</h1>
@@ -86,7 +93,7 @@ function InspectorDashboard({ onLogout }) {
 
         <nav className="page-nav" aria-label="Inspector pages">
           {PAGES.map((page) => (
-            <button
+            <motion.button
               key={page.id}
               type="button"
               className={
@@ -95,23 +102,37 @@ function InspectorDashboard({ onLogout }) {
                   : "page-nav__button"
               }
               onClick={() => setActivePage(page.id)}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.98 }}
             >
               {page.label}
-            </button>
+            </motion.button>
           ))}
         </nav>
 
-        <button
+        <motion.button
           className="ghost-button ghost-button--sidebar"
           onClick={onLogout}
           type="button"
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.98 }}
         >
           Logout
-        </button>
-      </aside>
+        </motion.button>
+      </motion.aside>
 
-      <main className="dashboard-main">
-        <header className="dashboard-header">
+      <motion.main
+        className="dashboard-main"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.2 }}
+      >
+        <motion.header
+          className="dashboard-header"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5, delay: 0.3 }}
+        >
           <div>
             <p className="eyebrow">Inspector portal</p>
             <h2>QA Inspection Workspace</h2>
@@ -121,7 +142,7 @@ function InspectorDashboard({ onLogout }) {
             <span>{models.length} models</span>
             <span>{logs.length} inspections</span>
           </div>
-        </header>
+        </motion.header>
 
         {activePage === "live" ? (
           <section className="dashboard-grid dashboard-grid--inspector">
@@ -253,7 +274,8 @@ function InspectorDashboard({ onLogout }) {
               <div>
                 <p className="eyebrow">Session</p>
                 <h3>Current inspection summary</h3>
-              </div>            </div>
+              </div>{" "}
+            </div>
 
             <div className="audit-list">
               <div className="audit-list__row">
@@ -266,21 +288,21 @@ function InspectorDashboard({ onLogout }) {
               </div>
               <div className="audit-list__row">
                 <span>Current component</span>
-                <strong>
-                  {components[0]?.name || "Not selected"}
-                </strong>
+                <strong>{components[0]?.name || "Not selected"}</strong>
               </div>
               <div className="audit-list__row">
                 <span>Current model</span>
                 <strong>
-                  {models[0] ? `${models[0].name} (${models[0].version})` : "Not selected"}
+                  {models[0]
+                    ? `${models[0].name} (${models[0].version})`
+                    : "Not selected"}
                 </strong>
               </div>
             </div>
           </section>
         ) : null}
-      </main>
-    </div>
+      </motion.main>
+    </motion.div>
   );
 }
 

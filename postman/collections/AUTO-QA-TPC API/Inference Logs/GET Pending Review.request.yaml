@@ -1,0 +1,10 @@
+$kind: http-request
+name: GET Pending Review
+method: GET
+url: '{{baseUrl}}/api/core/inference-logs/pending_review/'
+order: 5000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'

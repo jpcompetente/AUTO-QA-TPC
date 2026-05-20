@@ -1,0 +1,50 @@
+name: AUTO-QA-TPC
+values:
+  - key: baseUrl
+    value: 'http://localhost:8000'
+    enabled: true
+    type: default
+  - key: accessToken
+    value: ''
+    enabled: true
+    type: default
+  - key: refreshToken
+    value: ''
+    enabled: true
+    type: default
+  - key: username
+    value: admin
+    enabled: true
+    type: default
+  - key: password
+    value: ''
+    enabled: true
+    type: default
+  - key: modelId
+    value: '1'
+    enabled: true
+    type: default
+  - key: componentId
+    value: '1'
+    enabled: true
+    type: default
+  - key: configId
+    value: '1'
+    enabled: true
+    type: default
+  - key: logId
+    value: '1'
+    enabled: true
+    type: default
+  - key: queueId
+    value: '1'
+    enabled: true
+    type: default
+  - key: jobId
+    value: '1'
+    enabled: true
+    type: default
+  - key: bufferId
+    value: '1'
+    enabled: true
+    type: default

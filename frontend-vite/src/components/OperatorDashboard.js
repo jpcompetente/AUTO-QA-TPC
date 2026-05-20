@@ -1,7 +1,8 @@
-import { useRef, useEffect, useState, useCallback } from 'react';
-import Webcam from 'react-webcam';
-import api, { buildWebSocketUrl } from '../api/backend';
-import '../styles/operator.css';
+import { useRef, useEffect, useState, useCallback } from "react";
+import { motion } from "framer-motion";
+import Webcam from "react-webcam";
+import api, { buildWebSocketUrl } from "../api/backend";
+import "../styles/operator.css";
 
 const OperatorDashboard = ({ onLogout }) => {
   const webcamRef = useRef(null);
@@ -15,14 +16,16 @@ const OperatorDashboard = ({ onLogout }) => {
 
   /* ── WebSocket ─────────────────────────────────────────────── */
   useEffect(() => {
-    const ws = new WebSocket(buildWebSocketUrl('/ws/metrics/'));
+    const ws = new WebSocket(buildWebSocketUrl("/ws/metrics/"));
 
-    ws.onopen    = () => setWsConnection(ws);
-    ws.onerror   = (e) => console.error('WebSocket error:', e);
-    ws.onmessage = (e) => console.log('Real-time metrics:', JSON.parse(e.data));
-    ws.onclose   = () => setWsConnection(null);
+    ws.onopen = () => setWsConnection(ws);
+    ws.onerror = (e) => console.error("WebSocket error:", e);
+    ws.onmessage = (e) => console.log("Real-time metrics:", JSON.parse(e.data));
+    ws.onclose = () => setWsConnection(null);
 
-    return () => { if (ws.readyState === WebSocket.OPEN) ws.close(); };
+    return () => {
+      if (ws.readyState === WebSocket.OPEN) ws.close();
+    };
   }, []);
 
   /* ── Capture & detect ──────────────────────────────────────── */
@@ -32,7 +35,9 @@ const OperatorDashboard = ({ onLogout }) => {
       setLoading(true);
       const imageSrc = webcamRef.current.getScreenshot();
 
-      const response = await api.post('/inference/detect/', { image: imageSrc });
+      const response = await api.post("/inference/detect/", {
+        image: imageSrc,
+      });
 
       const result = response.data;
       setInference({ ...result, timestamp: new Date(), image: imageSrc });
@@ -43,19 +48,21 @@ const OperatorDashboard = ({ onLogout }) => {
       ]);
 
       if (wsConnection?.readyState === WebSocket.OPEN) {
-        wsConnection.send(JSON.stringify({
-          type:            'inference_update',
-          operator_id:     sessionId,
-          bounding_boxes:  result.detections || [],
-          confidence:      result.confidence,
-          latency_ms:      result.latency_ms,
-          system_decision: result.system_decision,
-          timestamp:       new Date().toISOString(),
-        }));
+        wsConnection.send(
+          JSON.stringify({
+            type: "inference_update",
+            operator_id: sessionId,
+            bounding_boxes: result.detections || [],
+            confidence: result.confidence,
+            latency_ms: result.latency_ms,
+            system_decision: result.system_decision,
+            timestamp: new Date().toISOString(),
+          }),
+        );
       }
     } catch (err) {
-      console.error('Error capturing frame:', err);
-      alert('Error during inference');
+      console.error("Error capturing frame:", err);
+      alert("Error during inference");
     } finally {
       setLoading(false);
     }
@@ -69,14 +76,14 @@ const OperatorDashboard = ({ onLogout }) => {
         `/inference-logs/${inference.id}/operator_override/`,
         {
           final_decision: finalDecision,
-          comment: `Operator ${finalDecision === 'PASS' ? 'Approved' : 'Rejected'}`,
+          comment: `Operator ${finalDecision === "PASS" ? "Approved" : "Rejected"}`,
         },
       );
-      console.log('Decision saved:', response.data);
+      console.log("Decision saved:", response.data);
       setInference(null);
     } catch (err) {
-      console.error('Error saving decision:', err);
-      alert('Error saving decision');
+      console.error("Error saving decision:", err);
+      alert("Error saving decision");
     }
   };
 
@@ -91,34 +98,57 @@ const OperatorDashboard = ({ onLogout }) => {
   const passRate =
     detectionHistory.length > 0
       ? (
-          (detectionHistory.filter((d) => d.system_decision === 'PASS').length /
+          (detectionHistory.filter((d) => d.system_decision === "PASS").length /
             detectionHistory.length) *
           100
         ).toFixed(1)
-      : '0.0';
+      : "0.0";
 
   return (
-    <div className="operator-dashboard">
-
+    <motion.div
+      className="operator-dashboard"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.6 }}
+    >
       {/* ── Header ── */}
-      <header className="dashboard-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{
-            width: 30, height: 30, borderRadius: 8,
-            background: 'var(--blue)', flexShrink: 0,
-          }} />
+      <motion.header
+        className="dashboard-header"
+        initial={{ opacity: 0, y: -20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, delay: 0.1 }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <div
+            style={{
+              width: 30,
+              height: 30,
+              borderRadius: 8,
+              background: "var(--blue)",
+              flexShrink: 0,
+            }}
+          />
           <h1>Operator Panel — Live Defect Detection</h1>
         </div>
         <button className="ghost-button" onClick={onLogout} type="button">
           Log out
         </button>
-      </header>
+      </motion.header>
 
       {/* ── Main grid ── */}
-      <div className="dashboard-layout">
-
+      <motion.div
+        className="dashboard-layout"
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6, delay: 0.2 }}
+      >
         {/* ── Left: webcam ── */}
-        <div className="webcam-container">
+        <motion.div
+          className="webcam-container"
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          transition={{ duration: 0.5, delay: 0.3 }}
+        >
           <div className="section-heading">
             <p className="eyebrow">Camera feed</p>
             <h2>Live view</h2>
@@ -141,7 +171,9 @@ const OperatorDashboard = ({ onLogout }) => {
 
           {/* System decision */}
           {inference && (
-            <div className={`system-decision ${inference.system_decision?.toLowerCase()}`}>
+            <div
+              className={`system-decision ${inference.system_decision?.toLowerCase()}`}
+            >
               <h3>System decision: {inference.system_decision}</h3>
               <p>Confidence: {(inference.confidence * 100).toFixed(2)}%</p>
               <p>Latency: {inference.latency_ms?.toFixed(2)} ms</p>
@@ -154,7 +186,7 @@ const OperatorDashboard = ({ onLogout }) => {
             <div className="decision-buttons">
               <button
                 className="primary-button"
-                onClick={() => handleOperatorDecision('PASS')}
+                onClick={() => handleOperatorDecision("PASS")}
                 disabled={loading}
                 type="button"
               >
@@ -162,7 +194,7 @@ const OperatorDashboard = ({ onLogout }) => {
               </button>
               <button
                 className="btn-reject"
-                onClick={() => handleOperatorDecision('FAIL')}
+                onClick={() => handleOperatorDecision("FAIL")}
                 disabled={loading}
                 type="button"
               >
@@ -170,26 +202,27 @@ const OperatorDashboard = ({ onLogout }) => {
               </button>
             </div>
           )}
-        </div>
+        </motion.div>
 
         {/* ── Right: controls ── */}
-        <div className="controls-panel">
-
+        <motion.div className="controls-panel">
           {/* Session controls */}
           <div className="auto-detect-panel">
             <div>
               <span>Session status</span>
-              <strong style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <span className={`session-dot ${sessionActive ? 'session-dot--active' : ''}`} />
-                {sessionActive ? `Active · ${sessionId}` : 'Stopped'}
+              <strong style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <span
+                  className={`session-dot ${sessionActive ? "session-dot--active" : ""}`}
+                />
+                {sessionActive ? `Active · ${sessionId}` : "Stopped"}
               </strong>
             </div>
             <button
-              className={sessionActive ? 'ghost-button' : 'primary-button'}
+              className={sessionActive ? "ghost-button" : "primary-button"}
               onClick={sessionActive ? pauseSession : startSession}
               type="button"
             >
-              {sessionActive ? 'Pause' : 'Start Session'}
+              {sessionActive ? "Pause" : "Start Session"}
             </button>
             <button
               className="primary-button"
@@ -197,22 +230,27 @@ const OperatorDashboard = ({ onLogout }) => {
               disabled={loading}
               type="button"
             >
-              {loading ? 'Capturing…' : 'Capture & Detect'}
+              {loading ? "Capturing…" : "Capture & Detect"}
             </button>
           </div>
 
           {/* Confidence slider */}
           <div className="settings-panel">
             <label>
-              Confidence threshold: <strong style={{ color: 'var(--text)' }}>
+              Confidence threshold:{" "}
+              <strong style={{ color: "var(--text)" }}>
                 {Math.round(confidenceThreshold * 100)}%
               </strong>
             </label>
             <input
               type="range"
-              min="0" max="1" step="0.05"
+              min="0"
+              max="1"
+              step="0.05"
               value={confidenceThreshold}
-              onChange={(e) => setConfidenceThreshold(parseFloat(e.target.value))}
+              onChange={(e) =>
+                setConfidenceThreshold(parseFloat(e.target.value))
+              }
             />
           </div>
 
@@ -221,7 +259,7 @@ const OperatorDashboard = ({ onLogout }) => {
             <h3>Recent detections</h3>
             <div className="history-list">
               {detectionHistory.length === 0 && (
-                <div className="empty-state" style={{ padding: '20px 0' }}>
+                <div className="empty-state" style={{ padding: "20px 0" }}>
                   No detections yet
                 </div>
               )}
@@ -243,16 +281,37 @@ const OperatorDashboard = ({ onLogout }) => {
           </div>
 
           {/* Stats */}
-          <div className="stats-panel">
+          <motion.div
+            className="stats-panel"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.5, delay: 0.4 }}
+          >
             <h3>Session stats</h3>
-            <p>Total detections<br /><strong>{detectionHistory.length}</strong></p>
-            <p>Pass rate<br /><strong>{passRate}%</strong></p>
-          </div>
-        </div>
-      </div>
+            <p>
+              Total detections
+              <br />
+              <strong>{detectionHistory.length}</strong>
+            </p>
+            <p>
+              Pass rate
+              <br />
+              <strong>{passRate}%</strong>
+            </p>
+          </motion.div>
+        </motion.div>
+      </motion.div>
 
-      {loading && <div className="loading-spinner">Processing…</div>}
-    </div>
+      {loading && (
+        <motion.div
+          className="loading-spinner"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+        >
+          Processing…
+        </motion.div>
+      )}
+    </motion.div>
   );
 };
 
