@@ -4,7 +4,7 @@ import { loginUser } from "../api/backend";
 import loginBackground from "../assets/images/loginbgimage.webp";
 import logoMark from "../assets/images/TPCLOGOONLY.png";
 
-function Login({ onLogin }) {
+function Login({ onLogin, apiMessage }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
@@ -119,12 +119,6 @@ function Login({ onLogin }) {
         >
           <motion.div
             className="auth-brand__mark"
-            animate={{ rotate: 360 }}
-            transition={{
-              duration: 20,
-              repeat: Infinity,
-              ease: "linear",
-            }}
           >
             <img src={logoMark} alt="Team Pacific Corporation" />
           </motion.div>
@@ -146,6 +140,18 @@ function Login({ onLogin }) {
           <h2>Login</h2>
         </motion.div>
 
+        {apiMessage ? (
+          <motion.div
+            className="notice notice--info"
+            initial={{ opacity: 0, y: -6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.3 }}
+            aria-live="polite"
+          >
+            {apiMessage}
+          </motion.div>
+        ) : null}
+
         <motion.form
           className="auth-form"
           onSubmit={handleSubmit}
@@ -162,6 +168,7 @@ function Login({ onLogin }) {
             <span>Username</span>
             <div className="field-control">
               <input
+                className="auth-form__input"
                 value={username}
                 onChange={(event) => setUsername(event.target.value)}
                 type="text"
@@ -180,6 +187,7 @@ function Login({ onLogin }) {
             <span>Password</span>
             <div className="field-control">
               <input
+                className="auth-form__input"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 type="password"
