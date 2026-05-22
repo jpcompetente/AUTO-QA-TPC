@@ -17,3 +17,7 @@ build/
 # IDE
 .idea/
 .vscode/
+
+media/inference/
+media/captures/
+X FROM THE OTHER APP/

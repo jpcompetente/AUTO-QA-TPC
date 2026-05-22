@@ -15,6 +15,9 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'default-secret-key')  # Fallback in case .
 # Debug mode setting (Set to False in production)
 DEBUG = True
 
+TIME_ZONE = 'Asia/Manila'
+USE_TZ = True
+
 INTERNAL_IPS = ["127.0.0.1"]
 # Allowed hosts setting (necessary if DEBUG is False)
 ALLOWED_HOSTS = ['*']  # Set this to your domain or IP in production
@@ -28,6 +31,10 @@ DATABASES = {
         'PASSWORD': os.getenv('DB_PASSWORD', ''),
         'HOST': os.getenv('DB_HOST', 'localhost'),
         'PORT': os.getenv('DB_PORT', '5432'),
+        'CONN_MAX_AGE': 600,  # Connection pooling: reuse connections for up to 10 minutes
+        'OPTIONS': {
+            'connect_timeout': 10,
+        }
     }
 }
 
@@ -42,6 +49,7 @@ INSTALLED_APPS = [
     'django.contrib.sites',
     'corsheaders',
     'rest_framework',
+    'django_filters',
     'core',
 ]
 
@@ -54,6 +62,9 @@ if find_spec('channels') is not None:
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
         'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_FILTER_BACKENDS': (
+        'django_filters.rest_framework.DjangoFilterBackend',
     )
 }
 
@@ -70,12 +81,35 @@ MIDDLEWARE = [
     # 'django.contrib.redirects.middleware.RedirectFallbackMiddleware',  # ❌ disabled muna
 ]
 
+CSRF_TRUSTED_ORIGINS = [
+    "http://10.0.2.132",
+    "https://10.0.2.132:5173",
+    "https://172.21.16.1",
+    "https://172.21.16.1:5173",
+    "http://localhost",
+    "https://localhost",
+    "http://127.0.0.1",
+    "https://127.0.0.1",
+    "http://localhost:5173",
+    "https://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://127.0.0.1:5173",
+]
+
 # ✅ CORS Settings
 CORS_ALLOWED_ORIGINS = [
+    "http://10.0.2.132",
+    "https://10.0.2.132",
+    "https://172.21.16.1",
+    "https://172.21.16.1:5173",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
     "http://localhost:5173",
+    "https://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://127.0.0.1:5173",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
 ]
 
 # For testing only (disable in production)
@@ -178,8 +212,8 @@ CELERY_RESULT_BACKEND = 'redis://127.0.0.1:6379/0'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
-CELERY_TIMEZONE = 'UTC'
-CELERY_ENABLE_UTC = True
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_ENABLE_UTC = False
 CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True

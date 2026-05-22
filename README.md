@@ -13,6 +13,16 @@ The active frontend is now the Vite app in [frontend-vite](frontend-vite). Use t
 
 The React app talks to Django through `/api` routes, with JWT auth and role-based dashboard panels already wired in.
 
+### Inference server
+
+The standalone inference service lives in [inference_server/app.py](inference_server/app.py). For local development on Windows, use the bundled launcher instead of `uvicorn --workers 2`:
+
+```powershell
+.\.venv\Scripts\python.exe inference_server\run_server.py
+```
+
+On Linux or macOS you can still set `INFERENCE_SERVER_WORKERS` for higher concurrency.
+
 ## Running the project (development)
 
 Backend (Django):
@@ -30,9 +40,9 @@ python -m venv .venv
 pip install -r requirements.txt
 # Create a .env file in the repo root with at minimum:
 # SECRET_KEY=admin
-# DB_NAME=ai_ins_sys
-# DB_USER=postgres
-# DB_PASSWORD=admin
+# DB_NAME=
+# DB_USER=
+# DB_PASSWORD=
 # DB_HOST=localhost
 # DB_PORT=5432
 ```
@@ -57,7 +67,8 @@ pip install -r requirements.txt
 
 Default seeded users (created by migrations):
 
-- Admin: `admin` / `admin` (superuser)
+- Admin: `admin` / `admin` (admin)
+- Superadmin: `superadmin` / `superadmin` (superadmin)
 - Inspector (operator role): `inspector` / `inspector`
 
 Frontend (Vite React):
@@ -67,6 +78,7 @@ Frontend (Vite React):
 ```powershell
 cd frontend-vite
 npm install
+npm run build
 npm run dev
 ```
 

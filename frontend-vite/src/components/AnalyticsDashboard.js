@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import axios from 'axios';
+import { useEffect, useState } from 'react';
+import api, { buildWebSocketUrl } from '../api/backend';
 import '../styles/AnalyticsDashboard.css';
 
 const AnalyticsDashboard = ({ onLogout }) => {
@@ -10,16 +10,13 @@ const AnalyticsDashboard = ({ onLogout }) => {
   const [retrainingQueue, setRetrainingQueue] = useState([]);
   const [trainingJobs, setTrainingJobs] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [wsConnection, setWsConnection] = useState(null);
-
   // WebSocket for real-time metrics
   useEffect(() => {
-    const wsUrl = `ws://localhost:8000/ws/metrics/`;
+    const wsUrl = buildWebSocketUrl('/ws/metrics/');
     const ws = new WebSocket(wsUrl);
 
     ws.onopen = () => {
       console.log('Analytics WebSocket connected');
-      setWsConnection(ws);
     };
 
     ws.onmessage = (event) => {
@@ -40,48 +37,28 @@ const AnalyticsDashboard = ({ onLogout }) => {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const headers = { Authorization: `Bearer ${localStorage.getItem('access_token')}` };
-
         // Dashboard stats
-        const statsRes = await axios.get(
-          'http://localhost:8000/api/core/analytics/dashboard/',
-          { headers }
-        );
+        const statsRes = await api.get('/analytics/dashboard/');
         setStats(statsRes.data);
 
         // Latency trends
-        const trendsRes = await axios.get(
-          'http://localhost:8000/api/core/analytics/latency-trends/?days=7',
-          { headers }
-        );
+        const trendsRes = await api.get('/analytics/latency-trends/?days=7');
         setLatencyTrends(trendsRes.data.trends || []);
 
         // Operator performance
-        const opRes = await axios.get(
-          'http://localhost:8000/api/core/analytics/operator-performance/',
-          { headers }
-        );
+        const opRes = await api.get('/analytics/operator-performance/');
         setOperatorPerformance(opRes.data.operators || []);
 
         // Model performance
-        const modelRes = await axios.get(
-          'http://localhost:8000/api/core/analytics/model-performance/',
-          { headers }
-        );
+        const modelRes = await api.get('/analytics/model-performance/');
         setModelPerformance(modelRes.data.models || []);
 
         // Retraining queue
-        const queueRes = await axios.get(
-          'http://localhost:8000/api/core/retraining-queue/',
-          { headers }
-        );
+        const queueRes = await api.get('/retraining-queue/');
         setRetrainingQueue(queueRes.data || []);
 
         // Training jobs
-        const jobsRes = await axios.get(
-          'http://localhost:8000/api/core/training-jobs/',
-          { headers }
-        );
+        const jobsRes = await api.get('/training-jobs/');
         setTrainingJobs(jobsRes.data || []);
 
         setLoading(false);

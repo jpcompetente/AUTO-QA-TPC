@@ -6,6 +6,9 @@ from django.urls import path
 from . import consumers
 
 websocket_urlpatterns = [
+    # Operator frame streaming for server-side inference + overlays
+    path('ws/inference-stream/', consumers.InferenceStreamConsumer.as_asgi()),
+
     # Real-time inference streaming from Operator to Super Admin
     path('ws/live-view/<str:session_id>/', consumers.LiveViewConsumer.as_asgi()),
     

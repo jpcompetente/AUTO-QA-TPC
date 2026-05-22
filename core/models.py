@@ -1,4 +1,7 @@
+import hashlib
+
 from django.db import models
+from django.db.models import Q
 from django.contrib.auth.models import User
 
 # 🛡️ User Profile for RBAC
@@ -7,6 +10,7 @@ class UserProfile(models.Model):
         ('SUPER_ADMIN', 'Super Admin'),
         ('ADMIN', 'Admin'),
         ('OPERATOR', 'Operator'),
+        ('INSPECTOR', 'Inspector'),
     )
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     role = models.CharField(max_length=20, choices=ROLES, default='OPERATOR')
@@ -69,32 +73,57 @@ class ComponentType(models.Model):
     def __str__(self):
         return self.name
 
-# 🧠 Admin Control & Presets
-class AdminSettings(models.Model):
-    admin = models.ForeignKey(User, on_delete=models.CASCADE, related_name='admin_configs')
-    assigned_operator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='active_config', null = True, blank=True)
-    
-    component = models.ForeignKey(ComponentType, on_delete=models.CASCADE, null = True, blank=True)
-    model = models.ForeignKey(AIModel, on_delete=models.CASCADE, null = True, blank=True)
-    
-    confidence_threshold = models.FloatField(default=0.5)
+
+class ActiveConfiguration(models.Model):
+    operator = models.ForeignKey(User, on_delete=models.CASCADE, related_name='active_configurations')
+    product = models.ForeignKey(ComponentType, on_delete=models.CASCADE, related_name='active_configurations')
+    model = models.ForeignKey(AIModel, on_delete=models.CASCADE, related_name='active_configurations')
+    threshold = models.FloatField(default=0.5)
+    config_version = models.PositiveIntegerField(default=1)
+    config_hash = models.CharField(max_length=64, unique=True, editable=False)
     is_active = models.BooleanField(default=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_active_configurations')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-updated_at', '-id']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['operator', 'product'],
+                condition=Q(is_active=True),
+                name='uniq_active_configuration_per_operator_product',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['operator', 'is_active']),
+            models.Index(fields=['product', 'is_active']),
+        ]
+
+    def _build_config_hash(self) -> str:
+        raw = f"{self.operator_id}:{self.product_id}:{self.model_id}:{self.threshold:.4f}:{self.config_version}:{int(self.is_active)}"
+        return hashlib.sha256(raw.encode('utf-8')).hexdigest()
+
+    def save(self, *args, **kwargs):
+        self.config_hash = self._build_config_hash()
+        super().save(*args, **kwargs)
 
     def __str__(self):
-        op_name = self.assigned_operator.username if self.assigned_operator else "Unassigned"
-        comp_name = self.component.name if self.component else "No Component"
-        return f"Preset: {op_name} ({comp_name})"
+        return f"{self.operator.username} -> {self.product.name} / {self.model.name} v{self.config_version}"
 
 # 📊 Detailed Audit & Inference Logs
 class InferenceLog(models.Model):
     DECISION_CHOICES = (
         ('PASS', 'Pass'),
         ('FAIL', 'Fail'),
+        ('ERROR', 'Error - Manual Review Required'),
     )
     STATUS_CHOICES = (
         ('PENDING', 'Pending Operator Review'),
         ('APPROVED', 'Operator Approved'),
         ('REJECTED', 'Operator Rejected'),
+        ('ERROR', 'Error - Flagged for Manual Review'),
         ('ARCHIVED', 'Archived'),
     )
     REJECTION_REASON_CHOICES = (
@@ -103,6 +132,7 @@ class InferenceLog(models.Model):
         ('BLURRY_CAPTURE', 'Blurry capture'),
         ('BAD_ANNOTATION', 'Bad annotation'),
         ('WRONG_CLASS', 'Wrong class'),
+        ('CONFIDENCE_BELOW_THRESHOLD', 'Confidence below threshold (requires manual review)'),
         ('OTHER', 'Other'),
     )
     
@@ -116,6 +146,10 @@ class InferenceLog(models.Model):
     latency_ms = models.FloatField()
     confidence_score = models.FloatField()
     
+    # Segmentation & Mask Data
+    segmentation_data = models.JSONField(default=dict, blank=True)  # mask polygons, mask_file, mask_shape, mask_area_pixels
+    defect_area_percent = models.FloatField(default=0.0, blank=True)  # Percentage of image with defects
+    
     # Workflow 3.3 - Human-in-the-loop decision
     system_decision = models.CharField(max_length=10, choices=DECISION_CHOICES)
     operator_override = models.BooleanField(default=False)
@@ -128,6 +162,11 @@ class InferenceLog(models.Model):
     # Real-time Streaming Metadata
     session_id = models.CharField(max_length=100, blank=True, db_index=True)  # WebSocket session identifier
     stream_timestamp = models.DateTimeField(null=True, blank=True)  # When streamed to Super Admin
+    manufacturing_order = models.CharField(max_length=100, blank=True, db_index=True)
+    is_confidence_below_threshold = models.BooleanField(
+        default=False,
+        help_text='Flagged when confidence is too low on both PASS/FAIL classifications',
+    )
     
     # Status Tracking
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
@@ -141,10 +180,22 @@ class InferenceLog(models.Model):
         indexes = [
             models.Index(fields=['operator', '-timestamp']),
             models.Index(fields=['session_id', '-timestamp']),
+            models.Index(fields=['component', '-timestamp']),  # For product-based filtering
         ]
     
     def __str__(self):
         return f"Log {self.id} - {self.operator.username} ({self.final_decision})"
+
+    def check_and_flag_low_confidence(self, threshold=0.5):
+        """Flag low-confidence results for manual review."""
+        if self.confidence_score < threshold:
+            self.system_decision = 'ERROR'
+            self.final_decision = 'ERROR'
+            self.is_confidence_below_threshold = True
+            self.status = 'ERROR'
+            self.rejection_reason = 'CONFIDENCE_BELOW_THRESHOLD'
+            return True
+        return False
 
 # 📈 Retraining & Dataset Queue (Logic 1.5)
 class RetrainingQueue(models.Model):

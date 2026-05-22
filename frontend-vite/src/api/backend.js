@@ -63,17 +63,35 @@ export const loginUser = (credentials) =>
   });
 
 export const getApiStatus = () => api.get("/dashboard/stats/");
-export const detectImage = (payload) => api.post("/detect/", payload);
+export const detectImage = (payload) => api.post("/inference/detect/", payload);
 export const getComponents = () => api.get("/component-types/");
 export const getModels = () => api.get("/ai-models/");
 export const getOperators = () => api.get("/operators/");
 export const getOperatorPreset = () => api.get("/operator/preset/");
 export const getAdminSettings = () => api.get("/admin/settings/");
 export const createAdminSettings = (data) => api.post("/admin/settings/", data);
+export const updateAdminSettings = (id, data) =>
+  api.patch(`/admin/settings/${id}/`, data);
 export const deleteAdminSettings = (id) => api.delete(`/admin/settings/${id}/`);
-export const getDetectionLogs = () => api.get("/inference-logs/");
+export const getDetectionLogs = (params = {}) => api.get("/inference-logs/", { params });
 export const createDetectionLog = (data) => api.post("/inference-logs/", data);
 export const reviewInferenceLog = (id, data) =>
   api.post(`/inference-logs/${id}/review/`, data);
+
+export const buildWebSocketUrl = (path) => {
+  const configuredBase = import.meta.env.VITE_WS_BASE_URL;
+  const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+  const defaultBase = `${protocol}://${window.location.host}`;
+  const wsBase = (configuredBase || defaultBase).replace(/\/$/, "");
+  const normalizedPath = String(path || "").startsWith("/")
+    ? String(path)
+    : `/${String(path || "")}`;
+  return `${wsBase}${normalizedPath}`;
+};
+
+export const buildInferenceStreamUrl = (token) => {
+  const encodedToken = encodeURIComponent(token || "");
+  return `${buildWebSocketUrl("/ws/inference-stream/")}?token=${encodedToken}`;
+};
 
 export default api;
