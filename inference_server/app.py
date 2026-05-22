@@ -270,7 +270,7 @@ class ModelRegistry:
         self._models: dict[str, EMSDWrapper] = {}
         self._model_order: list[str] = []
 
-    def _weights_for(self, model_name: str) -> str:
+    def _weights_for_sync(self, model_name: str) -> str:
         model = AIModel.objects.filter(name=model_name).order_by("-is_active", "-created_at").first()
         if model:
             file_field = model.file_path_pt or model.file_path_onnx or model.file_path_engine
@@ -288,14 +288,17 @@ class ModelRegistry:
             return str(default_path)
         return str(Path(settings.BASE_DIR) / "models" / "weights" / "tpcyolov26nv21gs_emsd.pt")
 
-    def get(self, model_name: str) -> EMSDWrapper:
+    async def _weights_for(self, model_name: str) -> str:
+        return await run_in_threadpool(self._weights_for_sync, model_name)
+
+    async def get(self, model_name: str) -> EMSDWrapper:
         if model_name in self._models:
             if model_name in self._model_order:
                 self._model_order.remove(model_name)
             self._model_order.append(model_name)
             return self._models[model_name]
 
-        weights_path = self._weights_for(model_name)
+        weights_path = await self._weights_for(model_name)
         if not os.path.exists(weights_path):
             raise FileNotFoundError(f"Model weights not found: {weights_path}")
 
@@ -340,7 +343,8 @@ async def predict(
 
     try:
         pil_image = await run_in_threadpool(_load_image, image_bytes)
-        result = await run_in_threadpool(registry.get(model_name).predict, pil_image, confidence, iou)
+        model = await registry.get(model_name)
+        result = await run_in_threadpool(model.predict, pil_image, confidence, iou)
 
         if result.get("success"):
             frame_rgb = np.array(pil_image)

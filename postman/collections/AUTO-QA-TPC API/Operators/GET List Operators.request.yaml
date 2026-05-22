@@ -1,0 +1,10 @@
+$kind: http-request
+name: GET List Operators
+method: GET
+url: '{{baseUrl}}/api/core/operators/'
+order: 1000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'

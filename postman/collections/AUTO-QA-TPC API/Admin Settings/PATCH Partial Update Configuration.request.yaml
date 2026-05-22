@@ -1,0 +1,19 @@
+$kind: http-request
+name: PATCH Partial Update Configuration
+method: PATCH
+url: '{{baseUrl}}/api/core/admin-settings/{{configId}}/'
+order: 5000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "threshold": 0.6
+    }

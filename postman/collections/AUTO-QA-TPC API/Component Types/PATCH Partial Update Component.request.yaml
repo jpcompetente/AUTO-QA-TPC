@@ -1,0 +1,19 @@
+$kind: http-request
+name: PATCH Partial Update Component
+method: PATCH
+url: '{{baseUrl}}/api/core/components/{{componentId}}/'
+order: 5000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "description": "Updated description"
+    }
