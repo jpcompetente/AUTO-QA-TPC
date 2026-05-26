@@ -1,0 +1,10 @@
+$kind: http-request
+name: GET Assigned Operator Sessions
+method: GET
+url: '{{baseUrl}}/api/core/admin-settings/{{configId}}/assigned_operator_sessions/'
+order: 7000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'

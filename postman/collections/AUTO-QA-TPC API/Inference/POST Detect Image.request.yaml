@@ -1,0 +1,38 @@
+$kind: http-request
+name: POST Detect Image
+method: POST
+url: '{{baseUrl}}/api/core/inference/detect/'
+order: 1000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'
+body:
+  type: formdata
+  content:
+    - key: image
+      type: file
+      src: ''
+      description: Image file to inspect
+    - key: config_id
+      type: text
+      value: ''
+    - key: config_version
+      type: text
+      value: ''
+    - key: config_hash
+      type: text
+      value: ''
+    - key: session_id
+      type: text
+      value: ''
+    - key: session_active
+      type: text
+      value: 'true'
+    - key: confidence
+      type: text
+      value: '0.5'
+    - key: iou
+      type: text
+      value: '0.45'

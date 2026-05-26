@@ -1,0 +1,29 @@
+$kind: http-request
+name: POST Label Sample
+method: POST
+url: '{{baseUrl}}/api/core/retraining-queue/{{queueId}}/label/'
+order: 3000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "label_data": {
+        "boxes": [
+          {
+            "x1": 100,
+            "y1": 100,
+            "x2": 200,
+            "y2": 200,
+            "class": "SCRATCH"
+          }
+        ]
+      }
+    }

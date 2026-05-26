@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import Webcam from "react-webcam";
 import {
@@ -7,8 +7,11 @@ import {
   getDetectionLogs,
   getOperatorPreset,
   reviewInferenceLog,
-} from '../api/backend';
-import { ensureCameraPermission } from '../utils/camera';
+} from "../api/backend";
+import {
+  buildCameraConstraints,
+  ensureCameraPermission,
+} from "../utils/camera";
 
 /* ── Constants ───────────────────────────────────────────────── */
 const STABLE_CAPTURE_DELAY_MS = 2000;
@@ -27,7 +30,12 @@ const REJECTION_REASONS = [
 ];
 
 /* ── Component ───────────────────────────────────────────────── */
-function OperatorPanel({ onLogout }) {
+function OperatorPanel({
+  onLogout,
+  username = "Operator",
+  cameraOnly = false,
+}) {
+  const cameraConstraints = useMemo(() => buildCameraConstraints(), []);
   /* refs */
   const webcamRef = useRef(null);
   const frameRef = useRef(null);
@@ -87,6 +95,14 @@ function OperatorPanel({ onLogout }) {
     sessionFilterRef.current = sessionFilter;
     sessionStartedRef.current = sessionStarted;
   }, [sessionFilter, sessionStarted]);
+
+  // Ensure camera-only mode shows the camera panel without causing
+  // a synchronous setState inside an effect (avoids cascading renders).
+  useEffect(() => {
+    if (!cameraOnly) return undefined;
+    const id = window.setTimeout(() => setActivePanel("camera"), 0);
+    return () => window.clearTimeout(id);
+  }, [cameraOnly]);
 
   /* ── Helpers ─────────────────────────────────────────────────── */
   const normalizeList = useCallback(
@@ -153,14 +169,14 @@ function OperatorPanel({ onLogout }) {
       liveIntervalRef.current = null;
     }
     waitForMotionAfterEmptyRef.current = false;
-    setLiveAnnotatedOverlaySrc('');
+    setLiveAnnotatedOverlaySrc("");
     try {
       const stream = liveMediaStreamRef.current;
       if (stream?.getTracks) {
         stream.getTracks().forEach((track) => track.stop());
       }
     } catch (error) {
-      console.warn('Error stopping media stream', error);
+      console.warn("Error stopping media stream", error);
     }
     liveMediaStreamRef.current = null;
     try {
@@ -540,7 +556,7 @@ function OperatorPanel({ onLogout }) {
           stream.getTracks().forEach((track) => track.stop());
         }
       } catch (error) {
-        console.warn('Error stopping media stream', error);
+        console.warn("Error stopping media stream", error);
       }
       liveMediaStreamRef.current = null;
       try {
@@ -549,7 +565,7 @@ function OperatorPanel({ onLogout }) {
       } catch {
         /* ignore */
       }
-      setStreamStatus('disconnected');
+      setStreamStatus("disconnected");
     };
 
     if (!sessionStarted || !preset) {
@@ -569,7 +585,9 @@ function OperatorPanel({ onLogout }) {
     // Request camera permission and attach MediaStream to react-webcam
     (async () => {
       try {
-        const res = await ensureCameraPermission({ constraints: { video: true } });
+        const res = await ensureCameraPermission({
+          constraints: cameraConstraints,
+        });
         if (res.granted && res.stream) {
           liveMediaStreamRef.current = res.stream;
           const videoEl = webcamRef.current?.video;
@@ -577,16 +595,16 @@ function OperatorPanel({ onLogout }) {
             try {
               videoEl.srcObject = res.stream;
             } catch (e) {
-              console.warn('Could not attach MediaStream to video element', e);
+              console.warn("Could not attach MediaStream to video element", e);
             }
           }
         } else if (!res.granted) {
           window.setTimeout(() => {
-            setError(res.error?.message || 'Camera permission denied');
+            setError(res.error?.message || "Camera permission denied");
           }, 0);
         }
       } catch (e) {
-        console.warn('ensureCameraPermission error', e);
+        console.warn("ensureCameraPermission error", e);
       }
     })();
 
@@ -667,7 +685,7 @@ function OperatorPanel({ onLogout }) {
       streamEffectActiveRef.current = false;
       closeStream();
     };
-  }, [preset, sessionStarted]);
+  }, [preset, sessionStarted, cameraConstraints]);
 
   /* ── Auto-annotate ───────────────────────────────────────────── */
   const autoAnnotateDetection = useCallback((result) => {
@@ -1137,15 +1155,18 @@ function OperatorPanel({ onLogout }) {
           <div>
             <h1>Live inspection</h1>
           </div>
-          <motion.button
-            className="ghost-button"
-            onClick={onLogout}
-            type="button"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.98 }}
-          >
-            Logout
-          </motion.button>
+          <div className="panel-header__right">
+            <div className="profile">{username}</div>
+            <motion.button
+              className="ghost-button"
+              onClick={onLogout}
+              type="button"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              Logout
+            </motion.button>
+          </div>
         </motion.header>
 
         {/* ── Tab switcher ── */}
@@ -1167,15 +1188,17 @@ function OperatorPanel({ onLogout }) {
           >
             Camera Feed
           </motion.button>
-          <motion.button
-            className={`choice-button${activePanel === "logs" ? " choice-button--active" : ""}`}
-            onClick={() => setActivePanel("logs")}
-            type="button"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.98 }}
-          >
-            Detection Logs
-          </motion.button>
+          {!cameraOnly && (
+            <motion.button
+              className={`choice-button${activePanel === "logs" ? " choice-button--active" : ""}`}
+              onClick={() => setActivePanel("logs")}
+              type="button"
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.98 }}
+            >
+              Detection Logs
+            </motion.button>
+          )}
         </motion.div>
 
         {/* ════════════════════════════════════════════════
@@ -1190,6 +1213,13 @@ function OperatorPanel({ onLogout }) {
                 <h2>Prepare the frame</h2>
               </div>
 
+              {cameraOnly && (
+                <p className="camera-mode-note">
+                  Phone camera mode is active. Keep this device pointed at the
+                  inspection area and capture from the browser.
+                </p>
+              )}
+
               {/* Webcam */}
               <div
                 className="webcam-frame-wrap"
@@ -1200,6 +1230,7 @@ function OperatorPanel({ onLogout }) {
                   ref={webcamRef}
                   screenshotFormat="image/png"
                   audio={false}
+                  videoConstraints={cameraConstraints.video}
                   className={
                     capturedFrame
                       ? "webcam-frame webcam-frame--capture-source"

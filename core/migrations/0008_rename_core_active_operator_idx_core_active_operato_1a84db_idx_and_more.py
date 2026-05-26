@@ -6,7 +6,7 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('core', '0008_align_default_admin_roles'),
+        ('core', '0007_active_configuration'),
     ]
 
     operations = [
