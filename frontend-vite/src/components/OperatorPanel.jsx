@@ -80,6 +80,8 @@ function OperatorPanel({ onLogout }) {
   const [logsLimit, setLogsLimit] = useState(20);
   const [streamStatus, setStreamStatus] = useState("disconnected");
   const [liveAnnotatedOverlaySrc, setLiveAnnotatedOverlaySrc] = useState("");
+  const [sessionCompletedLogs, setSessionCompletedLogs] = useState([]);
+  const [showSessionHistory, setShowSessionHistory] = useState(false);
 
   useEffect(() => {
     sessionFilterRef.current = sessionFilter;
@@ -166,9 +168,22 @@ function OperatorPanel({ onLogout }) {
     } catch {
       /* ignore */
     }
+    
+    // Fetch logs for the completed session
+    (async () => {
+      try {
+        const response = await getDetectionLogs({ session_id: sessionId });
+        const list = normalizeList(response.data);
+        setSessionCompletedLogs(list);
+        setShowSessionHistory(true);
+      } catch (err) {
+        console.warn('Error fetching session logs:', err);
+      }
+    })();
+    
     setSessionStarted(false);
     setSessionId("");
-  }, []);
+  }, [sessionId, normalizeList]);
 
   const toggleSession = useCallback(() => {
     if (sessionStarted) {
@@ -753,12 +768,43 @@ function OperatorPanel({ onLogout }) {
         setReviewDescription(autoDescription);
         setReviewFinalDecision(result.system_decision || "PASS");
         setReviewRejectionReason("MISSED_DEFECT");
-        reviewPendingRef.current = true;
-        setReviewPending(true);
-        setMotionStatus("Review required");
-        setCountdownMs(null);
 
-        await fetchLogsRef.current();
+        // Check if confidence meets the threshold for auto-approval
+        const confidence = Number(result.confidence || 0);
+        const threshold = preset?.confidence_threshold ?? 0.5;
+        
+        if (confidence >= threshold) {
+          // Auto-approve: confidence meets or exceeds threshold
+          console.log(
+            `[AUTO-APPROVE] Confidence ${confidence.toFixed(3)} >= Threshold ${threshold.toFixed(3)}`
+          );
+          // Automatically save the log with this decision
+          try {
+            await detectImage({
+              operator_override: false,
+              final_decision: result.system_decision || "PASS",
+              operator_comment: `Auto-approved (confidence ${(confidence * 100).toFixed(1)}% meets threshold)`,
+              session_id: sessionId,
+            });
+            setMotionStatus("Auto-approved by confidence threshold");
+            setCountdownMs(null);
+            await fetchLogsRef.current();
+          } catch (autoApproveError) {
+            console.error('Error in auto-approve:', autoApproveError);
+            // Fallback to manual review if auto-approve fails
+            reviewPendingRef.current = true;
+            setReviewPending(true);
+            setMotionStatus("Review required (auto-approve failed)");
+          }
+        } else {
+          // Below threshold: require manual review
+          reviewPendingRef.current = true;
+          setReviewPending(true);
+          setMotionStatus("Review required");
+          setCountdownMs(null);
+          await fetchLogsRef.current();
+        }
+
       } catch (requestError) {
         const errorMsg =
           requestError.response?.data?.error ||
@@ -1089,12 +1135,7 @@ function OperatorPanel({ onLogout }) {
           transition={{ duration: 0.5, delay: 0.2 }}
         >
           <div>
-            <p className="eyebrow">Operator console</p>
-            <h1>Live inspection workflow</h1>
-            <p>
-              Capture a frame, run detection, and save the result against the
-              selected configuration.
-            </p>
+            <h1>Live inspection</h1>
           </div>
           <motion.button
             className="ghost-button"
@@ -1112,7 +1153,7 @@ function OperatorPanel({ onLogout }) {
           className="panel-switcher"
           role="tablist"
           aria-label="Operator pages"
-          style={{ marginBottom: 16 }}
+          style={{ marginBottom: 16, display: 'none' }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.5, delay: 0.3 }}
@@ -1155,6 +1196,7 @@ function OperatorPanel({ onLogout }) {
                 style={{ position: "relative" }}
               >
                 <Webcam
+                  key={`webcam-${sessionStarted}`}
                   ref={webcamRef}
                   screenshotFormat="image/png"
                   audio={false}
@@ -1206,7 +1248,7 @@ function OperatorPanel({ onLogout }) {
               </div>
 
               {/* Preset metadata chips */}
-              <div className="preset-summary">
+              <div className="preset-summary" style={{ display: 'none' }}>
                 <div>
                   <span>Product</span>
                   <strong>
@@ -1232,135 +1274,121 @@ function OperatorPanel({ onLogout }) {
               {/* Error notice */}
               {error && <div className="notice notice--error">{error}</div>}
 
-              {/* Auto-detect / controls bar */}
-              <div
-                className="auto-detect-panel"
-                style={{
-                  display: "flex",
-                  gap: 12,
-                  alignItems: "center",
-                  flexWrap: "wrap",
-                }}
-              >
-                <div style={{ flex: 1 }}>
-                  <span>Auto-detect</span>
-                  <strong>{motionStatus}</strong>
-                </div>
-                <div className="countdown-badge">{countdownSeconds}s</div>
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 6,
-                    alignItems: "flex-end",
-                  }}
-                >
-                  <div style={{ fontSize: 12 }}>Session</div>
-                  <strong style={{ fontSize: 12 }}>
-                    {sessionStarted ? sessionId : "Stopped"}
-                  </strong>
-                  <strong
-                    style={{
-                      fontSize: 11,
-                      textTransform: "uppercase",
-                      color:
-                        streamStatus === "connected" ? "#16a34a" : "#b45309",
-                    }}
-                  >
-                    Stream: {streamStatus}
-                  </strong>
-                </div>
-                <button
-                  className="ghost-button"
-                  onClick={toggleSession}
-                  type="button"
-                >
-                  {sessionStarted ? "Stop Session" : "Start Session"}
-                </button>
-                <button
-                  className="ghost-button"
-                  onClick={() => {
-                    const next = !autoDetectEnabled;
-                    setAutoDetectEnabled(next);
-                    stableSinceRef.current = null;
-                    setCountdownMs(null);
-                    setMotionStatus(
-                      next ? "Waiting for stable frame" : "Auto-detect paused",
-                    );
-                  }}
-                  type="button"
-                >
-                  {autoDetectEnabled ? "Pause" : "Resume"}
-                </button>
+              {/* Capture & Detect button */}
+              <div style={{ display: "flex", gap: 12, flexShrink: 0 }}>
                 <button
                   className="primary-button"
                   onClick={() => void handleDetect("manual")}
                   disabled={loading || reviewPending}
                   type="button"
+                  style={{ flex: 1 }}
                 >
                   {loading ? "Capturing..." : "Capture & Detect"}
                 </button>
               </div>
             </div>
 
-            {/* ── Right: result card ── */}
-            <div className="section-card section-card--result">
+            {/* ── Right: inspection info ── */}
+            <div className="section-card section-card--inspection">
               <div className="section-heading">
-                <p className="eyebrow">Detection result</p>
-                <h2>Latest AI output</h2>
+                <p className="eyebrow">Inspection info</p>
+                <h2>Product & Model Details</h2>
               </div>
 
-              {detectionResult ? (
-                <div className="result-card">
-                  <div className="result-card__status">
-                    {detectionResult.system_decision ||
-                      detectionResult.error ||
-                      "Ready"}
-                  </div>
-                  <dl>
-                    <div>
-                      <dt>Confidence</dt>
-                      <dd>
-                        {`${((detectionResult.confidence || 0) * 100).toFixed(1)}%`}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Latency</dt>
-                      <dd>{`${detectionResult.latency_ms || 0} ms`}</dd>
-                    </div>
-                    <div>
-                      <dt>Detections</dt>
-                      <dd>{detectionResult.num_detections || 0}</dd>
-                    </div>
-                    <div>
-                      <dt>Cache</dt>
-                      <dd>{detectionResult.cache_hit ? "Hit" : "Miss"}</dd>
-                    </div>
-                  </dl>
-                  <div className="detection-list">
-                    {(detectionResult.detections || []).map(
-                      (detection, index) => (
-                        <div
-                          className={`detection-row detection-row--${(detection.label || "unknown").toLowerCase()}`}
-                          key={`${detection.class_id}-${index}`}
-                        >
-                          <strong>
-                            {detection.label || detection.class_name}
-                          </strong>
-                          <span>{`${((detection.confidence || 0) * 100).toFixed(1)}%`}</span>
-                          <span>
-                            {detection.mask?.polygon?.length ? "Mask" : "Box"}
-                          </span>
-                        </div>
-                      ),
-                    )}
+              <div className="inspection-info-panel">
+                {/* Stream Status */}
+                <div className="info-group">
+                  <div className="info-label">Stream</div>
+                  <div className="info-status">
+                    <span className={`status-badge status-${streamStatus}`}>
+                      {streamStatus.toUpperCase()}
+                    </span>
                   </div>
                 </div>
-              ) : (
-                <div className="empty-state">
-                  Capture a frame to view the result here.
+
+                {/* Auto-detect */}
+                <div className="info-group">
+                  <div className="info-label">Auto-detect</div>
+                  <div className="info-value">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={autoDetectEnabled}
+                        onChange={(e) => {
+                          const next = e.target.checked;
+                          setAutoDetectEnabled(next);
+                          stableSinceRef.current = null;
+                          setCountdownMs(null);
+                          setMotionStatus(
+                            next ? "Waiting for stable frame" : "Auto-detect paused",
+                          );
+                        }}
+                      />
+                      {motionStatus}
+                    </label>
+                  </div>
                 </div>
-              )}
+
+                {/* Batch Status */}
+                <div className="info-group">
+                  <div className="info-label">Batch</div>
+                  <div className="info-batch">
+                    <div className="batch-status">
+                      {sessionStarted ? `Batch 1: ${autoDetectEnabled ? "Running" : "Paused"}` : "Batch 1: Stopped"}
+                    </div>
+                    <div className="batch-controls">
+                      <button
+                        className="batch-button"
+                        onClick={toggleSession}
+                        type="button"
+                      >
+                        {sessionStarted ? "Stop" : "Start Batch"}
+                      </button>
+                      <button
+                        className="batch-button"
+                        onClick={() => {
+                          const next = !autoDetectEnabled;
+                          setAutoDetectEnabled(next);
+                          stableSinceRef.current = null;
+                          setCountdownMs(null);
+                          setMotionStatus(
+                            next ? "Waiting for stable frame" : "Auto-detect paused",
+                          );
+                        }}
+                        type="button"
+                      >
+                        {autoDetectEnabled ? "Pause" : "Resume"}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Product */}
+                <div className="info-group">
+                  <div className="info-label">Product</div>
+                  <div className="info-value">
+                    {preset?.product_name || preset?.component_name || "—"}
+                  </div>
+                </div>
+
+                {/* Model */}
+                <div className="info-group">
+                  <div className="info-label">Model</div>
+                  <div className="info-value">
+                    {preset?.model_name || "—"}
+                  </div>
+                </div>
+
+                {/* Confidence */}
+                <div className="info-group">
+                  <div className="info-label">Confidence</div>
+                  <div className="info-value">
+                    {preset?.confidence_threshold !== undefined
+                      ? `${Number(preset.confidence_threshold * 100).toFixed(0)}%`
+                      : "—"}
+                  </div>
+                </div>
+              </div>
             </div>
           </section>
         )}
@@ -1796,7 +1824,91 @@ function OperatorPanel({ onLogout }) {
           </div>
         )}
 
+        {/* ════════════════════════════════════════════════
+            SESSION HISTORY MODAL
+        ════════════════════════════════════════════════ */}
+        {showSessionHistory && sessionCompletedLogs.length > 0 && (
+          <div className="review-modal" role="dialog" aria-modal="true">
+            <div className="review-modal__panel" style={{ maxHeight: "80vh", overflowY: "auto" }}>
+              <div className="section-heading">
+                <p className="eyebrow">Batch completed</p>
+                <h2>Session History</h2>
+              </div>
+
+              <div style={{ marginBottom: "16px", fontSize: "0.9rem", color: "#666" }}>
+                <p>Total detections: <strong>{sessionCompletedLogs.length}</strong></p>
+                <p style={{ marginTop: "8px" }}>
+                  Auto-approved: <strong>{sessionCompletedLogs.filter(log => !log.operator_override && (log.final_decision || log.system_decision)).length}</strong>
+                </p>
+                <p style={{ marginTop: "8px" }}>
+                  Operator reviewed: <strong>{sessionCompletedLogs.filter(log => log.operator_override).length}</strong>
+                </p>
+              </div>
+
+              <div style={{ maxHeight: "500px", overflowY: "auto", marginBottom: "16px", border: "1px solid #e0e0e0", borderRadius: "4px" }}>
+                {sessionCompletedLogs.map((log) => (
+                  <div
+                    key={log.id}
+                    className={`log-item log-item--${(log.final_decision || log.system_decision || "").toLowerCase()}`}
+                    style={{
+                      padding: "12px",
+                      borderBottom: "1px solid #f0f0f0",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                      <span style={{ fontSize: "0.85rem", color: "#999" }}>
+                        {new Date(log.timestamp).toLocaleTimeString()}
+                      </span>
+                      <span
+                        style={{
+                          padding: "4px 8px",
+                          borderRadius: "3px",
+                          fontSize: "0.75rem",
+                          fontWeight: "bold",
+                          backgroundColor:
+                            (log.final_decision || log.system_decision) === "PASS"
+                              ? "#d4edda"
+                              : "#f8d7da",
+                          color:
+                            (log.final_decision || log.system_decision) === "PASS"
+                              ? "#155724"
+                              : "#721c24",
+                        }}
+                      >
+                        {log.final_decision || log.system_decision || "—"}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: "0.9rem", marginBottom: "6px" }}>
+                      <strong>Confidence:</strong> {(Number(log.confidence_score || 0) * 100).toFixed(1)}%
+                    </div>
+                    {log.operator_override && (
+                      <div style={{ fontSize: "0.85rem", color: "#d97706", marginBottom: "6px" }}>
+                        <strong>✎ Operator override</strong>
+                      </div>
+                    )}
+                    {log.operator_comment && (
+                      <div style={{ fontSize: "0.85rem", color: "#666", fontStyle: "italic" }}>
+                        "{log.operator_comment}"
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <button
+                className="primary-button"
+                onClick={() => setShowSessionHistory(false)}
+                type="button"
+              >
+                Close History
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Zoom Modal */}
+
         {zoomedImage && (
           <div
             style={{

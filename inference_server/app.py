@@ -11,6 +11,7 @@ from typing import Any
 import cv2
 import django
 import numpy as np
+from asgiref.sync import sync_to_async
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 from PIL import Image
@@ -270,32 +271,37 @@ class ModelRegistry:
         self._models: dict[str, EMSDWrapper] = {}
         self._model_order: list[str] = []
 
-    def _weights_for(self, model_name: str) -> str:
-        model = AIModel.objects.filter(name=model_name).order_by("-is_active", "-created_at").first()
-        if model:
-            file_field = model.file_path_pt or model.file_path_onnx or model.file_path_engine
-            if file_field:
-                storage_path = Path(settings.MEDIA_ROOT) / file_field.name
-                if storage_path.exists():
-                    return str(storage_path)
+    async def _weights_for(self, model_name: str) -> str:
+        # Use sync_to_async to safely query the database from async context
+        @sync_to_async
+        def get_model_weights():
+            model = AIModel.objects.filter(name=model_name).order_by("-is_active", "-created_at").first()
+            if model:
+                file_field = model.file_path_pt or model.file_path_onnx or model.file_path_engine
+                if file_field:
+                    storage_path = Path(settings.MEDIA_ROOT) / file_field.name
+                    if storage_path.exists():
+                        return str(storage_path)
 
-                repo_weights_path = Path(settings.BASE_DIR) / "models" / "weights" / Path(file_field.name).name
-                if repo_weights_path.exists():
-                    return str(repo_weights_path)
+                    repo_weights_path = Path(settings.BASE_DIR) / "models" / "weights" / Path(file_field.name).name
+                    if repo_weights_path.exists():
+                        return str(repo_weights_path)
 
-        default_path = getattr(settings, "INFERENCE_DEFAULT_WEIGHTS", "")
-        if default_path:
-            return str(default_path)
-        return str(Path(settings.BASE_DIR) / "models" / "weights" / "tpcyolov26nv21gs_emsd.pt")
+            default_path = getattr(settings, "INFERENCE_DEFAULT_WEIGHTS", "")
+            if default_path:
+                return str(default_path)
+            return str(Path(settings.BASE_DIR) / "models" / "weights" / "tpcyolov26nv21gs_emsd.pt")
 
-    def get(self, model_name: str) -> EMSDWrapper:
+        return await get_model_weights()
+
+    async def get(self, model_name: str) -> EMSDWrapper:
         if model_name in self._models:
             if model_name in self._model_order:
                 self._model_order.remove(model_name)
             self._model_order.append(model_name)
             return self._models[model_name]
 
-        weights_path = self._weights_for(model_name)
+        weights_path = await self._weights_for(model_name)
         if not os.path.exists(weights_path):
             raise FileNotFoundError(f"Model weights not found: {weights_path}")
 
@@ -340,7 +346,8 @@ async def predict(
 
     try:
         pil_image = await run_in_threadpool(_load_image, image_bytes)
-        result = await run_in_threadpool(registry.get(model_name).predict, pil_image, confidence, iou)
+        model_wrapper = await registry.get(model_name)
+        result = await run_in_threadpool(model_wrapper.predict, pil_image, confidence, iou)
 
         if result.get("success"):
             frame_rgb = np.array(pil_image)
