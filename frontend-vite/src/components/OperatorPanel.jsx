@@ -1106,8 +1106,6 @@ function OperatorPanel({ onLogout }) {
   };
 
   /* ── Derived ─────────────────────────────────────────────────── */
-  const countdownSeconds =
-    countdownMs === null ? "--" : String(Math.ceil(countdownMs / 1000));
   const filteredLogs = sessionFilter
     ? logs.filter((l) => l.session_id === sessionFilter)
     : logs;
