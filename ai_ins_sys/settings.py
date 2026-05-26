@@ -80,10 +80,28 @@ CORS_ALLOWED_ORIGINS = [
     "http://127.0.0.1:3000",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://10.0.2.132:5173",
+    "https://172.21.16.1:5173"
 ]
 
 # For testing only (disable in production)
 # CORS_ALLOW_ALL_ORIGINS = True
+
+# ✅ CSRF Trusted Origins for Form Submissions
+CSRF_TRUSTED_ORIGINS = [
+    "http://10.0.2.132",
+    "https://10.0.2.132:5173",
+    "https://172.21.16.1",
+    "https://172.21.16.1:5173",
+    "http://localhost",
+    "https://localhost",
+    "http://127.0.0.1",
+    "https://127.0.0.1",
+    "http://localhost:5173",
+    "https://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://127.0.0.1:5173",
+]
 
 # ✅ Root URL configuration
 ROOT_URLCONF = 'ai_ins_sys.urls'
