@@ -11,8 +11,9 @@ import cv2
 import django
 import numpy as np
 from asgiref.sync import sync_to_async
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Request
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 from PIL import Image
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -30,7 +31,9 @@ except Exception:  # pragma: no cover - lets /health report dependency state.
     YOLO = None
 
 logger = logging.getLogger(__name__)
-app = Flask(__name__)
+app = FastAPI(title="EMSD YOLO26 Inference", version="1.0.0")
+
+MODEL_CACHE_SIZE = 3  # LRU cache limit for loaded models
 
 
 class EMSDWrapper:
@@ -128,6 +131,7 @@ class EMSDWrapper:
 class ModelRegistry:
     def __init__(self) -> None:
         self._models: dict[str, EMSDWrapper] = {}
+        self._model_order: list[str] = []
 
     async def _weights_for(self, model_name: str) -> str:
         # Use sync_to_async to safely query the database from async context
@@ -176,32 +180,68 @@ class ModelRegistry:
 registry = ModelRegistry()
 
 
+def _load_image(image_bytes: bytes) -> Image.Image:
+    """Load PIL Image from bytes."""
+    return Image.open(io.BytesIO(image_bytes))
+
+
+def _overlay_mask_and_detections(
+    frame: np.ndarray, mask: Any, detections: list[dict[str, Any]]
+) -> np.ndarray:
+    """Draw bounding boxes and masks on the frame."""
+    annotated = frame.copy()
+    for detection in detections:
+        bbox = detection.get("bbox", [])
+        if bbox:
+            x1, y1, x2, y2 = [int(v) for v in bbox]
+            cv2.rectangle(annotated, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        
+        mask_data = detection.get("mask", {})
+        polygon = mask_data.get("polygon", [])
+        if polygon:
+            pts = np.array(polygon, np.int32)
+            cv2.polylines(annotated, [pts], True, (0, 255, 0), 2)
+    
+    return annotated
+
+
+def _encode_annotated_image(frame: np.ndarray) -> str:
+    """Encode annotated frame to base64."""
+    success, buffer = cv2.imencode(".png", frame)
+    if not success:
+        return ""
+    return base64.b64encode(buffer).decode("utf-8")
+
+
 @app.get("/health")
-def health() -> tuple[Any, int]:
-    return jsonify(
+async def health() -> JSONResponse:
+    return JSONResponse(
         {
             "status": "ok" if YOLO is not None else "degraded",
             "service": "emsd-yolo26-inference",
             "loaded_models": list(registry._models.keys()),
             "ultralytics_available": YOLO is not None,
-        }
-    ), 200 if YOLO is not None else 503
+        },
+        status_code=200 if YOLO is not None else 503,
+    )
 
 
 @app.post("/predict")
-def predict() -> tuple[Any, int]:
+async def predict(request: Request) -> JSONResponse:
     if YOLO is None:
-        return jsonify({"success": False, "error": "ultralytics unavailable"}), 503
-
-    image_file = request.files.get("image")
-    if image_file is None:
-        return jsonify({"success": False, "error": "image file is required"}), 400
-
-    model_name = request.form.get("model_name") or "yolo26_emsd_v1"
-    confidence = float(request.form.get("confidence", 0.5))
-    iou = float(request.form.get("iou", 0.45))
+        return JSONResponse({"success": False, "error": "ultralytics unavailable"}, status_code=503)
 
     try:
+        form = await request.form()
+        image_file = form.get("image")
+        if image_file is None:
+            return JSONResponse({"success": False, "error": "image file is required"}, status_code=400)
+
+        image_bytes = await image_file.read()
+        model_name = form.get("model_name", "yolo26_emsd_v1")
+        confidence = float(form.get("confidence", 0.5))
+        iou = float(form.get("iou", 0.45))
+
         pil_image = await run_in_threadpool(_load_image, image_bytes)
         model_wrapper = await registry.get(model_name)
         result = await run_in_threadpool(model_wrapper.predict, pil_image, confidence, iou)
@@ -225,13 +265,15 @@ def predict() -> tuple[Any, int]:
         return JSONResponse(result, status_code=200)
     except FileNotFoundError as exc:
         logger.exception("Model weights unavailable")
-        return jsonify({"success": False, "error": str(exc)}), 503
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=503)
     except Exception as exc:
         logger.exception("Prediction failed")
-        return jsonify({"success": False, "error": str(exc)}), 500
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=500)
 
 
 if __name__ == "__main__":
+    import uvicorn
+
     host = os.getenv("INFERENCE_SERVER_HOST", "127.0.0.1")
     port = int(os.getenv("INFERENCE_SERVER_PORT", "8091"))
-    app.run(host=host, port=port)
+    uvicorn.run(app, host=host, port=port)
