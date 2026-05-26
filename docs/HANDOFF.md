@@ -2,7 +2,7 @@
 
 **Date:** May 26, 2026  
 **Last Updated:** May 26, 2026  
-**Handoff By:** GitHub Copilot  
+**Handoff By:** Feliciano, Sean Paul C.
 **Current Branch:** `revert`  
 **Stable Release:** `stable-v1.0.0` (tag: `v1.0.0-stable`)
 
