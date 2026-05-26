@@ -75,7 +75,6 @@ function OperatorPanel({
   const [expandedLogId, setExpandedLogId] = useState(null);
   const [rawOpenMap, setRawOpenMap] = useState({});
   const [motionStatus, setMotionStatus] = useState("Waiting for camera");
-  const [countdownMs, setCountdownMs] = useState(null);
   const [reviewMode, setReviewMode] = useState("ACKNOWLEDGE");
   const [reviewDescription, setReviewDescription] = useState("");
   const [reviewFinalDecision, setReviewFinalDecision] = useState("PASS");
@@ -767,7 +766,6 @@ function OperatorPanel({
         if (!isManualCapture && detections.length === 0) {
           setDetectionResult(null);
           setCapturedFrame("");
-          setCountdownMs(null);
           setMotionStatus(
             "No change in image. Waiting for motion or manual capture.",
           );
@@ -805,7 +803,6 @@ function OperatorPanel({
               session_id: sessionId,
             });
             setMotionStatus("Auto-approved by confidence threshold");
-            setCountdownMs(null);
             await fetchLogsRef.current();
           } catch (autoApproveError) {
             console.error('Error in auto-approve:', autoApproveError);
@@ -819,7 +816,6 @@ function OperatorPanel({
           reviewPendingRef.current = true;
           setReviewPending(true);
           setMotionStatus("Review required");
-          setCountdownMs(null);
           await fetchLogsRef.current();
         }
 
@@ -927,13 +923,11 @@ function OperatorPanel({
     if (motionScore > MOTION_THRESHOLD) {
       waitForMotionAfterEmptyRef.current = false;
       stableSinceRef.current = null;
-      setCountdownMs(null);
       setMotionStatus("Motion detected");
       return;
     }
 
     if (waitForMotionAfterEmptyRef.current) {
-      setCountdownMs(null);
       setMotionStatus(
         "No change in image. Move product/camera or capture manually.",
       );
@@ -946,7 +940,6 @@ function OperatorPanel({
 
     const elapsed = now - stableSinceRef.current;
     const remaining = Math.max(0, STABLE_CAPTURE_DELAY_MS - elapsed);
-    setCountdownMs(remaining);
     setMotionStatus(
       remaining > 0 ? "Stable frame countdown" : "Capturing stable frame",
     );
@@ -1109,7 +1102,6 @@ function OperatorPanel({
       setCapturedFrame("");
       setLiveAnnotatedOverlaySrc("");
       setReviewDescription("");
-      setCountdownMs(null);
       setMotionStatus(
         autoDetectEnabled ? "Waiting for stable frame" : "Auto-detect paused",
       );
@@ -1347,7 +1339,6 @@ function OperatorPanel({
                           const next = e.target.checked;
                           setAutoDetectEnabled(next);
                           stableSinceRef.current = null;
-                          setCountdownMs(null);
                           setMotionStatus(
                             next ? "Waiting for stable frame" : "Auto-detect paused",
                           );
@@ -1379,7 +1370,6 @@ function OperatorPanel({
                           const next = !autoDetectEnabled;
                           setAutoDetectEnabled(next);
                           stableSinceRef.current = null;
-                          setCountdownMs(null);
                           setMotionStatus(
                             next ? "Waiting for stable frame" : "Auto-detect paused",
                           );
