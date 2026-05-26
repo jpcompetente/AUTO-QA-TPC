@@ -5,6 +5,12 @@ function buildWebSocketUrl(sessionId) {
   return `${origin.replace(/^http/, "ws")}/ws/webrtc/${sessionId}/`;
 }
 
+function generateSessionId() {
+  const bytes = new Uint8Array(4);
+  window.crypto.getRandomValues(bytes);
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export default function CameraSender({ sessionId: propSessionId }) {
   const videoRef = useRef(null);
   const pcRef = useRef(null);
@@ -14,7 +20,7 @@ export default function CameraSender({ sessionId: propSessionId }) {
     () =>
       propSessionId ||
       new URLSearchParams(window.location.search).get("session") ||
-      Math.random().toString(36).slice(2, 10),
+      generateSessionId(),
   );
 
   useEffect(() => {
