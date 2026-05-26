@@ -1,0 +1,10 @@
+$kind: http-request
+name: POST Activate AI Model
+method: POST
+url: '{{baseUrl}}/api/core/ai-models/{{modelId}}/activate/'
+order: 7000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'

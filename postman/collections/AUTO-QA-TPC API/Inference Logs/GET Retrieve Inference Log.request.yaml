@@ -1,0 +1,10 @@
+$kind: http-request
+name: GET Retrieve Inference Log
+method: GET
+url: '{{baseUrl}}/api/core/inference-logs/{{logId}}/'
+order: 2000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'

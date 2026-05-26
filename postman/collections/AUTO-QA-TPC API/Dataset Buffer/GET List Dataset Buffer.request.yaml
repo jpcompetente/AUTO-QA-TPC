@@ -1,0 +1,10 @@
+$kind: http-request
+name: GET List Dataset Buffer
+method: GET
+url: '{{baseUrl}}/api/core/dataset-buffer/'
+order: 1000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'

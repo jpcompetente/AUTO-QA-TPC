@@ -1,0 +1,15 @@
+$kind: http-request
+name: GET List AI Models
+method: GET
+url: '{{baseUrl}}/api/core/ai-models/'
+order: 1000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'
+queryParams:
+  - key: compatible_components
+    value: ''
+    description: Optional filter by compatible components
+    disabled: true

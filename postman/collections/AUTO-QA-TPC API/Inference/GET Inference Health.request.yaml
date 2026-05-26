@@ -1,0 +1,10 @@
+$kind: http-request
+name: GET Inference Health
+method: GET
+url: '{{baseUrl}}/api/core/inference/health/'
+order: 2000
+queryParams:
+  - key: model_name
+    value: ''
+    description: Optional model name filter
+    disabled: true

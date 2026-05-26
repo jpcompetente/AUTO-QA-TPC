@@ -1,0 +1,10 @@
+$kind: http-request
+name: GET Inference Metrics
+method: GET
+url: '{{baseUrl}}/api/core/inference/metrics/'
+order: 3000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'

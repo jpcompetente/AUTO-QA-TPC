@@ -1,0 +1,32 @@
+$kind: collection
+name: AUTO-QA-TPC API
+variables:
+  - key: baseUrl
+    value: 'http://localhost:8000'
+  - key: accessToken
+    value: ''
+  - key: refreshToken
+    value: ''
+  - key: username
+    value: 'admin'
+  - key: password
+    value: ''
+  - key: modelId
+    value: '1'
+  - key: componentId
+    value: '1'
+  - key: configId
+    value: '1'
+  - key: logId
+    value: '1'
+  - key: queueId
+    value: '1'
+  - key: jobId
+    value: '1'
+  - key: bufferId
+    value: '1'
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'

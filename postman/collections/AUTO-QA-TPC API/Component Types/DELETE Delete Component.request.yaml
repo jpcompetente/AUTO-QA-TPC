@@ -1,0 +1,10 @@
+$kind: http-request
+name: DELETE Delete Component
+method: DELETE
+url: '{{baseUrl}}/api/core/components/{{componentId}}/'
+order: 6000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'

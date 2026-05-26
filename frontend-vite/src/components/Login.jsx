@@ -119,12 +119,6 @@ function Login({ onLogin }) {
         >
           <motion.div
             className="auth-brand__mark"
-            animate={{ rotate: 360 }}
-            transition={{
-              duration: 20,
-              repeat: Infinity,
-              ease: "linear",
-            }}
           >
             <img src={logoMark} alt="Team Pacific Corporation" />
           </motion.div>

@@ -1,0 +1,10 @@
+$kind: http-request
+name: GET Active AI Model
+method: GET
+url: '{{baseUrl}}/api/core/ai-models/active/'
+order: 8000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'

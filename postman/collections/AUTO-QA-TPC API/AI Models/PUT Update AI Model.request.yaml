@@ -1,0 +1,27 @@
+$kind: http-request
+name: PUT Update AI Model
+method: PUT
+url: '{{baseUrl}}/api/core/ai-models/{{modelId}}/'
+order: 4000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "name": "yolo_model_v1",
+      "version": "v1",
+      "description": "YOLO defect detection model",
+      "model_format": "PT",
+      "input_size": 640,
+      "mAP": 0.85,
+      "avg_speed_ms": 25.0,
+      "is_active": false,
+      "is_deployment_ready": false
+    }

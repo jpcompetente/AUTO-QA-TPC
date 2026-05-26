@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef, useMemo } from "react";
 import { motion } from "framer-motion";
 import Webcam from "react-webcam";
 import {
@@ -163,8 +163,8 @@ function AdminDashboard({ onLogout }) {
     operator: "",
   });
   const [detectionLogsLimit, setDetectionLogsLimit] = useState(20);
-  const [logsSortField, setLogsSortField] = useState("timestamp");
-  const [logsSortOrder, setLogsSortOrder] = useState("desc");
+  const logsSortField = "timestamp";
+  const logsSortOrder = "desc";
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -205,7 +205,7 @@ function AdminDashboard({ onLogout }) {
     const sorted = [...detectionLogs];
     sorted.sort((a, b) => {
       let aVal, bVal;
-      
+
       switch (logsSortField) {
         case "operator":
           aVal = (a.operator_name || a.operator || "").toLowerCase();
@@ -232,7 +232,7 @@ function AdminDashboard({ onLogout }) {
           aVal = new Date(a.timestamp || a.created_at).getTime();
           bVal = new Date(b.timestamp || b.created_at).getTime();
       }
-      
+
       if (aVal < bVal) return logsSortOrder === "asc" ? -1 : 1;
       if (aVal > bVal) return logsSortOrder === "asc" ? 1 : -1;
       return 0;
@@ -617,41 +617,43 @@ function AdminDashboard({ onLogout }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedDetectionLogs.slice(0, detectionLogsLimit).map((log) => (
-                      <tr key={log.id}>
-                        <td
-                          style={{
-                            fontFamily: "var(--font-mono)",
-                            fontSize: "12px",
-                            color: "var(--text-3)",
-                          }}
-                        >
-                          #{log.id}
-                        </td>
-                        <td>{log.operator_name || log.operator}</td>
-                        <td>{log.component_name || log.component}</td>
-                        <td>{log.model_name || log.model_used}</td>
-                        <td>
-                          <span
-                            className={`adash__decision-badge ${decisionClass(log.final_decision || log.system_decision)}`}
+                    {sortedDetectionLogs
+                      .slice(0, detectionLogsLimit)
+                      .map((log) => (
+                        <tr key={log.id}>
+                          <td
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: "12px",
+                              color: "var(--text-3)",
+                            }}
                           >
-                            {log.final_decision || log.system_decision || "—"}
-                          </span>
-                        </td>
-                        <td>{log.status}</td>
-                        <td
-                          style={{
-                            color: "var(--text-3)",
-                            fontSize: "12px",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {new Date(
-                            log.timestamp || log.created_at,
-                          ).toLocaleString()}
-                        </td>
-                      </tr>
-                    ))}
+                            #{log.id}
+                          </td>
+                          <td>{log.operator_name || log.operator}</td>
+                          <td>{log.component_name || log.component}</td>
+                          <td>{log.model_name || log.model_used}</td>
+                          <td>
+                            <span
+                              className={`adash__decision-badge ${decisionClass(log.final_decision || log.system_decision)}`}
+                            >
+                              {log.final_decision || log.system_decision || "—"}
+                            </span>
+                          </td>
+                          <td>{log.status}</td>
+                          <td
+                            style={{
+                              color: "var(--text-3)",
+                              fontSize: "12px",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {new Date(
+                              log.timestamp || log.created_at,
+                            ).toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
                     {detectionLogs.length === 0 && (
                       <tr>
                         <td colSpan={7} className="adash__table-empty">

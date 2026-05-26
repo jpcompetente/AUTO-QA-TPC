@@ -1,0 +1,22 @@
+$kind: http-request
+name: POST Operator Override
+method: POST
+url: '{{baseUrl}}/api/core/inference-logs/{{logId}}/operator_override/'
+order: 3000
+auth:
+  type: bearer
+  credentials:
+    - key: token
+      value: '{{accessToken}}'
+headers:
+  - key: Content-Type
+    value: application/json
+body:
+  type: json
+  content: |-
+    {
+      "final_decision": "PASS",
+      "comment": "False positive - component is OK",
+      "description": "Reviewed and approved",
+      "rejection_reason": ""
+    }
