@@ -14,14 +14,14 @@ This document describes the architecture, components, and data flows of the AUTO
 
 - `ai_ins_sys/` — project settings, Celery, ASGI, WSGI and app config.
 - `core/` — application logic: models, serializers, views, tasks, connectors, and routing for channels/websockets.
-- `frontend-vite/` — React UI: components for Operator, Inspector, Admin, and Superadmin dashboards. Uses JWT-based auth and reads role claim for routing.
+- `frontend-vite/` — React UI: components for User and Admin dashboards. Uses JWT-based auth and reads role claim for routing.
 - `inference_server/` — inference entrypoint (single-file app) that can be run locally or containerized to serve model predictions.
 
 ## Authentication & Roles
 
 - JWT tokens are used for authentication; tokens include a `role` (or `groups`) claim.
 - Frontend decodes the JWT to determine which panel to show (see `App.jsx`).
-- Roles: `superadmin`, `admin`, `operator`, `inspector` (mapping normalized in `App.jsx`).
+- Roles: `admin`, `user` (mapping normalized in `App.jsx`).
 
 ## Data flow (capture → inference → log)
 
@@ -29,7 +29,7 @@ This document describes the architecture, components, and data flows of the AUTO
 2. Frontend sends the image to the backend inference endpoint (or directly to the inference server depending on configuration).
 3. The inference model returns detections and metadata (confidence, bounding boxes, segmentation masks).
 4. Backend persists the result as an InferenceLog (in `core.models`) and may enqueue background tasks (e.g., tagging, review notifications, retraining queue).
-5. Logs are visible in role-specific dashboards; Superadmin can view system-level metrics and alerts.
+5. Logs are visible in role-specific dashboards; Admins can view system-level metrics and alerts.
 
 ## Real-time & integrations
 

@@ -288,7 +288,7 @@ def can_be_used_for_mo(self, mo_session: ManufacturingOrderSession) -> bool:
 
 **Changes**:
 - Added deprecation notice at top of AdminDashboard.jsx
-- Documents migration path to SuperAdminPanel.jsx
+- Documents current admin interface and removal timeline
 - Notes removal timeline
 - Lists features needing migration
 
@@ -297,21 +297,21 @@ def can_be_used_for_mo(self, mo_session: ManufacturingOrderSession) -> bool:
 /**
  * ⚠️ DEPRECATED: AdminDashboard.jsx
  * 
- * This component is scheduled for removal. All administrative control
- * has been migrated to:
- * - SuperAdminPanel.jsx (primary admin interface)
+ * This component is scheduled for removal. Administrative control
+ * has been consolidated into:
+ * - AdminDashboard.jsx (primary admin interface)
  * - Django Admin Interface (secondary admin interface)
  * 
  * Removal Timeline: To be removed in next major release
- * Migration Path: Use SuperAdminPanel.jsx instead
+ * Migration Path: Use AdminDashboard.jsx or Django Admin instead
  */
 ```
 
 **Features to Migrate**:
-- Model management → SuperAdminPanel.jsx + Django Admin
+- Model management → AdminDashboard.jsx + Django Admin
 - Component/Product configuration → Django Admin
 - Operator preset management → Django Admin + API endpoints
-- Detection log review → SuperAdminPanel.jsx
+- Detection log review → AdminDashboard.jsx
 
 ---
 

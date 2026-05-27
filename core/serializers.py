@@ -17,13 +17,13 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @staticmethod
     def resolve_role(user):
         try:
-            return user.profile.role
+            return UserProfile.normalize_role(user.profile.role)
         except Exception:
             if getattr(user, "is_superuser", False):
-                return "SUPER_ADMIN"
+                return UserProfile.ROLE_ADMIN
             if getattr(user, "is_staff", False):
-                return "ADMIN"
-            return "OPERATOR"
+                return UserProfile.ROLE_ADMIN
+            return UserProfile.ROLE_USER
 
     @classmethod
     def get_token(cls, user):

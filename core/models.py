@@ -6,14 +6,30 @@ from django.contrib.auth.models import User
 
 # 🛡️ User Profile for RBAC
 class UserProfile(models.Model):
+    ROLE_SUPER_ADMIN = 'SUPER_ADMIN'
+    ROLE_ADMIN = 'ADMIN'
+    ROLE_INSPECTOR = 'INSPECTOR'
+    ROLE_OPERATOR = 'OPERATOR'
+    ROLE_USER = 'USER'
+
+    ROLE_MAP = {
+        ROLE_OPERATOR: ROLE_USER,
+        ROLE_INSPECTOR: ROLE_USER,
+        ROLE_SUPER_ADMIN: ROLE_ADMIN,
+    }
+
     ROLES = (
-        ('SUPER_ADMIN', 'Super Admin'),
-        ('ADMIN', 'Admin'),
-        ('OPERATOR', 'Operator'),
-        ('INSPECTOR', 'Inspector'),
+        (ROLE_ADMIN, 'Admin'),
+        (ROLE_USER, 'User'),
     )
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
-    role = models.CharField(max_length=20, choices=ROLES, default='OPERATOR')
+    role = models.CharField(max_length=20, choices=ROLES, default=ROLE_USER)
+
+    @classmethod
+    def normalize_role(cls, role):
+        if role is None:
+            return None
+        return cls.ROLE_MAP.get(role, role)
 
     def __str__(self):
         return f"{self.user.username} - {self.role}"

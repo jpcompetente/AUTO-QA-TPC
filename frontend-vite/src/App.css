@@ -1,9 +1,7 @@
 @import "./styles/shared.css";
 @import "./styles/login.css";
 @import "./styles/admin.css";
-@import "./styles/inspector.css";
 @import "./styles/operator.css";
-@import "./styles/superadmin.css";
 
 .logout-modal {
   position: fixed;
@@ -109,3 +107,4 @@
     width: 100%;
   }
 }
+

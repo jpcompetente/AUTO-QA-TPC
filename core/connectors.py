@@ -23,6 +23,8 @@ class InferenceServerClient:
         self.backoff_seconds = backoff_seconds
         self.session = requests.Session()
         self.session.trust_env = False
+        self._is_healthy = True
+        self._health_check_attempted = False
 
     def health_check(self) -> dict[str, Any]:
         response = self.session.get(

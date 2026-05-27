@@ -1,6 +1,6 @@
 # AUTO-QA TPC
 
-AUTO-QA TPC is an integrated inspection and quality-assurance platform combining a Django backend, a Vite + React frontend, and an inference service for automated visual inspection. The app includes role-based dashboards (Superadmin, Admin, Operator, Inspector), real-time metrics, and a lightweight retraining pipeline.
+AUTO-QA TPC is an integrated inspection and quality-assurance platform combining a Django backend, a Vite + React frontend, and an inference service for automated visual inspection. The app includes role-based dashboards (Admin, User), real-time metrics, and a lightweight retraining pipeline.
 
 ## Quick overview
 
@@ -61,9 +61,8 @@ pip install -r requirements.txt
 
 Default seeded users (for dev/testing):
 
-- Admin: `admin` / `admin` (admin)
-- Superadmin: `superadmin` / `superadmin` (superadmin)
-- Inspector: `inspector` / `inspector`
+- Admin: `admin` / `admin`
+- User: `operator` / `operator` (or `inspector` / `inspector`)
 
 Frontend (Vite + React):
 

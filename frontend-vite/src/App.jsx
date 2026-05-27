@@ -4,33 +4,19 @@ import { jwtDecode } from "jwt-decode";
 import { getApiStatus } from "./api/backend";
 import AdminDashboard from "./components/AdminDashboard";
 import Login from "./components/Login";
-import InspectorDashboard from "./components/InspectorDashboard";
 import OperatorPanel from "./components/OperatorPanel";
-import SuperAdminPanel from "./components/SuperAdminPanel";
 import CameraSender from "./components/CameraSender";
 import CameraReceiver from "./components/CameraReceiver";
 import "./App.css";
 
 function normalizeRole(role) {
-  if (!role) {
-    return null;
-  }
-
+  if (!role) return null;
   const normalized = role.toLowerCase().replace(/_/g, "");
 
-  // Map backend roles to frontend role identifiers
-  if (normalized === "superadmin") {
-    return "superadmin";
-  }
-  if (normalized === "admin") {
-    return "admin";
-  }
-  if (normalized === "operator") {
-    return "operator";
-  }
-  if (normalized === "inspector") {
-    return "inspector";
-  }
+  if (normalized === "admin") return "admin";
+  if (normalized === "superadmin") return "admin";
+  if (normalized === "operator") return "user";
+  if (normalized === "inspector") return "user";
 
   return normalized;
 }
@@ -157,34 +143,25 @@ function App() {
     return <Login onLogin={handleLogin} apiMessage={apiMessage} />;
   }
 
-  // eslint-disable-next-line no-useless-assignment
-  let activeView = null;
-
   if (role === "admin") {
-    activeView = <AdminDashboard onLogout={requestLogout} role={role} />;
-  } else if (role === "superadmin") {
-    activeView = (
-      <SuperAdminPanel onLogout={requestLogout} username={username} />
-    );
-  } else if (appMode === "relay-sender") {
-    activeView = <CameraSender />;
-  } else if (appMode === "relay-receiver") {
-    activeView = <CameraReceiver />;
-  } else if (role === "operator") {
-    activeView = (
+    return <AdminDashboard onLogout={requestLogout} role={role} />;
+  }
+
+  if (appMode === "relay-sender") {
+    return <CameraSender />;
+  }
+
+  if (appMode === "relay-receiver") {
+    return <CameraReceiver />;
+  }
+
+  return (
+    <>
       <OperatorPanel
         onLogout={requestLogout}
         username={username}
         cameraOnly={appMode === "camera"}
       />
-    );
-  } else {
-    activeView = <InspectorDashboard onLogout={requestLogout} />;
-  }
-
-  return (
-    <>
-      {activeView}
       <AnimatePresence>
         {logoutOpen ? (
           <motion.div

@@ -35,29 +35,52 @@ from .inference_services import InferenceFactory, orchestrator
 logger = logging.getLogger(__name__)
 
 
+def normalize_role(role):
+    if role is None:
+        return ''
+    return UserProfile.normalize_role(role)
+
+
 def user_role(user):
     try:
-        return user.profile.role
+        return normalize_role(user.profile.role)
     except Exception:
         return ''
 
 
-class IsAdminOrSuperAdmin(permissions.BasePermission):
+class IsUser(permissions.BasePermission):
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
             return False
-        return user_role(request.user) in ('ADMIN', 'SUPER_ADMIN') or request.user.is_staff
+        return user_role(request.user) == UserProfile.ROLE_USER
+
+
+class IsAdmin(permissions.BasePermission):
+    def has_permission(self, request, view):
+        if not request.user or not request.user.is_authenticated:
+            return False
+        return user_role(request.user) == UserProfile.ROLE_ADMIN
 
 
 class IsAdminOrReadOnlyAuthenticated(permissions.BasePermission):
-    """Allow safe methods for any authenticated user; restrict unsafe methods to admins/superadmins."""
+    """Allow safe/read-only methods for any authenticated user, but require
+    admin role for modifying requests (POST/PUT/PATCH/DELETE).
+    """
+    def has_permission(self, request, view):
+        # Allow safe methods for any authenticated user
+        if request.method in permissions.SAFE_METHODS:
+            return bool(request.user and request.user.is_authenticated)
 
+        # For non-safe methods, require admin role
+        return IsAdmin().has_permission(request, view)
+
+
+class IsAdminOnly(permissions.BasePermission):
+    """Allow access for admin role only."""
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
             return False
-        if request.method in permissions.SAFE_METHODS:
-            return True
-        return user_role(request.user) in ('ADMIN', 'SUPER_ADMIN') or request.user.is_staff
+        return user_role(request.user) == UserProfile.ROLE_ADMIN
 
 # 🔑 Custom JWT View
 class CustomTokenObtainPairView(TokenObtainPairView):
@@ -179,7 +202,7 @@ def operator_performance(request):
     Performance metrics per operator
     Returns: Accuracy, FRR, inspection count per operator
     """
-    operators = User.objects.filter(profile__role='OPERATOR')
+    operators = User.objects.filter(profile__role='USER')
     
     results = []
     for operator in operators:
@@ -253,8 +276,8 @@ def detect_image(request):
     """
     Real-time inference endpoint.
     Accepts multipart PNG/JPEG frames or the legacy base64 data URL payload.
-    Only OPERATOR, ADMIN, and SUPER_ADMIN roles can run detections.
-    INSPECTOR role is view-only and cannot run detections.
+    Authenticated USER and ADMIN accounts may access inference.
+    USER accounts require an active preset to run detections.
     """
     try:
         # Require authentication for running detections
@@ -262,13 +285,8 @@ def detect_image(request):
             return Response({'error': 'Authentication required'}, status=401)
 
         role_val = user_role(request.user)
-        if role_val == 'INSPECTOR':
-            return Response(
-                {'error': 'Inspector accounts are view-only and cannot run detections'},
-                status=403,
-            )
         operator_config = None
-        if role_val == 'OPERATOR':
+        if role_val == 'USER':
             operator_config = ActiveConfiguration.objects.filter(
                 operator=request.user,
                 is_active=True,
@@ -309,7 +327,7 @@ def detect_image(request):
             return Response({"error": "Empty image received"}, status=400)
 
         operator = request.user if request.user and request.user.is_authenticated else None
-        active_preset = operator_config if role_val == 'OPERATOR' else None
+        active_preset = operator_config if role_val == 'USER' else None
 
         model = active_preset.model if active_preset else None
         model_id = request.data.get('model') or request.data.get('model_id')
@@ -508,7 +526,7 @@ class ComponentTypeViewSet(viewsets.ModelViewSet):
 class AdminSettingsViewSet(viewsets.ModelViewSet):
     queryset = ActiveConfiguration.objects.all().order_by('-updated_at', '-id')
     serializer_class = ActiveConfigurationSerializer
-    permission_classes = [IsAdminOrSuperAdmin]
+    permission_classes = [IsAdminOnly]
 
     def perform_create(self, serializer):
         serializer.save(created_by=self.request.user)
@@ -802,6 +820,6 @@ class DatasetBufferViewSet(viewsets.ReadOnlyModelViewSet):
 
 
 class OperatorViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = User.objects.filter(profile__role='OPERATOR').order_by('username')
+    queryset = User.objects.filter(profile__role='USER').order_by('username')
     serializer_class = OperatorSerializer
-    permission_classes = [IsAdminOrSuperAdmin]
+    permission_classes = [IsAdminOnly]

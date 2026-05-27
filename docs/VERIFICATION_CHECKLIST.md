@@ -96,7 +96,7 @@
 
 ### AdminDashboard.jsx Deprecation
 - [x] Deprecation notice added to file
-- [x] Notes migration path to SuperAdminPanel.jsx
+- [x] Notes current admin interface and removal timeline
 - [x] Documents removal timeline (next major release)
 - [x] Lists features needing migration
 - [x] App.jsx updated with deprecation comment
@@ -112,7 +112,7 @@
 - [x] Token extracted from query_string or subprotocols
 - [x] AccessToken validation checks user_id and is_active
 - [x] get_queryset() filters by role (operators see own data only)
-- [x] Admins/SuperAdmins can see all logs
+- [x] Admins can see all logs
 - [x] Role-based access enforcement in views
 - [x] jwt_security.md documentation created
 
@@ -352,8 +352,8 @@
 - [x] Role-based access control implemented
 - [x] Operators isolated to own data
 - [x] Admins can see assigned groups
-- [x] SuperAdmins can see all data
-- [x] Inspectors restricted to view-only
+- [x] Admins can see all data
+- [x] Legacy inspector accounts are treated as USER role
 
 ### Data Protection
 - [x] Sensitive fields not exposed in responses

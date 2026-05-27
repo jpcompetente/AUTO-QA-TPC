@@ -27,6 +27,7 @@ from .models import (
     ComponentType,
     InferenceLog,
     TrainingJob,
+    UserProfile,
 )
 
 logger = logging.getLogger(__name__)
@@ -102,13 +103,13 @@ def _render_annotated_png_b64(image_bytes, detections):
 
 def _role_for_user(user):
     try:
-        return user.profile.role
+        return UserProfile.normalize_role(user.profile.role)
     except Exception:
         if getattr(user, "is_superuser", False):
-            return "SUPER_ADMIN"
+            return UserProfile.ROLE_ADMIN
         if getattr(user, "is_staff", False):
-            return "ADMIN"
-        return "OPERATOR"
+            return UserProfile.ROLE_ADMIN
+        return UserProfile.ROLE_USER
 
 
 class LiveViewConsumer(AsyncWebsocketConsumer):
@@ -178,7 +179,7 @@ class InferenceStreamConsumer(AsyncWebsocketConsumer):
             return
 
         role = await self._user_role()
-        if role == "INSPECTOR":
+        if role not in (UserProfile.ROLE_USER, UserProfile.ROLE_ADMIN):
             await self.close(code=4403)
             return
 
@@ -294,7 +295,7 @@ class InferenceStreamConsumer(AsyncWebsocketConsumer):
             role_val = _role_for_user(self.user)
             operator_config = None
 
-            if role_val == "OPERATOR":
+            if role_val == UserProfile.ROLE_USER:
                 operator_config = (
                     ActiveConfiguration.objects.filter(operator=self.user, is_active=True)
                     .select_related("product", "model", "operator")
@@ -365,7 +366,7 @@ class InferenceStreamConsumer(AsyncWebsocketConsumer):
 
             filename = str(payload.get("filename") or f"frame-{timezone.now().timestamp()}.png")
 
-            active_preset = operator_config if role_val == "OPERATOR" else None
+            active_preset = operator_config if role_val == UserProfile.ROLE_USER else None
             model = active_preset.model if active_preset else None
             model_id = payload.get("model") or payload.get("model_id")
             if model is None and model_id:
