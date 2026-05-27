@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import Webcam from "react-webcam";
 import {
   buildInferenceStreamUrl,
+  autoApproveInferenceLog,
   detectImage,
   getDetectionLogs,
   getOperatorPreset,
@@ -63,7 +64,7 @@ function OperatorPanel({
 
   /* state */
   const [preset, setPreset] = useState(null);
-  const [logs, setLogs] = useState([]);
+  const [, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [detectionResult, setDetectionResult] = useState(null);
@@ -71,9 +72,7 @@ function OperatorPanel({
   const [autoDetectEnabled, setAutoDetectEnabled] = useState(true);
   const [sessionStarted, setSessionStarted] = useState(false);
   const [sessionId, setSessionId] = useState("");
-  const [sessionFilter, setSessionFilter] = useState("");
-  const [expandedLogId, setExpandedLogId] = useState(null);
-  const [rawOpenMap, setRawOpenMap] = useState({});
+  const [sessionFilter] = useState("");
   const [motionStatus, setMotionStatus] = useState("Waiting for camera");
   const [reviewMode, setReviewMode] = useState("ACKNOWLEDGE");
   const [reviewDescription, setReviewDescription] = useState("");
@@ -81,14 +80,21 @@ function OperatorPanel({
   const [reviewRejectionReason, setReviewRejectionReason] =
     useState("MISSED_DEFECT");
   const [submittingReview, setSubmittingReview] = useState(false);
-  const [reviewPending, setReviewPending] = useState(false);
-  const [activePanel, setActivePanel] = useState("camera");
+  const [, setReviewPending] = useState(false);
   const [zoomedImage, setZoomedImage] = useState(null);
-  const [logsLimit, setLogsLimit] = useState(20);
   const [streamStatus, setStreamStatus] = useState("disconnected");
   const [liveAnnotatedOverlaySrc, setLiveAnnotatedOverlaySrc] = useState("");
   const [sessionCompletedLogs, setSessionCompletedLogs] = useState([]);
   const [showSessionHistory, setShowSessionHistory] = useState(false);
+  const [notification, setNotification] = useState(null);
+
+  useEffect(() => {
+    // Auto-dismiss notification after 4 seconds
+    if (notification) {
+      const timer = window.setTimeout(() => setNotification(null), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [notification]);
 
   useEffect(() => {
     sessionFilterRef.current = sessionFilter;
@@ -97,12 +103,6 @@ function OperatorPanel({
 
   // Ensure camera-only mode shows the camera panel without causing
   // a synchronous setState inside an effect (avoids cascading renders).
-  useEffect(() => {
-    if (!cameraOnly) return undefined;
-    const id = window.setTimeout(() => setActivePanel("camera"), 0);
-    return () => window.clearTimeout(id);
-  }, [cameraOnly]);
-
   /* ── Helpers ─────────────────────────────────────────────────── */
   const normalizeList = useCallback(
     (payload) => payload?.results || payload || [],
@@ -367,76 +367,6 @@ function OperatorPanel({
     },
     [capturedFrame],
   );
-
-  const drawLogOverlay = useCallback((logId, detections = []) => {
-    const image = document.getElementById(`log-image-${logId}`);
-    const canvas = document.getElementById(`log-overlay-${logId}`);
-    if (!image || !canvas) return;
-
-    const cW = image.clientWidth || 1;
-    const cH = image.clientHeight || 1;
-    const sW = image.naturalWidth || cW;
-    const sH = image.naturalHeight || cH;
-    canvas.width = cW;
-    canvas.height = cH;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.clearRect(0, 0, cW, cH);
-
-    const sRatio = sW / sH;
-    const dRatio = cW / cH;
-    const rW = dRatio > sRatio ? cH * sRatio : cW;
-    const rH = dRatio > sRatio ? cH : cW / sRatio;
-    const ox = (cW - rW) / 2;
-    const oy = (cH - rH) / 2;
-    const sx = rW / sW;
-    const sy = rH / sH;
-
-    (detections || []).forEach((det) => {
-      const [x1, y1, x2, y2] = det.bbox || [];
-      const isDefect = det.label === "SCRATCH" || det.label === "DEFECT";
-      const stroke = isDefect ? "#ef4444" : "#22c55e";
-      const fill = isDefect ? "rgba(239,68,68,.35)" : "rgba(34,197,94,.16)";
-      const polygon = det.mask?.polygon || [];
-
-      if (polygon.length > 2) {
-        ctx.beginPath();
-        polygon.forEach(([x, y], i) => {
-          const px = ox + x * sx;
-          const py = oy + y * sy;
-          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-        });
-        ctx.closePath();
-        ctx.fillStyle = fill;
-        ctx.fill();
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = stroke;
-        ctx.stroke();
-      }
-
-      if ([x1, y1, x2, y2].every(Number.isFinite)) {
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = stroke;
-        ctx.strokeRect(
-          ox + x1 * sx,
-          oy + y1 * sy,
-          (x2 - x1) * sx,
-          (y2 - y1) * sy,
-        );
-      }
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!expandedLogId) return;
-    const entry = logs.find((l) => l.id === expandedLogId);
-    if (!entry) return;
-    window.setTimeout(
-      () => drawLogOverlay(entry.id, entry.detection_results?.detections || []),
-      0,
-    );
-  }, [expandedLogId, logs, drawLogOverlay]);
 
   useEffect(() => {
     drawOverlay(detectionResult);
@@ -778,45 +708,65 @@ function OperatorPanel({
         // Store captured frame for future change verification
         lastCapturedFrameRef.current = imageSrc;
 
-        setDetectionResult(result);
-        setReviewMode("ACKNOWLEDGE");
-        const autoDescription = autoAnnotateDetection(result);
-        setReviewDescription(autoDescription);
-        setReviewFinalDecision(result.system_decision || "PASS");
-        setReviewRejectionReason("MISSED_DEFECT");
-
-        // Check if confidence meets the threshold for auto-approval
-        const confidence = Number(result.confidence || 0);
-        const threshold = preset?.confidence_threshold ?? 0.5;
-        
-        if (confidence >= threshold) {
-          // Auto-approve: confidence meets or exceeds threshold
-          console.log(
-            `[AUTO-APPROVE] Confidence ${confidence.toFixed(3)} >= Threshold ${threshold.toFixed(3)}`
-          );
-          // Automatically save the log with this decision
-          try {
-            await detectImage({
-              operator_override: false,
-              final_decision: result.system_decision || "PASS",
-              operator_comment: `Auto-approved (confidence ${(confidence * 100).toFixed(1)}% meets threshold)`,
-              session_id: sessionId,
+        // Attempt backend-driven confidence-based auto-approval
+        // If confidence >= threshold on backend, will auto-approve
+        // If confidence < threshold, backend returns indication for manual review
+        try {
+          const logId = result.log_id || result.id;
+          const autoApproveResponse = await autoApproveInferenceLog(logId);
+          
+          const approvalStatus = autoApproveResponse.data.status;
+          
+          if (approvalStatus === 'auto_approved') {
+            // Backend auto-approved
+            console.log('[Auto-Approved]', autoApproveResponse.data.message);
+            setNotification({
+              type: "success",
+              message: autoApproveResponse.data.message,
             });
-            setMotionStatus("Auto-approved by confidence threshold");
+            
+            // Clear UI state
+            setDetectionResult(null);
+            setCapturedFrame("");
+            setMotionStatus("Ready for next scan");
+            previousFrameRef.current = null;
+            stableSinceRef.current = null;
+            setLiveAnnotatedOverlaySrc("");
+            
+            // Refresh logs
             await fetchLogsRef.current();
-          } catch (autoApproveError) {
-            console.error('Error in auto-approve:', autoApproveError);
-            // Fallback to manual review if auto-approve fails
+          } else if (approvalStatus === 'requires_manual_review') {
+            // Backend indicated manual review needed (confidence below threshold)
+            console.log('[Manual Review Required]', autoApproveResponse.data.message);
+            setNotification({
+              type: "info",
+              message: autoApproveResponse.data.message,
+            });
+            
+            // Show manual review modal
+            setDetectionResult(result);
+            setReviewMode("ACKNOWLEDGE");
+            const autoDescription = autoAnnotateDetection(result);
+            setReviewDescription(autoDescription);
+            setReviewFinalDecision(result.system_decision || "PASS");
+            setReviewRejectionReason("MISSED_DEFECT");
             reviewPendingRef.current = true;
             setReviewPending(true);
-            setMotionStatus("Review required (auto-approve failed)");
+            setMotionStatus("Manual review required");
+            await fetchLogsRef.current();
           }
-        } else {
-          // Below threshold: require manual review
+        } catch (autoApproveError) {
+          console.error('[Backend Auto-Approve Error]', autoApproveError);
+          // Fallback to manual review if backend auto-approve fails
+          setDetectionResult(result);
+          setReviewMode("ACKNOWLEDGE");
+          const autoDescription = autoAnnotateDetection(result);
+          setReviewDescription(autoDescription);
+          setReviewFinalDecision(result.system_decision || "PASS");
+          setReviewRejectionReason("MISSED_DEFECT");
           reviewPendingRef.current = true;
           setReviewPending(true);
-          setMotionStatus("Review required");
-          await fetchLogsRef.current();
+          setMotionStatus("Manual review required");
         }
 
       } catch (requestError) {
@@ -1116,10 +1066,6 @@ function OperatorPanel({
   };
 
   /* ── Derived ─────────────────────────────────────────────────── */
-  const filteredLogs = sessionFilter
-    ? logs.filter((l) => l.session_id === sessionFilter)
-    : logs;
-  const displayedLogs = filteredLogs.slice(0, logsLimit);
 
   /* ── Render ──────────────────────────────────────────────────── */
   return (
@@ -1160,48 +1106,35 @@ function OperatorPanel({
         </motion.header>
 
         {/* ── Tab switcher ── */}
-        <motion.div
-          className="panel-switcher"
-          role="tablist"
-          aria-label="Operator pages"
-          style={{ marginBottom: 16, display: 'none' }}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.5, delay: 0.3 }}
-        >
-          <motion.button
-            className={`choice-button${activePanel === "camera" ? " choice-button--active" : ""}`}
-            onClick={() => setActivePanel("camera")}
-            type="button"
-            whileHover={{ scale: 1.05 }}
-            whileTap={{ scale: 0.98 }}
-          >
-            Camera Feed
-          </motion.button>
-          {!cameraOnly && (
-            <motion.button
-              className={`choice-button${activePanel === "logs" ? " choice-button--active" : ""}`}
-              onClick={() => setActivePanel("logs")}
-              type="button"
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.98 }}
-            >
-              Detection Logs
-            </motion.button>
-          )}
-        </motion.div>
 
         {/* ════════════════════════════════════════════════
             CAMERA PANEL
         ════════════════════════════════════════════════ */}
-        {activePanel === "camera" && (
-          <section className="content-grid content-grid--operator">
+        <section className="content-grid content-grid--operator">
             {/* ── Left: camera card ── */}
             <div className="section-card section-card--camera">
               <div className="section-heading">
                 <p className="eyebrow">Camera feed</p>
                 <h2>Prepare the frame</h2>
               </div>
+
+              {/* Notification for auto-approval */}
+              {notification && (
+                <div
+                  style={{
+                    padding: "12px",
+                    marginBottom: "12px",
+                    borderRadius: "6px",
+                    backgroundColor: notification.type === "success" ? "#d4edda" : "#f8d7da",
+                    color: notification.type === "success" ? "#155724" : "#721c24",
+                    border: `1px solid ${notification.type === "success" ? "#c3e6cb" : "#f5c6cb"}`,
+                    fontSize: "13px",
+                    fontWeight: "500",
+                  }}
+                >
+                  {notification.message}
+                </div>
+              )}
 
               {cameraOnly && (
                 <p className="camera-mode-note">
@@ -1294,19 +1227,6 @@ function OperatorPanel({
 
               {/* Error notice */}
               {error && <div className="notice notice--error">{error}</div>}
-
-              {/* Capture & Detect button */}
-              <div style={{ display: "flex", gap: 12, flexShrink: 0 }}>
-                <button
-                  className="primary-button"
-                  onClick={() => void handleDetect("manual")}
-                  disabled={loading || reviewPending}
-                  type="button"
-                  style={{ flex: 1 }}
-                >
-                  {loading ? "Capturing..." : "Capture & Detect"}
-                </button>
-              </div>
             </div>
 
             {/* ── Right: inspection info ── */}
@@ -1410,345 +1330,11 @@ function OperatorPanel({
               </div>
             </div>
           </section>
-        )}
 
         {/* ════════════════════════════════════════════════
-            LOGS PANEL
+            REVIEW MODAL (LOW-CONFIDENCE FALLBACK)
         ════════════════════════════════════════════════ */}
-        {activePanel === "logs" && (
-          <section className="section-card section-card--logs">
-            <div className="section-heading">
-              <p className="eyebrow">Detection logs</p>
-              <h2>Recent inspections</h2>
-            </div>
-
-            {/* Filter row */}
-            <div
-              style={{
-                display: "flex",
-                gap: 12,
-                alignItems: "center",
-                marginBottom: 12,
-                flexWrap: "wrap",
-              }}
-            >
-              <label style={{ fontSize: 12 }}>Filter by session</label>
-              <select
-                value={sessionFilter}
-                onChange={(e) => {
-                  setSessionFilter(e.target.value);
-                }}
-              >
-                <option value="">All sessions</option>
-                {Array.from(
-                  new Set(logs.map((l) => l.session_id).filter(Boolean)),
-                ).map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </select>
-              <button
-                className="ghost-button"
-                onClick={() => {
-                  void fetchLogsRef.current();
-                }}
-                type="button"
-              >
-                Refresh
-              </button>
-
-              <span style={{ fontSize: 12, marginLeft: "auto" }}>Show:</span>
-              <select
-                value={logsLimit}
-                onChange={(e) => setLogsLimit(Number(e.target.value))}
-                style={{ padding: "4px 8px", fontSize: 12 }}
-              >
-                <option value={20}>20 logs</option>
-                <option value={50}>50 logs</option>
-                <option value={filteredLogs.length}>All logs</option>
-              </select>
-              {filteredLogs.length > logsLimit && (
-                <span style={{ fontSize: 11, color: "#999" }}>
-                  Showing {displayedLogs.length} of {filteredLogs.length}
-                </span>
-              )}
-            </div>
-
-            {/* Log list */}
-            <div className="log-list">
-              {!logs || logs.length === 0 ? (
-                <div
-                  style={{
-                    padding: "40px",
-                    textAlign: "center",
-                    color: "#999",
-                  }}
-                >
-                  No detection logs yet. Capture a frame and run detection to
-                  create logs.
-                </div>
-              ) : displayedLogs && displayedLogs.length > 0 ? (
-                displayedLogs.map((log) => (
-                  <div
-                    key={log.id}
-                    className={`log-item log-item--${(log.final_decision || log.system_decision || "").toLowerCase()}`}
-                  >
-                    <div
-                      className="log-row"
-                      onClick={() =>
-                        setExpandedLogId(
-                          expandedLogId === log.id ? null : log.id,
-                        )
-                      }
-                    >
-                      <div style={{ flex: 1 }}>
-                        <strong>{log.id || "Untitled"}</strong> &nbsp;{" "}
-                        {log.component_name ||
-                          log.product_name ||
-                          log.component ||
-                          "N/A"}
-                        <div
-                          style={{ fontSize: 12, color: "#777", marginTop: 4 }}
-                        >
-                          {log.timestamp || log.created_at
-                            ? new Date(
-                                log.timestamp || log.created_at,
-                              ).toLocaleString()
-                            : "N/A"}
-                        </div>
-                      </div>
-                      <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                        <div style={{ fontWeight: 500 }}>
-                          {log.final_decision ||
-                            log.system_decision ||
-                            log.status ||
-                            "—"}
-                        </div>
-                        <div style={{ fontSize: 12, marginTop: 4 }}>
-                          {log.confidence_score || log.confidence || 0
-                            ? `${(Number(log.confidence_score || log.confidence || 0) * 100).toFixed(1)}%`
-                            : "—"}
-                        </div>
-                      </div>
-                    </div>
-                    {expandedLogId === log.id ? (
-                      <div className="log-expanded">
-                        <div style={{ display: "flex", gap: 12 }}>
-                          <div
-                            style={{
-                              flex: "0 0 320px",
-                              border: "1px solid #ddd",
-                              padding: 8,
-                              background: "#fff",
-                            }}
-                          >
-                            <div
-                              style={{
-                                display: "flex",
-                                justifyContent: "space-between",
-                                alignItems: "center",
-                              }}
-                            >
-                              <strong>Inference Image</strong>
-                            </div>
-                            <div
-                              style={{
-                                overflow: "hidden",
-                                height: 260,
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                position: "relative",
-                                cursor: "pointer",
-                              }}
-                            >
-                              <img
-                                id={`log-image-${log.id}`}
-                                src={
-                                  log.image_snapshot ||
-                                  log.image_snapshot_url ||
-                                  log.image_url
-                                }
-                                alt="snapshot"
-                                style={{ maxWidth: "100%", maxHeight: "100%" }}
-                                onClick={() =>
-                                  setZoomedImage(
-                                    log.image_snapshot ||
-                                      log.image_snapshot_url ||
-                                      log.image_url,
-                                  )
-                                }
-                                onLoad={() =>
-                                  drawLogOverlay(
-                                    log.id,
-                                    log.detection_results?.detections || [],
-                                  )
-                                }
-                                title="Click to zoom"
-                              />
-                            </div>
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <h4>Detections</h4>
-                            {(log.detection_results?.detections || []).map(
-                              (d, idx) => (
-                                <div
-                                  key={idx}
-                                  style={{
-                                    padding: 6,
-                                    borderBottom: "1px solid #eee",
-                                  }}
-                                >
-                                  <strong>{d.label || d.class_name}</strong>
-                                  <div>
-                                    Confidence:{" "}
-                                    {((d.confidence || 0) * 100).toFixed(1)}%
-                                  </div>
-                                  <div>
-                                    Box: {d.bbox ? d.bbox.join(", ") : "n/a"}
-                                  </div>
-                                  {d.mask?.polygon ? (
-                                    <div>
-                                      Mask points: {d.mask.polygon.length}
-                                    </div>
-                                  ) : null}
-                                </div>
-                              ),
-                            )}
-
-                            <h4>Details</h4>
-                            <div
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns: "1fr 1fr",
-                                gap: 12,
-                                marginBottom: 8,
-                              }}
-                            >
-                              <div>
-                                <div>
-                                  <strong>System decision:</strong>{" "}
-                                  {log.system_decision ||
-                                    log.detection_results?.system_decision ||
-                                    "-"}
-                                </div>
-                                <div>
-                                  <strong>Final decision:</strong>{" "}
-                                  {log.final_decision || "-"}
-                                </div>
-                                <div>
-                                  <strong>Status:</strong> {log.status || "-"}
-                                </div>
-                                <div>
-                                  <strong>Confidence:</strong>{" "}
-                                  {log.confidence_score
-                                    ? `${(Number(log.confidence_score) * 100).toFixed(1)}%`
-                                    : log.detection_results?.confidence
-                                      ? `${(Number(log.detection_results.confidence) * 100).toFixed(1)}%`
-                                      : "-"}
-                                </div>
-                                <div>
-                                  <strong>Latency:</strong>{" "}
-                                  {log.latency_ms
-                                    ? `${log.latency_ms} ms`
-                                    : log.detection_results?.latency_ms
-                                      ? `${log.detection_results.latency_ms} ms`
-                                      : "-"}
-                                </div>
-                              </div>
-                              <div>
-                                <div>
-                                  <strong>Cache hit:</strong>{" "}
-                                  {String(
-                                    log.detection_results?.cache_hit ??
-                                      log.cache_hit ??
-                                      false,
-                                  )}
-                                </div>
-                                <div>
-                                  <strong>Image hash:</strong>{" "}
-                                  {log.detection_results?.image_hash ||
-                                    log.image_hash ||
-                                    "-"}
-                                </div>
-                                <div>
-                                  <strong>Defect area %:</strong>{" "}
-                                  {log.defect_area_percent !== undefined
-                                    ? `${log.defect_area_percent}%`
-                                    : log.detection_results?.defect_area_percent
-                                      ? `${log.detection_results.defect_area_percent}%`
-                                      : "-"}
-                                </div>
-                                <div>
-                                  <strong>Segmentation polygons:</strong>{" "}
-                                  {log.segmentation_data?.mask_polygons
-                                    ?.length ??
-                                    (log.detection_results?.mask_polygons
-                                      ? log.detection_results.mask_polygons
-                                          .length
-                                      : 0)}
-                                </div>
-                              </div>
-                            </div>
-                            <div style={{ marginBottom: 8 }}>
-                              <button
-                                className="ghost-button"
-                                onClick={() =>
-                                  setRawOpenMap((m) => ({
-                                    ...m,
-                                    [log.id]: !m[log.id],
-                                  }))
-                                }
-                                type="button"
-                              >
-                                {rawOpenMap[log.id]
-                                  ? "Hide raw JSON"
-                                  : "Show raw JSON"}
-                              </button>
-                            </div>
-                            {rawOpenMap[log.id] ? (
-                              <pre
-                                style={{
-                                  whiteSpace: "pre-wrap",
-                                  fontSize: 12,
-                                  background: "#fbfbfb",
-                                  padding: 8,
-                                  borderRadius: 4,
-                                }}
-                              >
-                                {JSON.stringify(
-                                  log.detection_results || log,
-                                  null,
-                                  2,
-                                )}
-                              </pre>
-                            ) : null}
-                          </div>
-                        </div>
-                      </div>
-                    ) : null}
-                  </div>
-                ))
-              ) : (
-                <div
-                  style={{
-                    padding: "40px",
-                    textAlign: "center",
-                    color: "#999",
-                  }}
-                >
-                  No logs to display for the selected session.
-                </div>
-              )}
-            </div>
-          </section>
-        )}
-
-        {/* ════════════════════════════════════════════════
-            REVIEW MODAL
-        ════════════════════════════════════════════════ */}
-        {activePanel === "camera" && detectionResult && (
+        {detectionResult && (
           <div className="review-modal" role="dialog" aria-modal="true">
             <div className="review-modal__panel">
               <div className="section-heading">

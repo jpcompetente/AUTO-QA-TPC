@@ -616,6 +616,74 @@ class InferenceLogViewSet(viewsets.ModelViewSet):
         serializer = self.get_serializer(pending, many=True)
         return Response(serializer.data)
 
+    @action(detail=True, methods=['post'])
+    def auto_approve(self, request, pk=None):
+        """
+        Backend-driven confidence-based auto-approval.
+        
+        Checks operator's active configuration threshold against the inference's confidence.
+        If confidence >= threshold, auto-approves the log.
+        Otherwise, returns status indicating manual review is needed.
+        
+        Security/Auditability:
+        - All decisions made server-side (cannot be bypassed client-side)
+        - Logged centrally for audit trail
+        - Consistent across all operators
+        """
+        log = self.get_object()
+        
+        # Get operator's active configuration for the component
+        config = ActiveConfiguration.objects.filter(
+            operator=log.operator,
+            product=log.component,
+            is_active=True,
+        ).select_related('model').first()
+        
+        if not config:
+            return Response(
+                {'error': 'No active configuration found for operator and component'},
+                status=404
+            )
+        
+        threshold = config.threshold
+        confidence = log.confidence_score
+        
+        # Check if confidence meets threshold
+        if confidence >= threshold:
+            # Auto-approve
+            log.final_decision = log.system_decision  # Accept AI decision
+            log.status = 'APPROVED'
+            log.operator_override = False
+            log.operator_comment = f'Auto-approved by system (confidence: {confidence:.2%} >= threshold: {threshold:.2%})'
+            log.reviewed_at = timezone.now()
+            log.save()
+            
+            logger.info(
+                f"Auto-approved inference log {log.id} for operator {log.operator.username} "
+                f"(confidence: {confidence:.2%} >= threshold: {threshold:.2%})"
+            )
+            
+            return Response({
+                'status': 'auto_approved',
+                'message': f'Auto-approved (confidence: {confidence:.2%})',
+                'log': InferenceLogSerializer(log).data
+            }, status=200)
+        else:
+            # Confidence too low - requires manual review
+            log.is_confidence_below_threshold = True
+            log.save()
+            
+            logger.info(
+                f"Low confidence inference {log.id} for operator {log.operator.username} "
+                f"requires manual review (confidence: {confidence:.2%} < threshold: {threshold:.2%})"
+            )
+            
+            return Response({
+                'status': 'requires_manual_review',
+                'message': f'Confidence {confidence:.2%} below threshold {threshold:.2%} - manual review required',
+                'log': InferenceLogSerializer(log).data
+            }, status=200)
+
 
 class RetrainingQueueViewSet(viewsets.ModelViewSet):
     queryset = RetrainingQueue.objects.filter(status__in=['PENDING', 'LABELED'])

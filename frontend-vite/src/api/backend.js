@@ -77,6 +77,8 @@ export const getDetectionLogs = (params = {}) => api.get("/inference-logs/", { p
 export const createDetectionLog = (data) => api.post("/inference-logs/", data);
 export const reviewInferenceLog = (id, data) =>
   api.post(`/inference-logs/${id}/review/`, data);
+export const autoApproveInferenceLog = (id) =>
+  api.post(`/inference-logs/${id}/auto_approve/`);
 
 export const buildWebSocketUrl = (path) => {
   const configuredBase = import.meta.env.VITE_WS_BASE_URL;
