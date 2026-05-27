@@ -46,8 +46,8 @@ cd ..
 Default seeded users:
 
 - Admin: `admin` / `admin`
-- Superadmin: `superadmin` / `superadmin`
-- Inspector: `inspector` / `inspector`
+- Legacy admin: `superadmin` / `superadmin` (maps to ADMIN)
+- Legacy user: `inspector` / `inspector` (maps to USER)
 
 ## Running The System
 

@@ -3,33 +3,19 @@ import { jwtDecode } from "jwt-decode";
 import { getApiStatus } from "./api/backend";
 import AdminDashboard from "./components/AdminDashboard";
 import Login from "./components/Login";
-import InspectorDashboard from "./components/InspectorDashboard";
 import OperatorPanel from "./components/OperatorPanel";
-import SuperAdminPanel from "./components/SuperAdminPanel";
 import CameraSender from "./components/CameraSender";
 import CameraReceiver from "./components/CameraReceiver";
 import "./App.css";
 
 function normalizeRole(role) {
-  if (!role) {
-    return null;
-  }
-
+  if (!role) return null;
   const normalized = role.toLowerCase().replace(/_/g, "");
 
-  // Map backend roles to frontend role identifiers
-  if (normalized === "superadmin") {
-    return "superadmin";
-  }
-  if (normalized === "admin") {
-    return "admin";
-  }
-  if (normalized === "operator") {
-    return "operator";
-  }
-  if (normalized === "inspector") {
-    return "inspector";
-  }
+  if (normalized === "admin") return "admin";
+  if (normalized === "superadmin") return "admin";
+  if (normalized === "operator") return "user";
+  if (normalized === "inspector") return "user";
 
   return normalized;
 }
@@ -126,10 +112,6 @@ function App() {
     return <AdminDashboard onLogout={handleLogout} role={role} />;
   }
 
-  if (role === "superadmin") {
-    return <SuperAdminPanel onLogout={handleLogout} username={username} />;
-  }
-
   if (appMode === "relay-sender") {
     return <CameraSender />;
   }
@@ -138,7 +120,7 @@ function App() {
     return <CameraReceiver />;
   }
 
-  if (role === "operator") {
+  if (role === "user") {
     return (
       <OperatorPanel
         onLogout={handleLogout}
@@ -148,12 +130,14 @@ function App() {
     );
   }
 
-  if (role === "inspector") {
-    return <InspectorDashboard onLogout={handleLogout} />;
-  }
-
-  // Default to inspector for unknown roles
-  return <InspectorDashboard onLogout={handleLogout} />;
+  // Default to OperatorPanel for unknown roles
+  return (
+    <OperatorPanel
+      onLogout={handleLogout}
+      username={username}
+      cameraOnly={appMode === "camera"}
+    />
+  );
 }
 
 export default App;

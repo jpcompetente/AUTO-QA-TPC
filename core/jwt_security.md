@@ -2,7 +2,7 @@
 JWT Authentication & Authorization Documentation
 
 This module enforces JWT-based authentication for all API endpoints and WebSocket connections.
-Only active, authenticated operators (and admins/superadmins) can initiate sessions and run inference.
+Only active, authenticated users (and admins) can initiate sessions and run inference.
 
 Architecture:
 =============
@@ -19,10 +19,9 @@ Architecture:
    - Both consumers close connections with 4401 (Unauthorized) if auth fails
 
 3. Role-Based Access Control (RBAC)
-   - Operators: Can only see and modify their own data
-   - Admins: Can see assigned operator groups
-   - Super Admins: Can see all data and manage system
-   - Inspectors: View-only, cannot run detections
+   - USER: Can only see and modify their own data
+   - ADMIN: Can see assigned operator groups and manage system
+   - Legacy inspector accounts are treated as USER role
 
 4. Backend Enforcements
    - JWT middleware validates every request (REST)
@@ -36,7 +35,7 @@ Implementation Details:
 REST Endpoints:
 - BasePermission classes:
   * permissions.IsAuthenticated: Requires valid JWT
-  * IsAdminOrSuperAdmin: Restricts to admin roles
+  * IsAdminOnly: Restricts to admin role
   * IsAdminOrReadOnlyAuthenticated: Safe methods for any auth'd user
 
 - ViewSet Permission Pattern:
@@ -48,9 +47,9 @@ REST Endpoints:
       def get_queryset(self):
           # Role-aware filtering
           role = user_role(request.user)
-          if role in ('ADMIN', 'SUPER_ADMIN'):
-              return Model.objects.all()
-          return Model.objects.filter(operator=request.user)
+          if role == 'ADMIN':
+      return Model.objects.all()
+  return Model.objects.filter(operator=request.user)
 
 WebSocket Endpoints:
 - Token extraction methods:
@@ -77,7 +76,7 @@ JWT Token Structure:
 Claims in JWT:
 - user_id: Django User ID
 - username: Username
-- role: User role (OPERATOR, ADMIN, SUPER_ADMIN, INSPECTOR)
+- role: User role (USER, ADMIN)
 - exp: Expiration timestamp (default: 5 minutes)
 - iat: Issued at timestamp
 - token_type: 'access' or 'refresh'
@@ -253,17 +252,15 @@ JWT_AUTH_SETTINGS = {
 }
 
 ROLE_HIERARCHY = {
-    'SUPER_ADMIN': ['ADMIN', 'OPERATOR', 'INSPECTOR'],
-    'ADMIN': ['OPERATOR', 'INSPECTOR'],
-    'OPERATOR': ['INSPECTOR'],
-    'INSPECTOR': [],
+    'ADMIN': ['USER'],
+    'USER': [],
 }
 
 # Permission Requirements by Endpoint
 
 ENDPOINT_PERMISSIONS = {
     # Inference Endpoints
-    'POST /api/inference/detect/': 'IsAuthenticated (NOT Inspector)',
+    'POST /api/inference/detect/': 'IsAuthenticated',
     'GET /api/inference/health/': 'Public',
     'GET /api/inference/metrics/': 'IsAuthenticated',
     
@@ -275,12 +272,12 @@ ENDPOINT_PERMISSIONS = {
     
     # Analytics
     'GET /api/analytics/dashboard/': 'IsAuthenticated (role-aware)',
-    'GET /api/analytics/operator-performance/': 'IsAdminOrSuperAdmin',
+    'GET /api/analytics/operator-performance/': 'IsAdminOnly',
     
     # Admin Only
-    'POST /api/ai-models/': 'IsAdminOrSuperAdmin',
-    'PUT /api/ai-models/<id>/': 'IsAdminOrSuperAdmin',
-    'DELETE /api/ai-models/<id>/': 'IsAdminOrSuperAdmin',
+    'POST /api/ai-models/': 'IsAdminOnly',
+    'PUT /api/ai-models/<id>/': 'IsAdminOnly',
+    'DELETE /api/ai-models/<id>/': 'IsAdminOnly',
     
     # WebSocket
     'ws://inference/': 'JWT Token Auth',

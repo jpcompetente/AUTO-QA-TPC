@@ -116,7 +116,7 @@ CHECK (role IN ('USER', 'ADMIN'));
 
 -- Mapping:
 -- OPERATOR → USER
--- INSPECTOR → USER (view-only flag)
+-- INSPECTOR → USER
 -- ADMIN → ADMIN
 -- SUPER_ADMIN → ADMIN
 ```

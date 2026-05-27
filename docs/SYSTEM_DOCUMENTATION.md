@@ -16,34 +16,18 @@
 
 ## Architecture
 
-### Three-Tier RBAC System
-```
+### Two-Tier RBAC System
 ┌─────────────────────────────────────────────────────────┐
-│                    Super Admin                          │
-│    Analytics | Model Deployment | Labeling Tool        │
+│                    ADMIN                                │
+│    Analytics | Model Deployment | User Management      │
 └─────────────────────────────────────────────────────────┘
            ↑
-           │ WebSocket (Metrics, Training Progress)
+           │ REST API / WebSocket (Metrics, Settings)
            │
 ┌─────────────────────────────────────────────────────────┐
-│                    Admin                                │
-│    Operator Management | Settings | Settings Config    │
-└─────────────────────────────────────────────────────────┘
-           ↑
-           │ REST API
-           │
-┌─────────────────────────────────────────────────────────┐
-│                   Operator                              │
+│                     USER                                │
 │    Live Detection | Frame Approval/Rejection            │
 └─────────────────────────────────────────────────────────┘
-           ↑
-           │ WebSocket (Real-time Inference)
-           │
-┌─────────────────────────────────────────────────────────┐
-│              YOLO Model Inference Engine                │
-│    Real-time Detection | Hot-swap Support               │
-└─────────────────────────────────────────────────────────┘
-```
 
 ### Technology Stack
 - **Backend**: Django 5.2 + DRF
@@ -138,13 +122,13 @@ redis-server
 ## Features
 
 ### 1. Real-Time Inference & Monitoring (Req. 1.1)
-- ✅ Live webcam feed from operator workstation
+- ✅ Live webcam feed from user workstation
 - ✅ 2 FPS capture with YOLO inference
 - ✅ Real-time bounding boxes and confidence scores
-- ✅ Automatic frame streaming to Super Admin
+- ✅ Automatic frame streaming to Admin
 - ✅ System decision (PASS/FAIL) with latency tracking
 
-**Frontend Component**: `OperatorDashboard.js`
+**Frontend Component**: `OperatorPanel.jsx`
 
 ### 2. Model & Version Management (Req. 1.2)
 - ✅ Multiple model format support (.pt, .onnx, .engine)
@@ -159,7 +143,7 @@ redis-server
 - ✅ **Accuracy**: (Correct Classifications) / Total
 - ✅ **False Reject Rate (FRR)**: (Human Approved / System Rejected) / Total
 - ✅ **Latency Trends**: Daily averages over 7 days
-- ✅ **Operator Performance**: Per-operator accuracy and FRR
+- ✅ **User performance**: Per-user accuracy and FRR
 - ✅ **Model Performance**: Comparison across deployed versions
 - ✅ Real-time dashboard with Chart.js visualization
 
@@ -167,12 +151,12 @@ redis-server
 **Backend Endpoints**:
 - `GET /api/core/analytics/dashboard/`
 - `GET /api/core/analytics/latency-trends/`
-- `GET /api/core/analytics/operator-performance/`
+- `GET /api/core/analytics/operator-performance/` - Per-user metrics
 - `GET /api/core/analytics/model-performance/`
 
 ### 4. Continuous Learning Pipeline (Req. 1.5)
 ```
-Operator Override
+User Override
       ↓
 [Is False Positive?]
       ↓ YES
@@ -180,7 +164,7 @@ Operator Override
       ↓
 [Pending Labeling]
       ↓
-Super Admin Labels (Canvas Tool)
+Admin Labels (Canvas Tool)
       ↓
 [Reaches 100 Samples Threshold]
       ↓
@@ -190,7 +174,7 @@ Background YOLO Training
       ↓
 [Training Complete]
       ↓
-Super Admin Reviews Metrics
+Admin Reviews Metrics
       ↓
 Deploy New Version
 ```
@@ -218,7 +202,7 @@ GET    /api/core/ai-models/active/        - Get active model
 ### Inference Logging
 ```
 GET    /api/core/inference-logs/                      - List all logs
-POST   /api/core/inference-logs/{id}/operator_override/ - Record operator decision
+POST   /api/core/inference-logs/{id}/operator_override/ - Record user override decision
 GET    /api/core/inference-logs/pending_review/       - Pending logs
 POST   /api/core/inference/detect/                    - Real-time detection
 ```
@@ -226,7 +210,7 @@ POST   /api/core/inference/detect/                    - Real-time detection
 ### Retraining Queue
 ```
 GET    /api/core/retraining-queue/           - List pending samples
-POST   /api/core/retraining-queue/{id}/label/ - Label sample (Super Admin)
+POST   /api/core/retraining-queue/{id}/label/ - Label sample (Admin)
 POST   /api/core/retraining-queue/batch_trigger_training/ - Start training
 ```
 
@@ -240,7 +224,7 @@ POST   /api/core/training-jobs/{id}/deploy/ - Deploy trained model
 ```
 GET /api/core/analytics/dashboard/            - Main KPIs
 GET /api/core/analytics/latency-trends/       - 7-day trends
-GET /api/core/analytics/operator-performance/ - Per-operator metrics
+GET /api/core/analytics/operator-performance/ - Per-user metrics
 GET /api/core/analytics/model-performance/    - Model comparison
 ```
 
@@ -248,11 +232,11 @@ GET /api/core/analytics/model-performance/    - Model comparison
 
 ## WebSocket Connections
 
-### 1. Live View Stream (Operator → Super Admin)
+### 1. Live View Stream (User → Admin)
 ```
 URL: ws://localhost:8000/ws/live-view/{session_id}/
 
-Operator Sends:
+User Sends:
 {
   "type": "inference_update",
   "operator_id": "operator_123",
@@ -263,15 +247,15 @@ Operator Sends:
   "timestamp": "2024-05-07T10:30:00Z"
 }
 
-Super Admin Receives:
-(Same data broadcast to all connected Super Admins)
+Admin Receives:
+(Same data broadcast to all connected Admins)
 ```
 
 ### 2. Metrics Dashboard
 ```
 URL: ws://localhost:8000/ws/metrics/
 
-Super Admin Receives (Real-time):
+Admin Receives (Real-time):
 {
   "type": "initial_metrics",
   "data": {
@@ -304,22 +288,21 @@ Updates Broadcast:
 ### Roles
 | Role | Permissions | Components |
 |------|-------------|-----------|
-| **SUPER_ADMIN** | Full system access, model deployment, labeling, analytics | AnalyticsDashboard, LabelingTool |
-| **ADMIN** | Operator management, settings, limited analytics | AdminPanel, SettingsConfig |
-| **OPERATOR** | Live detection, frame approval/rejection | OperatorDashboard |
+- USER: Unified role for legacy operator and inspector accounts; can run detections and manage their own data
+- ADMIN: System administrators; can manage all users, deploy models, and view analytics
 
 ### Middleware
 - JWT authentication: All requests require valid token
 - Role-based view filtering: API endpoints enforce role permissions
-- Session tracking: Operator sessions tracked for audit
+- Session tracking: User sessions tracked for audit
 
 ---
 
 ## Retraining Pipeline
 
-### Step 1: Operator Override
+### Step 1: User Override
 ```python
-# When operator rejects AI decision (False Positive)
+# When user rejects AI decision (False Positive)
 POST /api/core/inference-logs/{id}/operator_override/
 {
   "final_decision": "PASS",
@@ -328,9 +311,9 @@ POST /api/core/inference-logs/{id}/operator_override/
 # → RetrainingQueue entry created with HIGH priority
 ```
 
-### Step 2: Labeling (Super Admin)
+### Step 2: Labeling (Admin)
 ```python
-# Super Admin labels bounding boxes via Canvas
+# Admin labels bounding boxes via Canvas
 POST /api/core/retraining-queue/{id}/label/
 {
   "label_data": {
@@ -369,7 +352,7 @@ train_model(training_job_id, epochs=50, batch_size=32)
 
 ### Step 5: Deployment
 ```python
-# Super Admin reviews metrics and deploys
+# Admin reviews metrics and deploys
 POST /api/core/training-jobs/{id}/deploy/
 {
   "model_name": "defect_detector_v2"
@@ -521,7 +504,7 @@ train_model(
 - [ ] Automated data augmentation pipeline
 - [ ] A/B testing framework for model versions
 - [ ] Edge deployment support (ONNX, TensorRT)
-- [ ] Mobile app for operators
+- [ ] Mobile app for users
 - [ ] Advanced visualization (3D bounding boxes)
 - [ ] Anomaly detection using ensemble methods
 
