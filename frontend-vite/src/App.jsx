@@ -144,7 +144,59 @@ function App() {
   }
 
   if (role === "admin") {
-    return <AdminDashboard onLogout={requestLogout} role={role} />;
+    return (
+      <>
+        <AdminDashboard onLogout={requestLogout} role={role} />
+        <AnimatePresence>
+          {logoutOpen ? (
+            <motion.div
+              className="logout-modal"
+              role="presentation"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={cancelLogout}
+            >
+              <motion.div
+                className="logout-modal__panel"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="logout-modal-title"
+                aria-describedby="logout-modal-description"
+                initial={{ opacity: 0, y: 24, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 20, scale: 0.98 }}
+                transition={{ duration: 0.18 }}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <h2 id="logout-modal-title">Log out of your session?</h2>
+                <p id="logout-modal-description">
+                  You are signed in as {username || "User"}
+                  {role ? ` (${role})` : ""}.
+                </p>
+
+                <div className="logout-modal__actions">
+                  <button
+                    className="logout-modal__button logout-modal__button--secondary"
+                    type="button"
+                    onClick={cancelLogout}
+                  >
+                    Stay signed in
+                  </button>
+                  <button
+                    className="logout-modal__button logout-modal__button--primary"
+                    type="button"
+                    onClick={confirmLogout}
+                  >
+                    Sign out
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
+      </>
+    );
   }
 
   if (appMode === "relay-sender") {
