@@ -1,4 +1,4 @@
-//import React, { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Webcam from "react-webcam";
 import { detectImage, getOperatorPreset } from "../api/backend";
 import "../styles/operator-dashboard.css";
@@ -14,6 +14,16 @@ export default function OperatorDashboard() {
   const [defects, setDefects] = useState(0);
   const [alertVisible, setAlertVisible] = useState(false);
 
+  const stopLoop = () => {
+    setStatus("stopped");
+    clearInterval(intervalRef.current);
+    intervalRef.current = null;
+    setBatchId(null);
+    setConfidence(100);
+    setDefects(0);
+    setAlertVisible(false);
+  };
+
   useEffect(() => {
     // load preset on mount
     async function load() {
@@ -21,7 +31,7 @@ export default function OperatorDashboard() {
         const res = await getOperatorPreset();
         setProduct(res.data?.product_name || res.data?.product || "Product");
         setModel(res.data?.model_name || res.data?.model || "Model");
-      } catch (e) {
+      } catch {
         // ignore; keep defaults
       }
     }
@@ -69,15 +79,7 @@ export default function OperatorDashboard() {
     intervalRef.current = null;
   };
 
-  const stopLoop = () => {
-    setStatus("stopped");
-    clearInterval(intervalRef.current);
-    intervalRef.current = null;
-    setBatchId(null);
-    setConfidence(100);
-    setDefects(0);
-    setAlertVisible(false);
-  };
+  
 
   const confidenceColor = confidence > 90 ? "green" : confidence >= 75 ? "yellow" : "red";
 

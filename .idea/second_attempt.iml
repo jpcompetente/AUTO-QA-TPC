@@ -8,4 +8,7 @@
     <orderEntry type="jdk" jdkName="Python 3.10 (AUTO-QA-TPC) (3)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
+  <component name="TemplatesService">
+    <option name="TEMPLATE_CONFIGURATION" value="Jinja2" />
+  </component>
 </module>

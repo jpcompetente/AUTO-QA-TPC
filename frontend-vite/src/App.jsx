@@ -101,6 +101,11 @@ function App() {
     setLogoutOpen(false);
   };
 
+  const handleLogout = () => {
+  localStorage.removeItem("token");
+  window.location.href = "/login";
+  };
+
   const cancelLogout = () => setLogoutOpen(false);
 
   useEffect(() => {
@@ -143,7 +148,7 @@ function App() {
     return <Login onLogin={handleLogin} apiMessage={apiMessage} />;
   }
 
-  // eslint-disable-next-line no-useless-assignment
+  
   let activeView = null;
 
   if (role === "admin") {
@@ -159,12 +164,18 @@ function App() {
   }
 
   if (role === "user") {
-    return 
-    activeView = <AdminDashboard onLogout={requestLogout} role={role} />;
-  } else if (role === "superadmin") {
     activeView = (
-      <SuperAdminPanel onLogout={requestLogout} username={username} />
-    );
+     <OperatorPanel
+       onLogout={requestLogout}
+       username={username}
+       cameraOnly={appMode === "camera"}
+    />
+  );
+
+  //} else if (role === "superadmin") {
+    //activeView = (
+    //  <SuperAdminPanel onLogout={requestLogout} username={username} />
+    //);
   } else if (appMode === "relay-sender") {
     activeView = <CameraSender />;
   } else if (appMode === "relay-receiver") {
@@ -177,8 +188,8 @@ function App() {
         cameraOnly={appMode === "camera"}
       />
     );
-  } else {
-    activeView = <InspectorDashboard onLogout={requestLogout} />;
+  //} else {
+    //activeView = <InspectorDashboard onLogout={requestLogout} />;
   }
 
   return (
