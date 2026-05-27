@@ -11,7 +11,7 @@ This Vite app is the active frontend for the project.
 
 ## Behavior
 
-The app starts with the login screen, then routes into admin, operator, or super admin panels based on the JWT role returned by Django.
+The app starts with the login screen, then routes into admin or user panels based on the JWT role returned by Django.
 
 For mobile and tablet camera setup without third-party apps, see [MOBILE_OTG_CAMERA_GUIDE.md](MOBILE_OTG_CAMERA_GUIDE.md).
 

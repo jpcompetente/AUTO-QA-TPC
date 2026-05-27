@@ -159,7 +159,7 @@ function App() {
   }
 
   if (role === "user") {
-    return (
+    return 
     activeView = <AdminDashboard onLogout={requestLogout} role={role} />;
   } else if (role === "superadmin") {
     activeView = (
