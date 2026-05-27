@@ -12,9 +12,6 @@ import {
   detectImage,
   getDetectionLogs,
 } from "../api/backend";
-import "../styles/admin.css";
-
-/* ─── Inline SVG icons ─── */
 const Icon = {
   Grid: () => (
     <svg viewBox="0 0 24 24">
@@ -163,8 +160,12 @@ function AdminDashboard({ onLogout }) {
     operator: "",
   });
   const [detectionLogsLimit, setDetectionLogsLimit] = useState(20);
-  const logsSortField = "timestamp";
-  const logsSortOrder = "desc";
+  const [logsSortField, setLogsSortField] = useState("timestamp");
+  const [logsSortOrder, setLogsSortOrder] = useState("desc");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [filterOperator, setFilterOperator] = useState("");
+  const [filterBatch, setFilterBatch] = useState("all");
+  const [filterSearch, setFilterSearch] = useState("");
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -319,6 +320,89 @@ function AdminDashboard({ onLogout }) {
     "Dashboard",
     "Admin portal",
   ];
+
+  // Filters + pagination for detection logs (per-batch numbering starts at 1)
+  const filteredSortedDetectionLogs = useMemo(() => {
+    let logs = [...sortedDetectionLogs];
+
+    // Operator filter (compare against id or name where available)
+    if (filterOperator) {
+      const opId = Number(filterOperator);
+      const opObj = operators.find((o) => o.id === opId);
+      logs = logs.filter((l) => {
+        if (
+          l.operator == null &&
+          l.operator_name == null &&
+          l.operator_id == null
+        )
+          return false;
+        if (opObj) {
+          return (
+            Number(l.operator) === opId ||
+            Number(l.operator_id) === opId ||
+            l.operator_name === opObj.username
+          );
+        }
+        return (
+          String(l.operator) === filterOperator ||
+          String(l.operator_id) === filterOperator ||
+          l.operator_name === filterOperator
+        );
+      });
+    }
+
+    // Search filter (case-insensitive) across several fields
+    if (filterSearch && String(filterSearch).trim() !== "") {
+      const q = String(filterSearch).trim().toLowerCase();
+      logs = logs.filter((l) => {
+        return (
+          String(l.id).toLowerCase().includes(q) ||
+          String(l.operator_name || l.operator || "")
+            .toLowerCase()
+            .includes(q) ||
+          String(l.component_name || l.component || "")
+            .toLowerCase()
+            .includes(q) ||
+          String(l.model_name || l.model_used || "")
+            .toLowerCase()
+            .includes(q) ||
+          String(l.status || "")
+            .toLowerCase()
+            .includes(q) ||
+          String(l.final_decision || l.system_decision || "")
+            .toLowerCase()
+            .includes(q)
+        );
+      });
+    }
+
+    return logs;
+  }, [sortedDetectionLogs, filterOperator, operators, filterSearch]);
+
+  const totalLogs = filteredSortedDetectionLogs.length;
+  const totalPages = Math.max(1, Math.ceil(totalLogs / detectionLogsLimit));
+
+  useEffect(() => {
+    // clamp current page when totalPages changes
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setCurrentPage((p) => Math.min(p, totalPages));
+  }, [totalPages]);
+
+  // Paginate: if a specific batch is selected use that page, otherwise show page 1 slice
+  const startIndex = (currentPage - 1) * detectionLogsLimit;
+  const paginatedDetectionLogs =
+    filterBatch === "all"
+      ? filteredSortedDetectionLogs.slice(0, detectionLogsLimit)
+      : filteredSortedDetectionLogs.slice(
+          startIndex,
+          startIndex + detectionLogsLimit,
+        );
+
+  // Compute shown-from / shown-to for the UI based on actual paginated list
+  const shownFrom = paginatedDetectionLogs.length ? startIndex + 1 : 0;
+  const shownTo = paginatedDetectionLogs.length
+    ? startIndex + paginatedDetectionLogs.length
+    : 0;
 
   return (
     <motion.div
@@ -574,14 +658,87 @@ function AdminDashboard({ onLogout }) {
                     alignItems: "center",
                   }}
                 >
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "8px",
+                      alignItems: "center",
+                    }}
+                  >
+                    <input
+                      placeholder="Search logs..."
+                      value={filterSearch}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setFilterSearch(v);
+                        // search should show results as a single batch
+                        if (String(v).trim() !== "") {
+                          setFilterBatch("all");
+                        }
+                        setCurrentPage(1);
+                      }}
+                      style={{
+                        padding: "6px 10px",
+                        fontSize: "12px",
+                        borderRadius: "4px",
+                        border: "1px solid #ccc",
+                        minWidth: "180px",
+                      }}
+                    />
+
+                    <select
+                      value={filterBatch}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setFilterBatch(v);
+                        // if selecting a specific batch, move to that page; if 'all', move to page 1
+                        if (v === "all") setCurrentPage(1);
+                        else setCurrentPage(Number(v));
+                      }}
+                      style={{
+                        padding: "6px 10px",
+                        fontSize: "12px",
+                        borderRadius: "4px",
+                        border: "1px solid #ccc",
+                      }}
+                    >
+                      <option value="all">All batches</option>
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map(
+                        (p) => (
+                          <option key={p} value={p}>
+                            Batch {p}
+                          </option>
+                        ),
+                      )}
+                    </select>
+
+                    <button
+                      className="adash__btn adash__btn--ghost"
+                      type="button"
+                      onClick={() => {
+                        setFilterOperator("");
+                        setFilterBatch("all");
+                        setFilterSearch("");
+                        setCurrentPage(1);
+                      }}
+                      style={{
+                        height: "30px",
+                        padding: "0 10px",
+                        fontSize: "12px",
+                      }}
+                    >
+                      Reset
+                    </button>
+                  </div>
                   <label style={{ fontSize: "12px", whiteSpace: "nowrap" }}>
                     Show:
                   </label>
                   <select
                     value={detectionLogsLimit}
-                    onChange={(e) =>
-                      setDetectionLogsLimit(Number(e.target.value))
-                    }
+                    onChange={(e) => {
+                      setDetectionLogsLimit(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
                     style={{
                       padding: "6px 10px",
                       fontSize: "12px",
@@ -593,13 +750,60 @@ function AdminDashboard({ onLogout }) {
                     <option value={50}>50 logs</option>
                     <option value={detectionLogs.length}>All logs</option>
                   </select>
-                  {detectionLogs.length > detectionLogsLimit && (
-                    <span style={{ fontSize: "11px", color: "#666" }}>
-                      Showing{" "}
-                      {Math.min(detectionLogsLimit, detectionLogs.length)} of{" "}
-                      {detectionLogs.length}
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "8px",
+                      alignItems: "center",
+                    }}
+                  >
+                    <button
+                      className="adash__btn adash__btn--ghost"
+                      type="button"
+                      disabled={filterBatch === "all" || currentPage <= 1}
+                      onClick={() => {
+                        const np = Math.max(1, currentPage - 1);
+                        setCurrentPage(np);
+                        if (filterBatch !== "all") setFilterBatch(String(np));
+                      }}
+                      style={{
+                        height: "30px",
+                        padding: "0 10px",
+                        fontSize: "12px",
+                      }}
+                    >
+                      Prev
+                    </button>
+                    <span style={{ fontSize: "12px", color: "#444" }}>
+                      {filterBatch === "all"
+                        ? `All (${totalPages} pages)`
+                        : `Page ${currentPage} / ${totalPages}`}
                     </span>
-                  )}
+                    <button
+                      className="adash__btn adash__btn--ghost"
+                      type="button"
+                      disabled={
+                        filterBatch === "all" || currentPage >= totalPages
+                      }
+                      onClick={() => {
+                        const np = Math.min(totalPages, currentPage + 1);
+                        setCurrentPage(np);
+                        if (filterBatch !== "all") setFilterBatch(String(np));
+                      }}
+                      style={{
+                        height: "30px",
+                        padding: "0 10px",
+                        fontSize: "12px",
+                      }}
+                    >
+                      Next
+                    </button>
+                    {totalLogs > 0 && (
+                      <span style={{ fontSize: "11px", color: "#666" }}>
+                        Showing {shownFrom} - {shownTo} of {totalLogs}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -607,20 +811,176 @@ function AdminDashboard({ onLogout }) {
                 <table className="adash__table">
                   <thead>
                     <tr>
-                      <th>ID</th>
-                      <th>Operator</th>
-                      <th>Component</th>
-                      <th>Model</th>
-                      <th>Decision</th>
-                      <th>Status</th>
-                      <th>Time</th>
+                      <th style={{ cursor: "default" }}>No.</th>
+                      <th
+                        style={{ cursor: "pointer" }}
+                        onClick={() => {
+                          const f = "id";
+                          if (logsSortField === f)
+                            setLogsSortOrder((o) =>
+                              o === "asc" ? "desc" : "asc",
+                            );
+                          else {
+                            setLogsSortField(f);
+                            setLogsSortOrder("asc");
+                          }
+                        }}
+                      >
+                        ID{" "}
+                        {logsSortField === "id"
+                          ? logsSortOrder === "asc"
+                            ? "▲"
+                            : "▼"
+                          : ""}
+                      </th>
+                      <th
+                        style={{ cursor: "pointer" }}
+                        onClick={() => {
+                          const f = "operator";
+                          if (logsSortField === f)
+                            setLogsSortOrder((o) =>
+                              o === "asc" ? "desc" : "asc",
+                            );
+                          else {
+                            setLogsSortField(f);
+                            setLogsSortOrder("asc");
+                          }
+                        }}
+                      >
+                        Operator{" "}
+                        {logsSortField === "operator"
+                          ? logsSortOrder === "asc"
+                            ? "▲"
+                            : "▼"
+                          : ""}
+                      </th>
+                      <th
+                        style={{ cursor: "pointer" }}
+                        onClick={() => {
+                          const f = "component";
+                          if (logsSortField === f)
+                            setLogsSortOrder((o) =>
+                              o === "asc" ? "desc" : "asc",
+                            );
+                          else {
+                            setLogsSortField(f);
+                            setLogsSortOrder("asc");
+                          }
+                        }}
+                      >
+                        Component{" "}
+                        {logsSortField === "component"
+                          ? logsSortOrder === "asc"
+                            ? "▲"
+                            : "▼"
+                          : ""}
+                      </th>
+                      <th
+                        style={{ cursor: "pointer" }}
+                        onClick={() => {
+                          const f = "model";
+                          if (logsSortField === f)
+                            setLogsSortOrder((o) =>
+                              o === "asc" ? "desc" : "asc",
+                            );
+                          else {
+                            setLogsSortField(f);
+                            setLogsSortOrder("asc");
+                          }
+                        }}
+                      >
+                        Model{" "}
+                        {logsSortField === "model"
+                          ? logsSortOrder === "asc"
+                            ? "▲"
+                            : "▼"
+                          : ""}
+                      </th>
+                      <th
+                        style={{ cursor: "pointer" }}
+                        onClick={() => {
+                          const f = "decision";
+                          if (logsSortField === f)
+                            setLogsSortOrder((o) =>
+                              o === "asc" ? "desc" : "asc",
+                            );
+                          else {
+                            setLogsSortField(f);
+                            setLogsSortOrder("asc");
+                          }
+                        }}
+                      >
+                        Decision{" "}
+                        {logsSortField === "decision"
+                          ? logsSortOrder === "asc"
+                            ? "▲"
+                            : "▼"
+                          : ""}
+                      </th>
+                      <th
+                        style={{ cursor: "pointer" }}
+                        onClick={() => {
+                          const f = "status";
+                          if (logsSortField === f)
+                            setLogsSortOrder((o) =>
+                              o === "asc" ? "desc" : "asc",
+                            );
+                          else {
+                            setLogsSortField(f);
+                            setLogsSortOrder("asc");
+                          }
+                        }}
+                      >
+                        Status{" "}
+                        {logsSortField === "status"
+                          ? logsSortOrder === "asc"
+                            ? "▲"
+                            : "▼"
+                          : ""}
+                      </th>
+                      <th
+                        style={{ cursor: "pointer" }}
+                        onClick={() => {
+                          const f = "timestamp";
+                          if (logsSortField === f)
+                            setLogsSortOrder((o) =>
+                              o === "asc" ? "desc" : "asc",
+                            );
+                          else {
+                            setLogsSortField(f);
+                            setLogsSortOrder("desc");
+                          }
+                        }}
+                      >
+                        Time{" "}
+                        {logsSortField === "timestamp"
+                          ? logsSortOrder === "asc"
+                            ? "▲"
+                            : "▼"
+                          : ""}
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
-                    {sortedDetectionLogs
-                      .slice(0, detectionLogsLimit)
-                      .map((log) => (
+                    {paginatedDetectionLogs.map((log, idx) => {
+                      // compute display number: global when showing all, otherwise per-batch starting at 1
+                      const displayNo =
+                        filterBatch === "all"
+                          ? filteredSortedDetectionLogs.indexOf(log) + 1
+                          : idx + 1;
+
+                      return (
                         <tr key={log.id}>
+                          <td
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: "12px",
+                              color: "var(--text-3)",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {displayNo}
+                          </td>
                           <td
                             style={{
                               fontFamily: "var(--font-mono)",
@@ -653,10 +1013,11 @@ function AdminDashboard({ onLogout }) {
                             ).toLocaleString()}
                           </td>
                         </tr>
-                      ))}
+                      );
+                    })}
                     {detectionLogs.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="adash__table-empty">
+                        <td colSpan={8} className="adash__table-empty">
                           No detection logs yet.
                         </td>
                       </tr>
@@ -766,6 +1127,48 @@ function AdminDashboard({ onLogout }) {
                       </option>
                     ))}
                   </select>
+
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: "6px",
+                      alignItems: "center",
+                    }}
+                  >
+                    <select
+                      value={logsSortField}
+                      onChange={(e) => setLogsSortField(e.target.value)}
+                      style={{
+                        padding: "6px 10px",
+                        fontSize: "12px",
+                        borderRadius: "4px",
+                        border: "1px solid #ccc",
+                      }}
+                    >
+                      <option value="timestamp">Time</option>
+                      <option value="operator">Operator</option>
+                      <option value="component">Component</option>
+                      <option value="model">Model</option>
+                      <option value="decision">Decision</option>
+                      <option value="status">Status</option>
+                      <option value="id">ID</option>
+                    </select>
+
+                    <button
+                      className="adash__btn adash__btn--ghost"
+                      type="button"
+                      onClick={() =>
+                        setLogsSortOrder((o) => (o === "asc" ? "desc" : "asc"))
+                      }
+                      style={{
+                        height: "30px",
+                        padding: "0 10px",
+                        fontSize: "12px",
+                      }}
+                    >
+                      {logsSortOrder === "asc" ? "Asc" : "Desc"}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="adash__field">
