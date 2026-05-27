@@ -1,0 +1,395 @@
+/**
+ * Manual Review Drawing Styles
+ * ==============================
+ *
+ * Add these styles to your main CSS file or create a new
+ * ManualReviewDrawing.css and import it in OperatorPanel.jsx
+ */
+
+/* Main container */
+.manual-review-drawing {
+  width: 100%;
+  padding: 0;
+}
+
+/* Canvas wrapper - ensures proper aspect ratio and overflow handling */
+.drawing-wrapper {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background-color: #f5f5f5;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 2px solid #ddd;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+/* Canvas element - crosshair cursor for drawing */
+.drawing-canvas {
+  display: block;
+  cursor: crosshair;
+  background-color: transparent;
+}
+
+/* Control buttons - consistent with your design system */
+.control-button {
+  padding: 6px 12px;
+  font-size: 12px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+  background-color: transparent;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+  color: #333;
+}
+
+.control-button:hover:not(:disabled) {
+  border-color: #0066cc;
+  background-color: #e6f2ff;
+}
+
+.control-button--active {
+  border-color: #0066cc;
+  background-color: #0066cc;
+  color: white;
+}
+
+.control-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Color picker input */
+input[type="color"] {
+  width: 40px;
+  height: 32px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 2px;
+}
+
+input[type="color"]:hover {
+  border-color: #999;
+}
+
+/* Range slider (stroke width) */
+input[type="range"] {
+  width: 60px;
+  height: 6px;
+  border-radius: 3px;
+  background: #ddd;
+  outline: none;
+  -webkit-appearance: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #0066cc;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  background: #0052a3;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: #0066cc;
+  cursor: pointer;
+  border: none;
+  transition: background 0.15s ease;
+}
+
+input[type="range"]::-moz-range-thumb:hover {
+  background: #0052a3;
+}
+
+/* Control panel layout */
+.drawing-controls {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 12px;
+  background-color: #f9f9f9;
+  border-radius: 6px;
+  border: 1px solid #efefef;
+}
+
+/* Annotation counter */
+.annotation-counter {
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 12px;
+  text-align: right;
+}
+
+.annotation-counter--empty {
+  color: #999;
+}
+
+.annotation-counter--filled {
+  color: #0066cc;
+  font-weight: 500;
+}
+
+/* Helper text below canvas */
+.drawing-help-text {
+  font-size: 12px;
+  color: #999;
+  margin-bottom: 16px;
+  font-style: italic;
+  padding: 8px;
+  background-color: #f9f9f9;
+  border-left: 2px solid #ddd;
+  border-radius: 0 4px 4px 0;
+}
+
+/* Mode-specific help text */
+.drawing-help-text.box-mode::before {
+  content: "□ ";
+  font-weight: bold;
+}
+
+.drawing-help-text.polygon-mode::before {
+  content: "◆ ";
+  font-weight: bold;
+}
+
+/* Alert box for manual review option */
+.manual-review-alert {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+  padding: 12px;
+  background-color: #fff3cd;
+  border-radius: 6px;
+  border: 1px solid #ffeaa7;
+  align-items: center;
+}
+
+.manual-review-alert strong {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 4px;
+  color: #333;
+}
+
+.manual-review-alert p {
+  font-size: 12px;
+  margin: 0;
+  color: #666;
+}
+
+.manual-review-alert button {
+  white-space: nowrap;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+/* Action buttons container */
+.drawing-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.drawing-actions button {
+  flex: 1;
+}
+
+/* Primary action button */
+.primary-button {
+  padding: 10px 16px;
+  background-color: #0066cc;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.primary-button:hover:not(:disabled) {
+  background-color: #0052a3;
+  box-shadow: 0 2px 8px rgba(0, 102, 204, 0.3);
+}
+
+.primary-button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.primary-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* Ghost/secondary button */
+.ghost-button {
+  padding: 10px 16px;
+  background-color: transparent;
+  color: #666;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ghost-button:hover:not(:disabled) {
+  border-color: #999;
+  color: #333;
+  background-color: #f9f9f9;
+}
+
+.ghost-button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.ghost-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Responsive adjustments for mobile */
+@media (max-width: 768px) {
+  .drawing-controls {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .control-button {
+    padding: 8px 10px;
+    font-size: 11px;
+  }
+
+  input[type="color"] {
+    width: 36px;
+    height: 30px;
+  }
+
+  input[type="range"] {
+    width: 50px;
+  }
+
+  .drawing-actions {
+    flex-direction: column;
+  }
+
+  .drawing-actions button {
+    width: 100%;
+  }
+
+  .manual-review-alert {
+    flex-direction: column;
+  }
+
+  .manual-review-alert button {
+    width: 100%;
+    align-self: stretch;
+  }
+}
+
+/* Accessibility improvements */
+.drawing-canvas:focus {
+  outline: 2px solid #0066cc;
+  outline-offset: 2px;
+}
+
+button:focus {
+  outline: 2px solid #0066cc;
+  outline-offset: 2px;
+}
+
+input:focus {
+  outline: 2px solid #0066cc;
+  outline-offset: 2px;
+}
+
+/* Tooltip-like descriptions */
+[title] {
+  position: relative;
+}
+
+/* Animation for drawing feedback */
+@keyframes drawingPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(0, 102, 204, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(0, 102, 204, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(0, 102, 204, 0);
+  }
+}
+
+.drawing-canvas.active {
+  animation: drawingPulse 0.5s;
+}
+
+/* Canvas border highlight when drawing */
+.drawing-wrapper.drawing-active {
+  border-color: #0066cc;
+  box-shadow: 0 0 0 2px rgba(0, 102, 204, 0.1);
+}
+
+/* Dark mode support (optional) */
+@media (prefers-color-scheme: dark) {
+  .drawing-wrapper {
+    background-color: #2a2a2a;
+    border-color: #444;
+  }
+
+  .drawing-controls {
+    background-color: #1e1e1e;
+    border-color: #333;
+  }
+
+  .drawing-help-text {
+    background-color: #1e1e1e;
+    color: #999;
+    border-color: #444;
+  }
+
+  .control-button {
+    border-color: #555;
+    color: #ddd;
+  }
+
+  .control-button:hover:not(:disabled) {
+    border-color: #0066cc;
+    background-color: rgba(0, 102, 204, 0.1);
+    color: #fff;
+  }
+
+  .ghost-button {
+    border-color: #555;
+    color: #999;
+  }
+
+  .ghost-button:hover:not(:disabled) {
+    border-color: #777;
+    color: #fff;
+    background-color: #333;
+  }
+
+  .manual-review-alert {
+    background-color: rgba(255, 235, 59, 0.15);
+    border-color: rgba(255, 235, 59, 0.3);
+    color: #ddd;
+  }
+}

@@ -513,7 +513,7 @@
 }
 
 .adash__webcam {
-  width: 100%;
+  width: 80%;
   height: 100%;
   object-fit: cover;
   display: block;
@@ -522,7 +522,7 @@
 .adash__detection-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   flex-wrap: wrap;
   margin-bottom: 16px;
 }

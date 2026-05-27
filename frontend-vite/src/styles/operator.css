@@ -888,6 +888,7 @@ body { background: var(--bg); min-height: 100vh; }
   place-items: center;
   padding: 20px;
   background: rgba(15,23,42,.4);
+  -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
 }
 

@@ -3,4 +3,108 @@
 @import "./styles/admin.css";
 @import "./styles/operator.css";
 
-    
+.logout-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top, rgba(31, 42, 62, 0.24), transparent 38%),
+    rgba(9, 14, 24, 0.64);
+  backdrop-filter: blur(10px);
+}
+
+.logout-modal__panel {
+  width: min(100%, 360px);
+  border-radius: 20px;
+  padding: 30px;
+  background: rgba(255, 255, 255, 0.96);
+  border: 1px solid rgba(226, 232, 240, 0.95);
+  box-shadow: 0 16px 36px rgba(15, 23, 42, 0.18);
+  color: var(--text);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.logout-modal__panel h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  line-height: 1.6;
+}
+
+.logout-modal__panel p {
+  max-width: 28ch;
+  margin: 20px auto 0;
+  color: rgba(26, 44, 62, 0.78);
+  line-height: 1.45;
+}
+
+.logout-modal__actions {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  width: 100%;
+  margin-top: 22px;
+}
+
+.logout-modal__button {
+  flex: 1;
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  border: 1px solid transparent;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease;
+}
+
+.logout-modal__button:hover {
+  transform: translateY(-1px);
+}
+
+.logout-modal__button--secondary {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: rgba(226, 232, 240, 1);
+  color: #1f2a3e;
+  font-size: 14px;
+}
+
+.logout-modal__button--secondary:hover {
+  background: #fff;
+  border-color: rgba(228, 228, 228, 0.6);
+}
+
+.logout-modal__button--primary {
+  background: rgb(43, 65, 189);
+  color: #fff;
+  box-shadow: 0 16px 28px rgba(71, 115, 212, 0.2);
+  font-size: 14px;
+}
+
+.logout-modal__button--primary:hover {
+  box-shadow: 0 20px 32px rgba(17, 24, 39, 0.28);
+}
+
+@media (max-width: 640px) {
+  .logout-modal__panel {
+    padding: 18px;
+    border-radius: 18px;
+  }
+  .logout-modal__actions {
+    flex-direction: column;
+  }
+
+  .logout-modal__button {
+    width: 100%;
+  }
+}
+>>>>>>> origin

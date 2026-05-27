@@ -81,7 +81,11 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "https://10.0.2.132:5173",
-    "https://172.21.16.1:5173"
+    "https://172.21.16.1:5173",
+    "http://10.0.2.132:5173",
+    "http://172.21.16.1:5173",
+    "http://10.0.2.132:8000",      # ✅ Backend HTTP (for mixed HTTPS frontend)
+    "https://10.0.2.132:8000",     # ✅ Backend HTTPS (future production)
 ]
 
 # For testing only (disable in production)
