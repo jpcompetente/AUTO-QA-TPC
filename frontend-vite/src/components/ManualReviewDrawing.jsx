@@ -85,41 +85,6 @@ function ManualReviewDrawing({ imageUrl, onSubmit, onCancel, isSubmitting = fals
   }, [initializeCanvas]);
 
   /**
-   * Redraw canvas with image and all annotations
-   */
-  const redrawCanvas = useCallback(() => {
-    const canvas = canvasRef.current;
-    const image = imageRef.current;
-
-    if (!canvas || !image) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    // Clear canvas
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    // Draw background image
-    ctx.drawImage(
-      image,
-      scale.offsetX,
-      scale.offsetY,
-      image.naturalWidth * scale.scaleX,
-      image.naturalHeight * scale.scaleY
-    );
-
-    // Draw completed annotations
-    completedPaths.forEach((path) => {
-      drawPathOnCanvas(ctx, path.points, path.color, path.width, path.isClosed);
-    });
-
-    // Draw current path being drawn
-    if (currentPath.length > 0) {
-      drawPathOnCanvas(ctx, currentPath, strokeColor, strokeWidth, false);
-    }
-  }, [scale, completedPaths, currentPath, strokeColor, strokeWidth]);
-
-  /**
    * Helper to draw a path on canvas
    */
   const drawPathOnCanvas = useCallback(
@@ -155,8 +120,43 @@ function ManualReviewDrawing({ imageUrl, onSubmit, onCancel, isSubmitting = fals
 
       ctx.stroke();
     },
-    [drawMode]
+    [drawMode],
   );
+
+  /**
+   * Redraw canvas with image and all annotations
+   */
+  const redrawCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    const image = imageRef.current;
+
+    if (!canvas || !image) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    // Clear canvas
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw background image
+    ctx.drawImage(
+      image,
+      scale.offsetX,
+      scale.offsetY,
+      image.naturalWidth * scale.scaleX,
+      image.naturalHeight * scale.scaleY
+    );
+
+    // Draw completed annotations
+    completedPaths.forEach((path) => {
+      drawPathOnCanvas(ctx, path.points, path.color, path.width, path.isClosed);
+    });
+
+    // Draw current path being drawn
+    if (currentPath.length > 0) {
+      drawPathOnCanvas(ctx, currentPath, strokeColor, strokeWidth, false);
+    }
+  }, [scale, completedPaths, currentPath, strokeColor, strokeWidth, drawPathOnCanvas]);
 
   /**
    * Convert mouse coordinates to canvas-relative coordinates

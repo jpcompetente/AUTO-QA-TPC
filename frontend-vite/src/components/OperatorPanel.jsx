@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import Webcam from "react-webcam";
 import {
   buildInferenceStreamUrl,
+  autoApproveInferenceLog,
   detectImage,
   getDetectionLogs,
   getOperatorPreset,
@@ -63,7 +64,7 @@ function OperatorPanel({
 
   /* state */
   const [preset, setPreset] = useState(null);
-  const [logs, setLogs] = useState([]);
+  const [, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [detectionResult, setDetectionResult] = useState(null);
@@ -71,7 +72,7 @@ function OperatorPanel({
   const [autoDetectEnabled, setAutoDetectEnabled] = useState(true);
   const [sessionStarted, setSessionStarted] = useState(false);
   const [sessionId, setSessionId] = useState("");
-  const [sessionFilter, setSessionFilter] = useState("");
+  const [sessionFilter] = useState("");
   const [motionStatus, setMotionStatus] = useState("Waiting for camera");
   const [reviewMode, setReviewMode] = useState("ACKNOWLEDGE");
   const [reviewDescription, setReviewDescription] = useState("");
@@ -79,7 +80,7 @@ function OperatorPanel({
   const [reviewRejectionReason, setReviewRejectionReason] =
     useState("MISSED_DEFECT");
   const [submittingReview, setSubmittingReview] = useState(false);
-  const [reviewPending, setReviewPending] = useState(false);
+  const [, setReviewPending] = useState(false);
   const [zoomedImage, setZoomedImage] = useState(null);
   const [streamStatus, setStreamStatus] = useState("disconnected");
   const [liveAnnotatedOverlaySrc, setLiveAnnotatedOverlaySrc] = useState("");
@@ -102,12 +103,6 @@ function OperatorPanel({
 
   // Ensure camera-only mode shows the camera panel without causing
   // a synchronous setState inside an effect (avoids cascading renders).
-  useEffect(() => {
-    if (!cameraOnly) return undefined;
-    // Reset notification on batch start
-    return () => window.clearTimeout(id);
-  }, [cameraOnly]);
-
   /* ── Helpers ─────────────────────────────────────────────────── */
   const normalizeList = useCallback(
     (payload) => payload?.results || payload || [],
@@ -372,76 +367,6 @@ function OperatorPanel({
     },
     [capturedFrame],
   );
-
-  const drawLogOverlay = useCallback((logId, detections = []) => {
-    const image = document.getElementById(`log-image-${logId}`);
-    const canvas = document.getElementById(`log-overlay-${logId}`);
-    if (!image || !canvas) return;
-
-    const cW = image.clientWidth || 1;
-    const cH = image.clientHeight || 1;
-    const sW = image.naturalWidth || cW;
-    const sH = image.naturalHeight || cH;
-    canvas.width = cW;
-    canvas.height = cH;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-    ctx.clearRect(0, 0, cW, cH);
-
-    const sRatio = sW / sH;
-    const dRatio = cW / cH;
-    const rW = dRatio > sRatio ? cH * sRatio : cW;
-    const rH = dRatio > sRatio ? cH : cW / sRatio;
-    const ox = (cW - rW) / 2;
-    const oy = (cH - rH) / 2;
-    const sx = rW / sW;
-    const sy = rH / sH;
-
-    (detections || []).forEach((det) => {
-      const [x1, y1, x2, y2] = det.bbox || [];
-      const isDefect = det.label === "SCRATCH" || det.label === "DEFECT";
-      const stroke = isDefect ? "#ef4444" : "#22c55e";
-      const fill = isDefect ? "rgba(239,68,68,.35)" : "rgba(34,197,94,.16)";
-      const polygon = det.mask?.polygon || [];
-
-      if (polygon.length > 2) {
-        ctx.beginPath();
-        polygon.forEach(([x, y], i) => {
-          const px = ox + x * sx;
-          const py = oy + y * sy;
-          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-        });
-        ctx.closePath();
-        ctx.fillStyle = fill;
-        ctx.fill();
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = stroke;
-        ctx.stroke();
-      }
-
-      if ([x1, y1, x2, y2].every(Number.isFinite)) {
-        ctx.lineWidth = 2;
-        ctx.strokeStyle = stroke;
-        ctx.strokeRect(
-          ox + x1 * sx,
-          oy + y1 * sy,
-          (x2 - x1) * sx,
-          (y2 - y1) * sy,
-        );
-      }
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!expandedLogId) return;
-    const entry = logs.find((l) => l.id === expandedLogId);
-    if (!entry) return;
-    window.setTimeout(
-      () => drawLogOverlay(entry.id, entry.detection_results?.detections || []),
-      0,
-    );
-  }, [expandedLogId, logs, drawLogOverlay]);
 
   useEffect(() => {
     drawOverlay(detectionResult);
@@ -788,9 +713,7 @@ function OperatorPanel({
         // If confidence < threshold, backend returns indication for manual review
         try {
           const logId = result.log_id || result.id;
-          const autoApproveResponse = await api.post(
-            `/api/inference-logs/${logId}/auto_approve/`
-          );
+          const autoApproveResponse = await autoApproveInferenceLog(logId);
           
           const approvalStatus = autoApproveResponse.data.status;
           
