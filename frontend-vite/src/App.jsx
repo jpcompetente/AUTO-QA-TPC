@@ -101,11 +101,6 @@ function App() {
     setLogoutOpen(false);
   };
 
-  const handleLogout = () => {
-  localStorage.removeItem("token");
-  window.location.href = "/login";
-  };
-
   const cancelLogout = () => setLogoutOpen(false);
 
   useEffect(() => {
@@ -148,11 +143,8 @@ function App() {
     return <Login onLogin={handleLogin} apiMessage={apiMessage} />;
   }
 
-  
-  let activeView = null;
-
   if (role === "admin") {
-    return <AdminDashboard onLogout={handleLogout} role={role} />;
+    return <AdminDashboard onLogout={requestLogout} role={role} />;
   }
 
   if (appMode === "relay-sender") {
@@ -163,38 +155,13 @@ function App() {
     return <CameraReceiver />;
   }
 
-  if (role === "user") {
-    activeView = (
-     <OperatorPanel
-       onLogout={requestLogout}
-       username={username}
-       cameraOnly={appMode === "camera"}
-    />
-  );
-
-  //} else if (role === "superadmin") {
-    //activeView = (
-    //  <SuperAdminPanel onLogout={requestLogout} username={username} />
-    //);
-  } else if (appMode === "relay-sender") {
-    activeView = <CameraSender />;
-  } else if (appMode === "relay-receiver") {
-    activeView = <CameraReceiver />;
-  } else if (role === "operator") {
-    activeView = (
+  return (
+    <>
       <OperatorPanel
         onLogout={requestLogout}
         username={username}
         cameraOnly={appMode === "camera"}
       />
-    );
-  //} else {
-    //activeView = <InspectorDashboard onLogout={requestLogout} />;
-  }
-
-  return (
-    <>
-      {activeView}
       <AnimatePresence>
         {logoutOpen ? (
           <motion.div
