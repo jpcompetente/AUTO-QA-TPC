@@ -42,6 +42,7 @@ function OperatorPanel({
   const webcamRef = useRef(null);
   const frameRef = useRef(null);
   const overlayRef = useRef(null);
+  const manualCanvasRef = useRef(null);
   const motionCanvasRef = useRef(null);
   const previousFrameRef = useRef(null);
   const lastCapturedFrameRef = useRef(null);
@@ -81,7 +82,7 @@ function OperatorPanel({
   const [reviewRejectionReason, setReviewRejectionReason] =
     useState("MISSED_DEFECT");
   const [submittingReview, setSubmittingReview] = useState(false);
-  const [, setReviewPending] = useState(false);
+  const [reviewPending, setReviewPending] = useState(false);
   const [zoomedImage, setZoomedImage] = useState(null);
   const [streamStatus, setStreamStatus] = useState("disconnected");
   const [liveAnnotatedOverlaySrc, setLiveAnnotatedOverlaySrc] = useState("");
@@ -89,6 +90,9 @@ function OperatorPanel({
   const [showSessionHistory, setShowSessionHistory] = useState(false);
   const [isCameraFullscreen, setIsCameraFullscreen] = useState(false);
   const [notification, setNotification] = useState(null);
+  const [manualAnnotations, setManualAnnotations] = useState([]);
+  const [currentPath, setCurrentPath] = useState([]);
+  const [isDrawing, setIsDrawing] = useState(false);
 
   useEffect(() => {
     // Auto-dismiss notification after 4 seconds
@@ -290,6 +294,81 @@ function OperatorPanel({
     })();
   }, [sessionFilter, sessionStarted]);
 
+  /* ── Drawing handlers for manual annotations ──────────────── */
+  const startDrawing = useCallback((e) => {
+    if (!reviewPendingRef.current) return;
+    const canvas = manualCanvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    setIsDrawing(true);
+    setCurrentPath([{ x, y }]);
+  }, []);
+
+  const drawLine = useCallback((e) => {
+    if (!isDrawing || !reviewPendingRef.current) return;
+    const canvas = manualCanvasRef.current;
+    if (!canvas) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    setCurrentPath((prev) => [...prev, { x, y }]);
+  }, [isDrawing]);
+
+  const stopDrawing = useCallback(() => {
+    if (!isDrawing) return;
+    setIsDrawing(false);
+    if (currentPath.length > 1) {
+      setManualAnnotations((prev) => [...prev, currentPath]);
+    }
+    setCurrentPath([]);
+  }, [isDrawing, currentPath]);
+
+  /* ── Canvas rendering: Manual annotations on top canvas ──── */
+  useEffect(() => {
+    const canvas = manualCanvasRef.current;
+    if (!canvas) return;
+
+    // Ensure the manual canvas size matches its CSS dimensions
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // Draw completed paths
+    manualAnnotations.forEach((path) => {
+      if (path.length < 2) return;
+      ctx.strokeStyle = "#FF3B30";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(path[0].x, path[0].y);
+      for (let i = 1; i < path.length; i++) {
+        ctx.lineTo(path[i].x, path[i].y);
+      }
+      ctx.stroke();
+    });
+
+    // Draw the path currently being drawn
+    if (currentPath.length > 1) {
+      ctx.strokeStyle = "#FF3B30";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(currentPath[0].x, currentPath[0].y);
+      for (let i = 1; i < currentPath.length; i++) {
+        ctx.lineTo(currentPath[i].x, currentPath[i].y);
+      }
+      ctx.stroke();
+    }
+  }, [manualAnnotations, currentPath]);
+
   /* ── Canvas overlay ─────────────────────────────────────────── */
   const drawOverlay = useCallback(
     (result) => {
@@ -298,9 +377,16 @@ function OperatorPanel({
       const media = capturedFrame ? frameRef.current : webcamRef.current?.video;
       if (!canvas || !media) return;
 
-      // Get display dimensions from canvas container
-      const displayWidth = canvas.offsetWidth || media.clientWidth || 640;
-      const displayHeight = canvas.offsetHeight || media.clientHeight || 480;
+      // Get wrapper dimensions for more reliable sizing
+      const wrapper = canvas.parentElement;
+      let displayWidth = wrapper?.offsetWidth || canvas.offsetWidth || media.clientWidth || 640;
+      let displayHeight = wrapper?.offsetHeight || canvas.offsetHeight || media.clientHeight || 480;
+
+      // Fallback: use media element dimensions if available
+      if (media.tagName === "VIDEO") {
+        if (!displayWidth || displayWidth < 100) displayWidth = media.clientWidth || 640;
+        if (!displayHeight || displayHeight < 100) displayHeight = media.clientHeight || 480;
+      }
 
       // Get source dimensions - handle both video and img elements
       let sourceWidth, sourceHeight;
@@ -428,14 +514,40 @@ function OperatorPanel({
         const canvas = overlayRef.current;
         if (!canvas) return;
 
-        canvas.width = img.width;
-        canvas.height = img.height;
+        // Use parent wrapper dimensions or video dimensions
+        const wrapper = canvas.parentElement;
+        let displayWidth = wrapper?.offsetWidth || img.width;
+        let displayHeight = wrapper?.offsetHeight || img.height;
+        
+        // If dimensions are still too small, use image dimensions
+        if (displayWidth < 100) displayWidth = img.width;
+        if (displayHeight < 100) displayHeight = img.height;
+
+        canvas.width = displayWidth;
+        canvas.height = displayHeight;
         const ctx = canvas.getContext("2d");
         if (ctx) {
-          ctx.drawImage(img, 0, 0);
+          // Draw with aspect-ratio preservation
+          const imgRatio = img.width / img.height;
+          const displayRatio = displayWidth / displayHeight;
+          let drawWidth, drawHeight, drawX, drawY;
+          
+          if (displayRatio > imgRatio) {
+            drawHeight = displayHeight;
+            drawWidth = displayHeight * imgRatio;
+            drawX = (displayWidth - drawWidth) / 2;
+            drawY = 0;
+          } else {
+            drawWidth = displayWidth;
+            drawHeight = displayWidth / imgRatio;
+            drawX = 0;
+            drawY = (displayHeight - drawHeight) / 2;
+          }
+          
+          ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
           console.debug("[ServerAnnotation] Rendered annotated image:", {
-            width: img.width,
-            height: img.height,
+            width: displayWidth,
+            height: displayHeight,
           });
         }
       };
@@ -467,6 +579,13 @@ function OperatorPanel({
           return;
         }
 
+        // Set canvas dimensions from wrapper container
+        const wrapper = canvas.parentElement;
+        if (wrapper) {
+          canvas.width = wrapper.offsetWidth || video.clientWidth || 640;
+          canvas.height = wrapper.offsetHeight || video.clientHeight || 480;
+        }
+
         // Draw detections if available
         if (
           detectionResult &&
@@ -476,13 +595,8 @@ function OperatorPanel({
           drawOverlay(detectionResult);
         } else {
           // Clear canvas if no detections
-          const displayWidth = canvas.offsetWidth || video.clientWidth || 640;
-          const displayHeight =
-            canvas.offsetHeight || video.clientHeight || 480;
-          canvas.width = displayWidth;
-          canvas.height = displayHeight;
           const ctx = canvas.getContext("2d");
-          if (ctx) ctx.clearRect(0, 0, displayWidth, displayHeight);
+          if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
       } else if (capturedFrame) {
         // Clear canvas when showing captured frame (annotations handled separately)
@@ -585,8 +699,19 @@ function OperatorPanel({
       }
     })();
 
+    const MAX_RECONNECT_ATTEMPTS = 5;
+
     const connectStream = () => {
       if (!streamEffectActiveRef.current) return;
+
+      // Don't attempt to reconnect beyond max attempts
+      if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
+        setStreamStatus("failed");
+        console.warn(
+          `[InferenceStream] Max reconnection attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Giving up.`
+        );
+        return;
+      }
 
       setStreamStatus("connecting");
       const socket = new WebSocket(buildInferenceStreamUrl(token), [
@@ -598,6 +723,7 @@ function OperatorPanel({
         reconnectAttemptsRef.current = 0;
         setStreamStatus("connected");
         setError("");
+        console.debug("[InferenceStream] Connected");
       };
 
       socket.onmessage = (event) => {
@@ -630,9 +756,13 @@ function OperatorPanel({
         }
       };
 
-      socket.onerror = () => {
+      socket.onerror = (err) => {
         setStreamStatus("error");
         liveRequestInFlightRef.current = false;
+        // Only log error on first attempt or after successful connection
+        if (reconnectAttemptsRef.current === 0) {
+          console.warn("[InferenceStream] Connection error (will retry):", err);
+        }
       };
 
       socket.onclose = () => {
@@ -648,8 +778,20 @@ function OperatorPanel({
 
         const attempt = reconnectAttemptsRef.current + 1;
         reconnectAttemptsRef.current = attempt;
+
+        if (attempt >= MAX_RECONNECT_ATTEMPTS) {
+          setStreamStatus("failed");
+          console.warn(
+            `[InferenceStream] Connection closed. Max reconnection attempts reached.`
+          );
+          return;
+        }
+
         const delayMs = Math.min(1000 * 2 ** (attempt - 1), 8000);
         setStreamStatus("reconnecting");
+        console.debug(
+          `[InferenceStream] Reconnecting in ${delayMs}ms (attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS})`
+        );
         reconnectTimerRef.current = window.setTimeout(() => {
           connectStream();
         }, delayMs);
@@ -1261,6 +1403,25 @@ function OperatorPanel({
                   width: "100%",
                   height: "100%",
                   zIndex: 10,
+                  pointerEvents: "none",
+                }}
+              />
+              <canvas
+                ref={manualCanvasRef}
+                className="manual-canvas"
+                onMouseDown={startDrawing}
+                onMouseMove={drawLine}
+                onMouseUp={stopDrawing}
+                onMouseOut={stopDrawing}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  height: "100%",
+                  zIndex: 20,
+                  cursor: reviewPending ? "crosshair" : "default",
+                  pointerEvents: reviewPending ? "auto" : "none",
                 }}
               />
             </div>
