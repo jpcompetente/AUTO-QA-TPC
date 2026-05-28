@@ -52,6 +52,25 @@ flowchart LR
 - The inference service runs as a separate FastAPI app at `inference_server/app.py` and exposes `/predict` and `/health` endpoints.
 - The retraining flow and queue live in `core/models.py` and are orchestrated in `core/views.py` and Celery tasks (see `ai_ins_sys/celery.py`).
 
+## Phases (concise)
+
+### Phase 1 — Role Simplification & Operator UI (short)
+- Goal: reduce roles to `USER` and `ADMIN`, provide a single, simple Operator page.
+- Key deliverables:
+    - DB: consolidate role values in `core/models.py` and add a small data migration to remap existing roles.
+    - Frontend: add/clean `frontend-vite/src/components/OperatorPanel.jsx`, ensure WebSocket or REST streaming to backend/inference service.
+    - Backend: replace scattered role checks in `core/views.py` and `core/consumers.py` with simple `IsUser` / `IsAdmin` permission helpers.
+    - Tests: basic integration test verifying operator page can send an image and receive a persisted `InferenceLog`.
+
+### Phase 2 — Admin Batch Dashboard & Label Studio Integration (short)
+- Goal: allow Admins to collect low-confidence logs, create batches, export to Label Studio, and trigger retraining.
+- Key deliverables:
+    - Models/APIs: `RetrainingQueue` / `RetrainingBatch` models in `core/models.py` and REST endpoints in `core/views.py`.
+    - Connector: `core/label_studio_connector.py` (export/upload/import helpers) and settings entries for Label Studio credentials.
+    - Frontend: `frontend-vite/src/components/AdminBatchDashboard.jsx` and supporting components to list batches, select low-confidence logs, and trigger export/train actions.
+    - Celery tasks: import/export tasks and `retrain_model` orchestration in `core/tasks.py` (enqueue/monitor training, publish new `AIModel`).
+    - Tests: API tests for batch creation, export flow stub (can be mocked), and a smoke test for queueing a retrain job.
+
 ## Next steps (recommended)
 
 1. Verify exact API routes used by the frontend (`frontend-vite/src`) and confirm whether the frontend calls the Django endpoints or the inference service directly.
