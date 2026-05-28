@@ -188,7 +188,7 @@ function OperatorPanel({
     } catch {
       /* ignore */
     }
-    
+
     // Fetch logs for the completed session
     (async () => {
       try {
@@ -197,10 +197,10 @@ function OperatorPanel({
         setSessionCompletedLogs(list);
         setShowSessionHistory(true);
       } catch (err) {
-        console.warn('Error fetching session logs:', err);
+        console.warn("Error fetching session logs:", err);
       }
     })();
-    
+
     setSessionStarted(false);
     setSessionId("");
   }, [sessionId, normalizeList]);
@@ -857,17 +857,17 @@ function OperatorPanel({
         try {
           const logId = result.log_id || result.id;
           const autoApproveResponse = await autoApproveInferenceLog(logId);
-          
+
           const approvalStatus = autoApproveResponse.data.status;
-          
-          if (approvalStatus === 'auto_approved') {
+
+          if (approvalStatus === "auto_approved") {
             // Backend auto-approved
-            console.log('[Auto-Approved]', autoApproveResponse.data.message);
+            console.log("[Auto-Approved]", autoApproveResponse.data.message);
             setNotification({
               type: "success",
               message: autoApproveResponse.data.message,
             });
-            
+
             // Clear UI state
             setDetectionResult(null);
             setCapturedFrame("");
@@ -875,17 +875,20 @@ function OperatorPanel({
             previousFrameRef.current = null;
             stableSinceRef.current = null;
             setLiveAnnotatedOverlaySrc("");
-            
+
             // Refresh logs
             await fetchLogsRef.current();
-          } else if (approvalStatus === 'requires_manual_review') {
+          } else if (approvalStatus === "requires_manual_review") {
             // Backend indicated manual review needed (confidence below threshold)
-            console.log('[Manual Review Required]', autoApproveResponse.data.message);
+            console.log(
+              "[Manual Review Required]",
+              autoApproveResponse.data.message,
+            );
             setNotification({
               type: "info",
               message: autoApproveResponse.data.message,
             });
-            
+
             // Show manual review modal
             setDetectionResult(result);
             setReviewMode("ACKNOWLEDGE");
@@ -899,7 +902,7 @@ function OperatorPanel({
             await fetchLogsRef.current();
           }
         } catch (autoApproveError) {
-          console.error('[Backend Auto-Approve Error]', autoApproveError);
+          console.error("[Backend Auto-Approve Error]", autoApproveError);
           // Fallback to manual review if backend auto-approve fails
           setDetectionResult(result);
           setReviewMode("ACKNOWLEDGE");
@@ -911,7 +914,6 @@ function OperatorPanel({
           setReviewPending(true);
           setMotionStatus("Manual review required");
         }
-
       } catch (requestError) {
         const errorMsg =
           requestError.response?.data?.error ||
@@ -1254,246 +1256,228 @@ function OperatorPanel({
             CAMERA PANEL
         ════════════════════════════════════════════════ */}
         <section className="content-grid content-grid--operator">
-            {/* ── Left: camera card ── */}
-            <div className="section-card section-card--camera">
-              <div className="section-heading">
-                <p className="eyebrow">Camera feed</p>
-                <h2>Prepare the frame</h2>
-              </div>
+          {/* ── Left: camera card ── */}
+          <div className="section-card section-card--camera">
+            <div className="section-heading">
+              <p className="eyebrow">Camera feed</p>
+              <h2>Prepare the frame</h2>
+            </div>
 
-              {/* Notification for auto-approval */}
-              {notification && (
-                <div
-                  style={{
-                    padding: "12px",
-                    marginBottom: "12px",
-                    borderRadius: "6px",
-                    backgroundColor: notification.type === "success" ? "#d4edda" : "#f8d7da",
-                    color: notification.type === "success" ? "#155724" : "#721c24",
-                    border: `1px solid ${notification.type === "success" ? "#c3e6cb" : "#f5c6cb"}`,
-                    fontSize: "13px",
-                    fontWeight: "500",
-                  }}
-                >
-                  {notification.message}
-                </div>
-              )}
-
-              {cameraOnly && (
-                <p className="camera-mode-note">
-                  Phone camera mode is active. Keep this device pointed at the
-                  inspection area and capture from the browser.
-                </p>
-              )}
-
-              {/* Webcam */}
+            {/* Notification for auto-approval */}
+            {notification && (
               <div
-                className="webcam-frame-wrap"
-                style={{ position: "relative" }}
+                style={{
+                  padding: "12px",
+                  marginBottom: "12px",
+                  borderRadius: "6px",
+                  backgroundColor:
+                    notification.type === "success" ? "#d4edda" : "#f8d7da",
+                  color:
+                    notification.type === "success" ? "#155724" : "#721c24",
+                  border: `1px solid ${notification.type === "success" ? "#c3e6cb" : "#f5c6cb"}`,
+                  fontSize: "13px",
+                  fontWeight: "500",
+                }}
               >
-                <Webcam
-                  key={`webcam-${sessionStarted}`}
-                  ref={webcamRef}
-                  screenshotFormat="image/png"
-                  audio={false}
-                  videoConstraints={cameraConstraints.video}
-                  className={
-                    capturedFrame
-                      ? "webcam-frame webcam-frame--capture-source"
-                      : "webcam-frame"
-                  }
+                {notification.message}
+              </div>
+            )}
+
+            {cameraOnly && (
+              <p className="camera-mode-note">
+                Phone camera mode is active. Keep this device pointed at the
+                inspection area and capture from the browser.
+              </p>
+            )}
+
+            {/* Webcam */}
+            <div className="webcam-frame-wrap" style={{ position: "relative" }}>
+              <Webcam
+                key={`webcam-${sessionStarted}`}
+                ref={webcamRef}
+                screenshotFormat="image/png"
+                audio={false}
+                videoConstraints={cameraConstraints.video}
+                className={
+                  capturedFrame
+                    ? "webcam-frame webcam-frame--capture-source"
+                    : "webcam-frame"
+                }
+              />
+              {capturedFrame && (
+                <img
+                  ref={frameRef}
+                  src={capturedFrame}
+                  className="webcam-frame"
+                  alt=""
+                  onLoad={() => drawOverlay(detectionResult)}
                 />
-                {capturedFrame && (
-                  <img
-                    ref={frameRef}
-                    src={capturedFrame}
-                    className="webcam-frame"
-                    alt=""
-                    onLoad={() => drawOverlay(detectionResult)}
-                  />
-                )}
-                {!capturedFrame && liveAnnotatedOverlaySrc && (
-                  <img
-                    src={liveAnnotatedOverlaySrc}
-                    className="webcam-overlay"
-                    alt="Live server annotation"
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "cover",
-                      zIndex: 11,
-                      pointerEvents: "none",
-                    }}
-                  />
-                )}
-                {/* LAYER 1: Live Server AI Canvas (high-speed updates) */}
-                <canvas
-                  ref={overlayRef}
+              )}
+              {!capturedFrame && liveAnnotatedOverlaySrc && (
+                <img
+                  src={liveAnnotatedOverlaySrc}
                   className="webcam-overlay"
-                  aria-hidden="true"
+                  alt="Live server annotation"
                   style={{
                     position: "absolute",
                     top: 0,
                     left: 0,
                     width: "100%",
                     height: "100%",
-                    zIndex: 10,
+                    objectFit: "cover",
+                    zIndex: 11,
                     pointerEvents: "none",
                   }}
                 />
-                {/* LAYER 2: Operator Manual Drawing Canvas */}
-                <canvas
-                  ref={manualCanvasRef}
-                  className="webcam-overlay"
-                  onMouseDown={startDrawing}
-                  onMouseMove={drawLine}
-                  onMouseUp={stopDrawing}
-                  onMouseOut={stopDrawing}
-                  aria-hidden="true"
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    height: "100%",
-                    zIndex: 20,
-                    cursor: reviewPendingRef.current ? "crosshair" : "default",
-                  }}
-                />
-              </div>
-
-              {/* Preset metadata chips */}
-              <div className="preset-summary" style={{ display: 'none' }}>
-                <div>
-                  <span>Product</span>
-                  <strong>
-                    {preset?.product_name ||
-                      preset?.component_name ||
-                      "Unassigned"}
-                  </strong>
-                </div>
-                <div>
-                  <span>Model</span>
-                  <strong>{preset?.model_name || "Unassigned"}</strong>
-                </div>
-                <div>
-                  <span>Confidence</span>
-                  <strong>
-                    {preset?.confidence_threshold !== undefined
-                      ? Number(preset.confidence_threshold).toFixed(2)
-                      : "--"}
-                  </strong>
-                </div>
-              </div>
-
-              {/* Error notice */}
-              {error && <div className="notice notice--error">{error}</div>}
+              )}
+              <canvas
+                ref={overlayRef}
+                className="webcam-overlay"
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  height: "100%",
+                  zIndex: 10,
+                }}
+              />
             </div>
 
-            {/* ── Right: inspection info ── */}
-            <div className="section-card section-card--inspection">
-              <div className="section-heading">
-                <p className="eyebrow">Inspection info</p>
-                <h2>Product & Model Details</h2>
+            {/* Preset metadata chips */}
+            <div className="preset-summary" style={{ display: "none" }}>
+              <div>
+                <span>Product</span>
+                <strong>
+                  {preset?.product_name ||
+                    preset?.component_name ||
+                    "Unassigned"}
+                </strong>
+              </div>
+              <div>
+                <span>Model</span>
+                <strong>{preset?.model_name || "Unassigned"}</strong>
+              </div>
+              <div>
+                <span>Confidence</span>
+                <strong>
+                  {preset?.confidence_threshold !== undefined
+                    ? Number(preset.confidence_threshold).toFixed(2)
+                    : "--"}
+                </strong>
+              </div>
+            </div>
+
+            {/* Error notice */}
+            {error && <div className="notice notice--error">{error}</div>}
+          </div>
+
+          {/* ── Right: inspection info ── */}
+          <div className="section-card section-card--inspection">
+            <div className="section-heading">
+              <p className="eyebrow">Inspection info</p>
+              <h2>Product & Model Details</h2>
+            </div>
+
+            <div className="inspection-info-panel">
+              {/* Stream Status */}
+              <div className="info-group">
+                <div className="info-label">Stream</div>
+                <div className="info-status">
+                  <span className={`status-badge status-${streamStatus}`}>
+                    {streamStatus.toUpperCase()}
+                  </span>
+                </div>
               </div>
 
-              <div className="inspection-info-panel">
-                {/* Stream Status */}
-                <div className="info-group">
-                  <div className="info-label">Stream</div>
-                  <div className="info-status">
-                    <span className={`status-badge status-${streamStatus}`}>
-                      {streamStatus.toUpperCase()}
-                    </span>
+              {/* Auto-detect */}
+              <div className="info-group">
+                <div className="info-label">Auto-detect</div>
+                <div className="info-value">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={autoDetectEnabled}
+                      onChange={(e) => {
+                        const next = e.target.checked;
+                        setAutoDetectEnabled(next);
+                        stableSinceRef.current = null;
+                        setMotionStatus(
+                          next
+                            ? "Waiting for stable frame"
+                            : "Auto-detect paused",
+                        );
+                      }}
+                    />
+                    {motionStatus}
+                  </label>
+                </div>
+              </div>
+
+              {/* Batch Status */}
+              <div className="info-group">
+                <div className="info-label">Batch</div>
+                <div className="info-batch">
+                  <div className="batch-status">
+                    {sessionStarted
+                      ? `Batch 1: ${autoDetectEnabled ? "Running" : "Paused"}`
+                      : "Batch 1: Stopped"}
+                  </div>
+                  <div className="batch-controls">
+                    <button
+                      className="batch-button"
+                      onClick={toggleSession}
+                      type="button"
+                    >
+                      {sessionStarted ? "Stop" : "Start Batch"}
+                    </button>
+                    <button
+                      className="batch-button"
+                      onClick={() => {
+                        const next = !autoDetectEnabled;
+                        setAutoDetectEnabled(next);
+                        stableSinceRef.current = null;
+                        setMotionStatus(
+                          next
+                            ? "Waiting for stable frame"
+                            : "Auto-detect paused",
+                        );
+                      }}
+                      type="button"
+                    >
+                      {autoDetectEnabled ? "Pause" : "Resume"}
+                    </button>
                   </div>
                 </div>
+              </div>
 
-                {/* Auto-detect */}
-                <div className="info-group">
-                  <div className="info-label">Auto-detect</div>
-                  <div className="info-value">
-                    <label className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={autoDetectEnabled}
-                        onChange={(e) => {
-                          const next = e.target.checked;
-                          setAutoDetectEnabled(next);
-                          stableSinceRef.current = null;
-                          setMotionStatus(
-                            next ? "Waiting for stable frame" : "Auto-detect paused",
-                          );
-                        }}
-                      />
-                      {motionStatus}
-                    </label>
-                  </div>
+              {/* Product */}
+              <div className="info-group">
+                <div className="info-label">Product</div>
+                <div className="info-value">
+                  {preset?.product_name || preset?.component_name || "—"}
                 </div>
+              </div>
 
-                {/* Batch Status */}
-                <div className="info-group">
-                  <div className="info-label">Batch</div>
-                  <div className="info-batch">
-                    <div className="batch-status">
-                      {sessionStarted ? `Batch 1: ${autoDetectEnabled ? "Running" : "Paused"}` : "Batch 1: Stopped"}
-                    </div>
-                    <div className="batch-controls">
-                      <button
-                        className="batch-button"
-                        onClick={toggleSession}
-                        type="button"
-                      >
-                        {sessionStarted ? "Stop" : "Start Batch"}
-                      </button>
-                      <button
-                        className="batch-button"
-                        onClick={() => {
-                          const next = !autoDetectEnabled;
-                          setAutoDetectEnabled(next);
-                          stableSinceRef.current = null;
-                          setMotionStatus(
-                            next ? "Waiting for stable frame" : "Auto-detect paused",
-                          );
-                        }}
-                        type="button"
-                      >
-                        {autoDetectEnabled ? "Pause" : "Resume"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
+              {/* Model */}
+              <div className="info-group">
+                <div className="info-label">Model</div>
+                <div className="info-value">{preset?.model_name || "—"}</div>
+              </div>
 
-                {/* Product */}
-                <div className="info-group">
-                  <div className="info-label">Product</div>
-                  <div className="info-value">
-                    {preset?.product_name || preset?.component_name || "—"}
-                  </div>
-                </div>
-
-                {/* Model */}
-                <div className="info-group">
-                  <div className="info-label">Model</div>
-                  <div className="info-value">
-                    {preset?.model_name || "—"}
-                  </div>
-                </div>
-
-                {/* Confidence */}
-                <div className="info-group">
-                  <div className="info-label">Confidence</div>
-                  <div className="info-value">
-                    {preset?.confidence_threshold !== undefined
-                      ? `${Number(preset.confidence_threshold * 100).toFixed(0)}%`
-                      : "—"}
-                  </div>
+              {/* Confidence */}
+              <div className="info-group">
+                <div className="info-label">Confidence</div>
+                <div className="info-value">
+                  {preset?.confidence_threshold !== undefined
+                    ? `${Number(preset.confidence_threshold * 100).toFixed(0)}%`
+                    : "—"}
                 </div>
               </div>
             </div>
-          </section>
+          </div>
+        </section>
 
         {/* ════════════════════════════════════════════════
             REVIEW MODAL (LOW-CONFIDENCE FALLBACK)
@@ -1598,23 +1582,59 @@ function OperatorPanel({
         ════════════════════════════════════════════════ */}
         {showSessionHistory && sessionCompletedLogs.length > 0 && (
           <div className="review-modal" role="dialog" aria-modal="true">
-            <div className="review-modal__panel" style={{ maxHeight: "80vh", overflowY: "auto" }}>
+            <div
+              className="review-modal__panel"
+              style={{ maxHeight: "80vh", overflowY: "auto" }}
+            >
               <div className="section-heading">
                 <p className="eyebrow">Batch completed</p>
                 <h2>Session History</h2>
               </div>
 
-              <div style={{ marginBottom: "16px", fontSize: "0.9rem", color: "#666" }}>
-                <p>Total detections: <strong>{sessionCompletedLogs.length}</strong></p>
-                <p style={{ marginTop: "8px" }}>
-                  Auto-approved: <strong>{sessionCompletedLogs.filter(log => !log.operator_override && (log.final_decision || log.system_decision)).length}</strong>
+              <div
+                style={{
+                  marginBottom: "16px",
+                  fontSize: "0.9rem",
+                  color: "#666",
+                }}
+              >
+                <p>
+                  Total detections:{" "}
+                  <strong>{sessionCompletedLogs.length}</strong>
                 </p>
                 <p style={{ marginTop: "8px" }}>
-                  Operator reviewed: <strong>{sessionCompletedLogs.filter(log => log.operator_override).length}</strong>
+                  Auto-approved:{" "}
+                  <strong>
+                    {
+                      sessionCompletedLogs.filter(
+                        (log) =>
+                          !log.operator_override &&
+                          (log.final_decision || log.system_decision),
+                      ).length
+                    }
+                  </strong>
+                </p>
+                <p style={{ marginTop: "8px" }}>
+                  Operator reviewed:{" "}
+                  <strong>
+                    {
+                      sessionCompletedLogs.filter(
+                        (log) => log.operator_override,
+                      ).length
+                    }
+                  </strong>
                 </p>
               </div>
 
-              <div style={{ maxHeight: "500px", overflowY: "auto", marginBottom: "16px", border: "1px solid #e0e0e0", borderRadius: "4px" }}>
+              <div
+                style={{
+                  maxHeight: "500px",
+                  overflowY: "auto",
+                  marginBottom: "16px",
+                  border: "1px solid #e0e0e0",
+                  borderRadius: "4px",
+                }}
+              >
                 {sessionCompletedLogs.map((log) => (
                   <div
                     key={log.id}
@@ -1625,7 +1645,14 @@ function OperatorPanel({
                       cursor: "pointer",
                     }}
                   >
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        justifyContent: "space-between",
+                        alignItems: "center",
+                        marginBottom: "8px",
+                      }}
+                    >
                       <span style={{ fontSize: "0.85rem", color: "#999" }}>
                         {new Date(log.timestamp).toLocaleTimeString()}
                       </span>
@@ -1636,11 +1663,13 @@ function OperatorPanel({
                           fontSize: "0.75rem",
                           fontWeight: "bold",
                           backgroundColor:
-                            (log.final_decision || log.system_decision) === "PASS"
+                            (log.final_decision || log.system_decision) ===
+                            "PASS"
                               ? "#d4edda"
                               : "#f8d7da",
                           color:
-                            (log.final_decision || log.system_decision) === "PASS"
+                            (log.final_decision || log.system_decision) ===
+                            "PASS"
                               ? "#155724"
                               : "#721c24",
                         }}
@@ -1649,15 +1678,28 @@ function OperatorPanel({
                       </span>
                     </div>
                     <div style={{ fontSize: "0.9rem", marginBottom: "6px" }}>
-                      <strong>Confidence:</strong> {(Number(log.confidence_score || 0) * 100).toFixed(1)}%
+                      <strong>Confidence:</strong>{" "}
+                      {(Number(log.confidence_score || 0) * 100).toFixed(1)}%
                     </div>
                     {log.operator_override && (
-                      <div style={{ fontSize: "0.85rem", color: "#d97706", marginBottom: "6px" }}>
+                      <div
+                        style={{
+                          fontSize: "0.85rem",
+                          color: "#d97706",
+                          marginBottom: "6px",
+                        }}
+                      >
                         <strong>✎ Operator override</strong>
                       </div>
                     )}
                     {log.operator_comment && (
-                      <div style={{ fontSize: "0.85rem", color: "#666", fontStyle: "italic" }}>
+                      <div
+                        style={{
+                          fontSize: "0.85rem",
+                          color: "#666",
+                          fontStyle: "italic",
+                        }}
+                      >
                         "{log.operator_comment}"
                       </div>
                     )}
