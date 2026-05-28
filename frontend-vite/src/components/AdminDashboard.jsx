@@ -141,6 +141,7 @@ function AdminDashboard({ onLogout }) {
   const [filterOperator, setFilterOperator] = useState("");
   const [filterBatch, setFilterBatch] = useState("all");
   const [filterSearch, setFilterSearch] = useState("");
+  
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -366,6 +367,61 @@ function AdminDashboard({ onLogout }) {
 
   const currentSetting = settings[0];
 
+  const getConfidence = (log) => {
+    return (
+      log.confidence ?? log.score ?? log.probability ?? log.model_confidence ?? null
+    );
+  };
+
+  
+
+  // derived metrics for Model Health + Alerts
+  const currentModelObj = models.find(
+    (m) => String(m.id) === String(currentSetting?.model || currentSetting?.model_id),
+  );
+
+  const decisionCounts = detectionLogs.reduce(
+    (acc, l) => {
+      const d = (l.final_decision || l.system_decision || "").toString().toLowerCase();
+      if (d.includes("pass")) acc.pass += 1;
+      else if (d.includes("fail") || d.includes("reject")) acc.fail += 1;
+      else acc.other += 1;
+      return acc;
+    },
+    { pass: 0, fail: 0, other: 0 },
+  );
+
+  const recent = detectionLogs.slice(-100);
+  const recentPassRate = recent.length
+    ? recent.filter((l) => (l.final_decision || l.system_decision || "").toString().toLowerCase().includes("pass")).length / recent.length
+    : null;
+  const prev = detectionLogs.slice(-200, -100);
+  const prevPassRate = prev.length
+    ? prev.filter((l) => (l.final_decision || l.system_decision || "").toString().toLowerCase().includes("pass")).length / prev.length
+    : null;
+  const performanceDelta =
+    recentPassRate != null && prevPassRate != null
+      ? recentPassRate - prevPassRate
+      : null;
+
+  const lowConfidenceClusters = (() => {
+    const byKey = {};
+    detectionLogs.forEach((l) => {
+      const key = l.model_name || l.model_used || l.component_name || l.component || "unknown";
+      const c = getConfidence(l);
+      if (!byKey[key]) byKey[key] = { sum: 0, n: 0 };
+      if (c != null && !Number.isNaN(Number(c))) {
+        byKey[key].sum += Number(c);
+        byKey[key].n += 1;
+      }
+    });
+    return Object.entries(byKey)
+      .map(([k, v]) => ({ key: k, avg: v.n ? v.sum / v.n : null, n: v.n }))
+      .filter((x) => x.n >= 5 && x.avg != null)
+      .sort((a, b) => a.avg - b.avg)
+      .slice(0, 6);
+  })();
+
   const pageTitles = {
     home: ["Overview", "Admin portal"],
     "detection-logs": ["Detection logs", "Audit trail"],
@@ -532,6 +588,74 @@ function AdminDashboard({ onLogout }) {
                     {currentSetting
                       ? Number(currentSetting.threshold).toFixed(2)
                       : "0.50"}
+                  </div>
+                </div>
+              </div>
+
+              <div className="adash__overview-grid" style={{ marginTop: 18, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+                <div className="adash__card" style={{ padding: 18, minHeight: 180 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div className="adash__card-label">Model Health</div>
+                      <div style={{ fontWeight: 600, marginTop: 6 }}>{currentModelObj ? `${currentModelObj.name} ${currentModelObj.version || ''}` : (currentSetting?.model_name || 'No model selected')}</div>
+                    </div>
+                    <div style={{ textAlign: 'right' }}>
+                      <div style={{ fontSize: 12, color: '#666' }}>Recent vs prior</div>
+                      <div style={{ fontWeight: 700, marginTop: 6 }}>{performanceDelta == null ? '—' : `${(performanceDelta * 100).toFixed(1)}%`}</div>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 13, marginBottom: 6 }}>Confusion snapshot</div>
+                    <div style={{ display: 'flex', gap: 12 }}>
+                      <div style={{ flex: 1, padding: 8, background: '#f7f7f7', borderRadius: 6 }}>
+                        <div style={{ fontSize: 12, color: '#666' }}>Pass</div>
+                        <div style={{ fontWeight: 700, fontSize: 18 }}>{decisionCounts.pass}</div>
+                      </div>
+                      <div style={{ flex: 1, padding: 8, background: '#f7f7f7', borderRadius: 6 }}>
+                        <div style={{ fontSize: 12, color: '#666' }}>Fail</div>
+                        <div style={{ fontWeight: 700, fontSize: 18 }}>{decisionCounts.fail}</div>
+                      </div>
+                      <div style={{ flex: 1, padding: 8, background: '#f7f7f7', borderRadius: 6 }}>
+                        <div style={{ fontSize: 12, color: '#666' }}>Other</div>
+                        <div style={{ fontWeight: 700, fontSize: 18 }}>{decisionCounts.other}</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="adash__card" style={{ padding: 18, minHeight: 180 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div className="adash__card-label">Alerts & Issues</div>
+                      <div style={{ fontSize: 13, color: '#666', marginTop: 6 }}>{detectionLogs.length} observations</div>
+                    </div>
+                    <div style={{ fontSize: 12, color: '#888' }}>Auto-detected</div>
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
+                    <div style={{ fontSize: 13, marginBottom: 6 }}>Low-confidence clusters</div>
+                    {lowConfidenceClusters.length === 0 ? (
+                      <div style={{ color: '#666', fontSize: 13 }}>No low-confidence clusters found.</div>
+                    ) : (
+                      <ul style={{ margin: 0, paddingLeft: 16 }}>
+                        {lowConfidenceClusters.map((c) => (
+                          <li key={c.key} style={{ marginBottom: 6 }}>
+                            <strong>{c.key}</strong>: avg {c.avg.toFixed(2)} across {c.n} samples
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    <div style={{ marginTop: 12 }}>
+                      <div style={{ fontSize: 13, marginBottom: 6 }}>Active alerts</div>
+                      {detectionLogs.filter((l) => (l.status || '').toString().toLowerCase() === 'alert').slice(0,5).map((a) => (
+                        <div key={a.id} style={{ padding: 8, background: '#fff6f6', borderRadius: 6, marginBottom: 8 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>{a.component_name || a.component || a.model_name || a.model_used || `#${a.id}`}</div>
+                          <div style={{ fontSize: 12, color: '#666' }}>{(a.final_decision || a.system_decision || a.status) + ' • ' + (new Date(a.timestamp || a.created_at).toLocaleString())}</div>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </div>
