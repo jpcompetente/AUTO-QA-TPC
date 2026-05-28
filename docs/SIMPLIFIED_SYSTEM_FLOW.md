@@ -20,16 +20,8 @@ Transform AUTO-QA TPC from a 4-role complex system to a **2-role simplified syst
 
 ## 🏗️ System Architecture
 
-### Current State (4 Roles)
-```
-SuperAdmin ────┐
-               ├─→ Multiple dashboards (fragmented)
-Admin          │
-Operator       ├─→ Complex permission model
-Inspector  ────┘
-```
 
-### Target State (2 Roles)
+### Current State (2 Roles)
 ```
 USER ──────────→ Single Unified Operator Dashboard
                  (Camera + Defects + Model Info)
@@ -138,7 +130,7 @@ CHECK (role IN ('USER', 'ADMIN'));
 │                             │  📊 SESSION INFO                 │
 │  📹 CAMERA FEED             │  ├─ Model: YOLOv8 v2.1          │
 │  (Video Stream)             │  ├─ Product: Widget-A            │
-│  + Motion Indicator         │  ├─ Session: MO-2024-001        │
+│  + Motion Indicator         │  ├─ Batch: MO-2024-001        │
 │  + Stability Timer          │  ├─ Status: 🟢 Running          │
 │                             │  └─ Confidence Threshold: 75%   │
 │                             │                                  │
