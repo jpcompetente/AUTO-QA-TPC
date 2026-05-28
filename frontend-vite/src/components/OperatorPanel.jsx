@@ -81,14 +81,13 @@ function OperatorPanel({
   const [reviewRejectionReason, setReviewRejectionReason] =
     useState("MISSED_DEFECT");
   const [submittingReview, setSubmittingReview] = useState(false);
-  const [, setReviewPending] = useState(false);
+  const [reviewPending, setReviewPending] = useState(false);
   const [zoomedImage, setZoomedImage] = useState(null);
   const [streamStatus, setStreamStatus] = useState("disconnected");
   const [liveAnnotatedOverlaySrc, setLiveAnnotatedOverlaySrc] = useState("");
   const [sessionCompletedLogs, setSessionCompletedLogs] = useState([]);
   const [showSessionHistory, setShowSessionHistory] = useState(false);
   const [notification, setNotification] = useState(null);
-  const [serverDetections, setServerDetections] = useState([]);
   const [manualAnnotations, setManualAnnotations] = useState([]);
   const [currentPath, setCurrentPath] = useState([]);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -1341,6 +1340,25 @@ function OperatorPanel({
                   width: "100%",
                   height: "100%",
                   zIndex: 10,
+                  pointerEvents: "none",
+                }}
+              />
+              <canvas
+                ref={manualCanvasRef}
+                className="manual-canvas"
+                onMouseDown={startDrawing}
+                onMouseMove={drawLine}
+                onMouseUp={stopDrawing}
+                onMouseOut={stopDrawing}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  height: "100%",
+                  zIndex: 20,
+                  cursor: reviewPending ? "crosshair" : "default",
+                  pointerEvents: reviewPending ? "auto" : "none",
                 }}
               />
             </div>
