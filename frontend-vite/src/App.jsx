@@ -6,7 +6,7 @@ import AdminDashboard from "./components/AdminDashboard";
 import Login from "./components/Login";
 import OperatorPanel from "./components/OperatorPanel";
 import CameraSender from "./components/CameraSender";
-import CameraReceiver from "./components/CameraReceiver";
+import "./components/CameraReceiver";
 import "./App.css";
 
 function normalizeRole(role) {
@@ -14,9 +14,7 @@ function normalizeRole(role) {
   const normalized = role.toLowerCase().replace(/_/g, "");
 
   if (normalized === "admin") return "admin";
-  if (normalized === "superadmin") return "admin";
   if (normalized === "operator") return "user";
-  if (normalized === "inspector") return "user";
 
   return normalized;
 }
@@ -143,6 +141,9 @@ function App() {
     return <Login onLogin={handleLogin} apiMessage={apiMessage} />;
   }
 
+  // eslint-disable-next-line no-useless-assignment
+  let mainContent = null;
+
   if (role === "admin") {
     return (
       <>
@@ -203,17 +204,17 @@ function App() {
     return <CameraSender />;
   }
 
-  if (appMode === "relay-receiver") {
-    return <CameraReceiver />;
-  }
+  mainContent = (
+    <OperatorPanel
+      onLogout={requestLogout}
+      username={username}
+      cameraOnly={appMode === "camera"}
+    />
+  );
 
   return (
     <>
-      <OperatorPanel
-        onLogout={requestLogout}
-        username={username}
-        cameraOnly={appMode === "camera"}
-      />
+      {mainContent}
       <AnimatePresence>
         {logoutOpen ? (
           <motion.div
