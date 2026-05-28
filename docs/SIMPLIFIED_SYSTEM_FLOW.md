@@ -1,403 +1,70 @@
-# AUTO-QA TPC: Simplified System Flow & Implementation Plan
+# AUTO-QA TPC: Simplified System Flow
 
-**Date**: May 26, 2026  
-**Status**: Implementation Ready  
-**Target**: Simplify to 2 roles (USER/ADMIN) with unified operator page + auto-retraining pipeline
-
----
-
-## 📋 Executive Summary
-
-Transform AUTO-QA TPC from a 4-role complex system to a **2-role simplified system** with:
-- **USER**: Simple operator interface - camera + defect detection in one page
-- **ADMIN**: Batch management + retraining control dashboard
-- **Auto-Pipeline**: Low-confidence logs → Label Studio → Auto-retrain → Deploy
-
-**Total Effort**: 30-40 hours  
-**Phases**: 3 phases over 3-4 weeks
+**Date**: May 28, 2026
+**Status**: Draft — updated to match repository layout
 
 ---
 
-## 🏗️ System Architecture
+## Overview
 
+This document explains the simplified runtime architecture and data flow for AUTO-QA TPC, aligned with the current repository layout. The system has three primary runtime components: the React frontend (`frontend-vite`), the Django backend (`ai_ins_sys` + `core` app), and the separate inference service (`inference_server`). Background work is handled by Celery workers.
 
-### Current State (2 Roles)
-```
-USER ──────────→ OperatorPanel
-                 (Camera + Defects + Model Info)
+## Key Components (where to look)
 
-ADMIN ─────────→ Admin Control Panel
-                 (Batches + Retraining + Logs)
+- Frontend: [frontend-vite](frontend-vite/)
+- Django ASGI entry: [ai_ins_sys/asgi.py](ai_ins_sys/asgi.py)
+- Model loader / hot-swap: [core/model_loader.py](core/model_loader.py)
+- Inference service (FastAPI): [inference_server/app.py](inference_server/app.py)
+- Retraining queue & models: [core/models.py](core/models.py)
+- Retraining APIs & orchestration: [core/views.py](core/views.py)
+
+## Simplified Data Flow (high level)
+
+1. Operator (USER) captures image(s) from the browser UI (camera or file). The frontend streams or posts images to the backend or directly to the inference service.
+2. Inference request is handled either by the Django backend (which may proxy to the inference service) or directly by the FastAPI inference service at `/predict` in `inference_server/app.py`.
+3. Inference results (detections, confidence, masks, annotated image) are returned to the caller. The backend persists a record in `InferenceLog` (see `core/models.py`).
+4. Low-confidence or operator-overridden logs are added to the retraining queue (`RetrainingQueue` / `RetrainingBatch` in `core/models.py`).
+5. Admin creates an export from the retraining queue — images/tasks are exported to Label Studio for labeling.
+6. Labeled data is imported back and queued as a Celery retraining job. Celery workers perform training, evaluation, and, if passing thresholds, save a new `AIModel` version.
+7. Model deployment: the new model weights become discoverable by the inference service and the Django model loader can hot-swap the active model (see `core/model_loader.py`). Frontend sessions pick up the new model on the next inference or reload.
+
+## Minimal Mermaid Flow
+
+```mermaid
+flowchart LR
+  A[Operator (Browser)] -->|REST / WebSocket| B[Django Backend (ai_ins_sys/core)]
+  B -->|Store| C[(Postgres DB)]
+  B -->|Proxy or direct| D[Inference Service (inference_server/app.py)]
+  D -->|Predict| B
+  B -->|Persist| C
+  C -->|Low-confidence| E[Retraining Queue (core.models)]
+  E -->|Export| F[Label Studio]
+  F -->|Labeled Data| G[Celery Retrain Job]
+  G -->|Train & Validate| H[New Model Weights]
+  H -->|Publish| D
+  H -->|Hot-swap| B
 ```
 
-### Data Flow Diagram
-```
-┌──────────────────────────────────────────────────────────────────┐
-│ USER (Operator)                                                  │
-│ ┌────────────────────────────────────────────────────────────┐  │
-│ │ Camera Feed (Real-time)                                    │  │
-│ │ + Motion Detection                                         │  │
-│ │ + Auto-Capture on Motion Stabilize                        │  │
-│ └────────────────────────────────────────────────────────────┘  │
-│                              ↓                                    │
-│                    [Inference Server]                            │
-│                    (YOLO Detection)                              │
-│                              ↓                                    │
-│ ┌────────────────────────────────────────────────────────────┐  │
-│ │ Detection Results                                          │  │
-│ │ • Bounding Boxes                                          │  │
-│ │ • Confidence %                                            │  │
-│ │ • Classification (Defect/OK)                             │  │
-│ └────────────────────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────────────────────┘
-         ↓ (Save to DB)
-    ┌─────────────────────┐
-    │ InferenceLog Table  │
-    │ + confidence        │
-    │ + is_low_confidence │
-    │ + status (PENDING,  │
-    │   ERROR, APPROVED)  │
-    └─────────────────────┘
-         ↓ (Confidence < Threshold?)
-    ┌────────────────────────────────────────┐
-    │ Batch Collection                       │
-    │ (Low-Confidence Logs)                  │
-    │ 30+ images → Ready for Export          │
-    └────────────────────────────────────────┘
-         ↓ (Admin Triggers Export)
-    ┌────────────────────────────────────────┐
-    │ Label Studio Export                    │
-    │ • Images uploaded                      │
-    │ • Auto-labeling enabled                │
-    │ • Waiting for review                   │
-    └────────────────────────────────────────┘
-         ↓ (Labeling Complete)
-    ┌────────────────────────────────────────┐
-    │ Retraining Pipeline (Celery)           │
-    │ • Download labeled data                │
-    │ • Combine with existing dataset        │
-    │ • Train new model                      │
-    │ • Validate performance                 │
-    └────────────────────────────────────────┘
-         ↓ (Validation Passed?)
-    ┌────────────────────────────────────────┐
-    │ New Model Deployment                   │
-    │ • Update ActiveConfiguration           │
-    │ • Restart inference server             │
-    │ • Archive old model                    │
-    └────────────────────────────────────────┘
-         ↓
-    [USER Dashboard loads new model]
-    [Cycle Repeats]
-```
+## Implementation notes / important files
+
+- WebSocket support is enabled when `channels` is installed; see [ai_ins_sys/asgi.py](ai_ins_sys/asgi.py).
+- Model hot-swap and caching logic lives in [core/model_loader.py](core/model_loader.py).
+- The inference service runs as a separate FastAPI app at `inference_server/app.py` and exposes `/predict` and `/health` endpoints.
+- The retraining flow and queue live in `core/models.py` and are orchestrated in `core/views.py` and Celery tasks (see `ai_ins_sys/celery.py`).
+
+## Next steps (recommended)
+
+1. Verify exact API routes used by the frontend (`frontend-vite/src`) and confirm whether the frontend calls the Django endpoints or the inference service directly.
+2. Add minimal diagrams to the README and link this file from `docs/SYSTEM_OVERVIEW.md`.
+3. Implement Label Studio connectors in `core/label_studio_connector.py` and add endpoints for export/import in `core/views.py`.
 
 ---
 
-## 📝 Phase Breakdown
+If you'd like, I can now:
+- open and update `frontend-vite/src` references to the actual endpoints; or
+- implement a concise `core/label_studio_connector.py` stub; or
+- run lint/tests for the inference server.
 
-### ⚡ PHASE 1: Role Simplification & UI Consolidation (Week 1)
-**Effort**: 10-12 hours  
-**Goal**: Simplify to 2 roles + single operator page
-
-#### 1.1 Database Changes
-```sql
--- Option A: Simplify existing UserProfile roles
-ALTER TABLE core_userprofile 
-MODIFY role VARCHAR(20) 
-CHECK (role IN ('USER', 'ADMIN'));
-
--- Mapping:
--- OPERATOR → USER
--- INSPECTOR → USER
--- ADMIN → ADMIN
--- SUPER_ADMIN → ADMIN
-```
-
-**Files to Update**:
-- `core/models.py` - Update UserProfile.ROLES
-- `core/migrations/` - Create migration to update roles
-- Data migration to remap existing users
-
-#### 1.2 Frontend: OperatorPanel
-**Location**: `frontend-vite/src/components/OperatorPanel.jsx`
-
-**Layout**:
-```
-┌────────────────────────────────────────────────────────────────┐
-│ AUTO-QA TPC - Operator Panel                    [Logout]       │
-├─────────────────────────────┬──────────────────────────────────┤
-│                             │                                  │
-│                             │  📊 SESSION INFO                 │
-│  📹 CAMERA FEED             │  ├─ Model: YOLOv8 v2.1          │
-│  (Video Stream)             │  ├─ Product: Widget-A            │
-│  + Motion Indicator         │  ├─ Batch: MO-2024-001        │
-│  + Stability Timer          │  ├─ Status: 🟢 Running          │
-│                             │  └─ Confidence Threshold: 75%   │
-│                             │                                  │
-│  [Canvas Overlay]           │  📈 LAST DETECTION              │
-│  • Green boxes (OK)         │  ├─ Type: Defect                │
-│  • Red boxes (Defect)       │  ├─ Confidence: 92%             │
-│  • Labels + %               │  ├─ Time: 14:35:22              │
-│                             │  └─ [View Image]                │
-│  [Session Controls]         │                                  │
-│  [START] [PAUSE] [STOP]     │  🎯 QUICK STATS                │
-│                             │  ├─ Total Scanned: 156          │
-│                             │  ├─ Defects Found: 12           │
-│                             │  ├─ Defect Rate: 7.7%           │
-│                             │  └─ Avg Confidence: 88%         │
-│                             │                                  │
-│                             │  ⚙️ CONTROLS                    │
-│                             │  [🔄 Refresh] [📤 Export CSV]  │
-│                             │  [📞 Call Admin]                │
-│                             │                                  │
-└─────────────────────────────┴──────────────────────────────────┘
-```
-
-**Key Components**:
-```jsx
-<OperatorPanel>
-  ├─ Camera Feed Panel
-  │  ├─ Video stream
-  │  ├─ Canvas overlay (for detections)
-  │  ├─ Motion indicator
-  │  └─ Stability timer
-  │
-  └─ Info Panel
-     ├─ Session info
-     ├─ Last detection
-     ├─ Quick stats
-     └─ Control buttons
-```
-
-**Features**:
-- Live camera feed with motion detection
-- Canvas overlay for bounding boxes
-- Real-time detection updates via WebSocket
-- Session management (START/PAUSE/STOP)
-- Quick stats summary
-- Simple, clean UI (no complexity)
-
-**Files to Create/Modify**:
-- ✅ `frontend-vite/src/components/OperatorPanel.jsx` (NEW)
-- ✅ `frontend-vite/src/App.jsx` (UPDATE - routing)
-
-#### 1.3 Backend: Update Role Checks
-**Files to Update**:
-- `core/views.py` - Replace OPERATOR/INSPECTOR/SUPER_ADMIN checks with USER/ADMIN
-- `core/consumers.py` - Update WebSocket authentication
-
-**Key Changes**:
-```python
-# OLD
-if user.profile.role == 'OPERATOR':
-    # ...
-
-# NEW
-if user.profile.role == 'USER':
-    # ...
-
-# Simple permission class
-class IsUser(permissions.BasePermission):
-    def has_permission(self, request, view):
-        return request.user.profile.role == 'USER'
-
-class IsAdmin(permissions.BasePermission):
-    def has_permission(self, request, view):
-        return request.user.profile.role == 'ADMIN'
-```
-
-#### 1.4 Testing
-- [ ] Role migration works correctly
-- [ ] Existing users remapped properly
-- [ ] OperatorPanel loads without errors
-- [ ] Camera feed works
-- [ ] WebSocket connections established
-- [ ] Detections display correctly
-
----
-
-### 📦 PHASE 2: Admin Batch Dashboard & Label Studio Integration (Week 2)
-**Effort**: 12-14 hours  
-**Goal**: Admin can view/manage low-confidence batches + export to Label Studio
-
-#### 2.1 Database Models
-
-**New Table: `RetrainingBatch`**
-```python
-class RetrainingBatch(models.Model):
-    STATUS_CHOICES = (
-        ('COLLECTING', 'Collecting images'),
-        ('READY', 'Ready for export'),
-        ('EXPORTED', 'Exported to Label Studio'),
-        ('LABELING', 'Awaiting labels'),
-        ('LABELED', 'Labeling complete'),
-        ('TRAINING', 'Model training'),
-        ('COMPLETED', 'Training complete'),
-        ('FAILED', 'Training failed'),
-    )
-    
-    id = models.AutoField(primary_key=True)
-    batch_name = models.CharField(max_length=100)
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='COLLECTING')
-    
-    # Image collection
-    inference_logs = models.ManyToManyField('InferenceLog', related_name='batches')
-    image_count = models.IntegerField(default=0)
-    confidence_range_min = models.FloatField(default=0.0)
-    confidence_range_max = models.FloatField(default=1.0)
-    
-    # Label Studio integration
-    label_studio_project_id = models.IntegerField(null=True, blank=True)
-    label_studio_task_ids = models.JSONField(default=list, blank=True)
-    
-    # Retraining
-    model_version_before = models.ForeignKey('AIModel', on_delete=models.SET_NULL, null=True, 
-                                             related_name='batches_trained_from')
-    model_version_after = models.ForeignKey('AIModel', on_delete=models.SET_NULL, null=True, blank=True,
-                                            related_name='batches_created_from')
-    
-    # Timestamps
-    created_at = models.DateTimeField(auto_now_add=True)
-    exported_at = models.DateTimeField(null=True, blank=True)
-    labeled_at = models.DateTimeField(null=True, blank=True)
-    training_started_at = models.DateTimeField(null=True, blank=True)
-    training_completed_at = models.DateTimeField(null=True, blank=True)
-    
-    # Performance metrics
-    new_model_accuracy = models.FloatField(null=True, blank=True)
-    new_model_mAP = models.FloatField(null=True, blank=True)
-    improvement_percent = models.FloatField(null=True, blank=True)
-    
-    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True)
-    notes = models.TextField(blank=True)
-    
-    def __str__(self):
-        return f"Batch {self.id}: {self.status} ({self.image_count} images)"
-    
-    class Meta:
-        ordering = ['-created_at']
-        indexes = [
-            models.Index(fields=['status']),
-            models.Index(fields=['created_at']),
-        ]
-```
-
-**Update `InferenceLog` Model**:
-```python
-# Add to InferenceLog:
-class InferenceLog(models.Model):
-    # ... existing fields ...
-    
-    # Retraining integration
-    is_low_confidence = models.BooleanField(default=False, db_index=True)
-    included_in_batch = models.ForeignKey('RetrainingBatch', on_delete=models.SET_NULL, 
-                                         null=True, blank=True, related_name='logs')
-    label_studio_task_id = models.IntegerField(null=True, blank=True)
-    manual_label = models.CharField(max_length=50, null=True, blank=True)  # Labeled result
-    was_used_for_training = models.BooleanField(default=False)
-```
-
-**Files to Update**:
-- ✅ `core/models.py` - Add RetrainingBatch + fields to InferenceLog
-- ✅ `core/migrations/` - Create migration
-
-#### 2.2 Backend: Admin APIs
-
-**New Endpoints**:
-
-| Endpoint | Method | Purpose |
-|----------|--------|---------|
-| `/api/batches/` | GET | List all batches |
-| `/api/batches/<id>/` | GET | Batch details |
-| `/api/batches/` | POST | Create new batch |
-| `/api/batches/<id>/export-to-label-studio/` | POST | Export batch |
-| `/api/batches/<id>/import-labels/` | POST | Import labeled data |
-| `/api/batches/<id>/trigger-training/` | POST | Start retraining |
-| `/api/low-confidence-logs/` | GET | List eligible logs |
-| `/api/models/` | GET | List all models |
-
-**Implementation**:
-```python
-# core/views.py
-
-from rest_framework import viewsets, status
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated
-
-class RetrainingBatchViewSet(viewsets.ModelViewSet):
-    queryset = RetrainingBatch.objects.all()
-    serializer_class = RetrainingBatchSerializer
-    permission_classes = [IsAuthenticated, IsAdmin]
-    
-    @action(detail=True, methods=['post'])
-    def export_to_label_studio(self, request, pk=None):
-        """
-        Export batch to Label Studio for manual labeling
-        """
-        batch = self.get_object()
-        # TODO: Implement Label Studio export
-        return Response({'status': 'exported'})
-    
-    @action(detail=True, methods=['post'])
-    def import_labels(self, request, pk=None):
-        """
-        Import labeled images from Label Studio
-        """
-        batch = self.get_object()
-        # TODO: Implement Label Studio import
-        return Response({'status': 'imported'})
-    
-    @action(detail=True, methods=['post'])
-    def trigger_training(self, request, pk=None):
-        """
-        Start model retraining with labeled data
-        """
-        batch = self.get_object()
-        # Queue Celery task
-        retrain_model.delay(batch.id)
-        return Response({'status': 'training_started'})
-
-class LowConfidenceLogsViewSet(viewsets.ReadOnlyModelViewSet):
-    permission_classes = [IsAuthenticated, IsAdmin]
-    serializer_class = InferenceLogSerializer
-    
-    def get_queryset(self):
-        return InferenceLog.objects.filter(
-            is_low_confidence=True,
-            included_in_batch__isnull=True  # Not yet in a batch
-        ).order_by('-timestamp')
-    
-    @action(detail=False, methods=['post'])
-    def create_batch_from_logs(self, request):
-        """
-        Create a new batch from selected low-confidence logs
-        """
-        log_ids = request.data.get('log_ids', [])
-        logs = InferenceLog.objects.filter(id__in=log_ids)
-        
-        batch = RetrainingBatch.objects.create(
-            batch_name=f"Batch {datetime.now().strftime('%Y%m%d-%H%M%S')}",
-            created_by=request.user
-        )
-        batch.inference_logs.set(logs)
-        batch.image_count = logs.count()
-        batch.save()
-        
-        return Response(RetrainingBatchSerializer(batch).data)
-```
-
-**Files to Create/Update**:
-- ✅ `core/views.py` - Add RetrainingBatchViewSet
-- ✅ `core/serializers.py` - Add RetrainingBatchSerializer
-- ✅ `core/urls.py` - Add batch routes
-
-#### 2.3 Label Studio Integration
-
-**New Module**: `core/label_studio_connector.py`
-
-```python
-import requests
 from django.conf import settings
 
 class LabelStudioConnector:
