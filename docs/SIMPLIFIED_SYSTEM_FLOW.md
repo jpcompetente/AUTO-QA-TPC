@@ -23,7 +23,7 @@ Transform AUTO-QA TPC from a 4-role complex system to a **2-role simplified syst
 
 ### Current State (2 Roles)
 ```
-USER ──────────→ Single Unified Operator Dashboard
+USER ──────────→ OperatorPanel
                  (Camera + Defects + Model Info)
 
 ADMIN ─────────→ Admin Control Panel
@@ -118,8 +118,8 @@ CHECK (role IN ('USER', 'ADMIN'));
 - `core/migrations/` - Create migration to update roles
 - Data migration to remap existing users
 
-#### 1.2 Frontend: Create Unified Operator Dashboard
-**Location**: `frontend-vite/src/components/UnifiedOperatorDashboard.jsx`
+#### 1.2 Frontend: OperatorPanel
+**Location**: `frontend-vite/src/components/OperatorPanel.jsx`
 
 **Layout**:
 ```
@@ -155,18 +155,18 @@ CHECK (role IN ('USER', 'ADMIN'));
 
 **Key Components**:
 ```jsx
-<UnifiedOperatorDashboard>
-  ├─ <CameraFeedPanel>
-  │  ├─ <VideoStream />
-  │  ├─ <CanvasOverlay /> (for detections)
-  │  ├─ <MotionIndicator />
-  │  └─ <StabilityTimer />
+<OperatorPanel>
+  ├─ Camera Feed Panel
+  │  ├─ Video stream
+  │  ├─ Canvas overlay (for detections)
+  │  ├─ Motion indicator
+  │  └─ Stability timer
   │
-  └─ <InfoPanel>
-     ├─ <SessionInfo />
-     ├─ <LastDetection />
-     ├─ <QuickStats />
-     └─ <ControlButtons />
+  └─ Info Panel
+     ├─ Session info
+     ├─ Last detection
+     ├─ Quick stats
+     └─ Control buttons
 ```
 
 **Features**:
@@ -178,16 +178,12 @@ CHECK (role IN ('USER', 'ADMIN'));
 - Simple, clean UI (no complexity)
 
 **Files to Create/Modify**:
-- ✅ `frontend-vite/src/components/UnifiedOperatorDashboard.jsx` (NEW)
-- ✅ `frontend-vite/src/components/CameraFeedPanel.jsx` (NEW)
-- ✅ `frontend-vite/src/components/InfoPanel.jsx` (NEW)
-- ✅ `frontend-vite/src/styles/unified-operator.css` (NEW)
+- ✅ `frontend-vite/src/components/OperatorPanel.jsx` (NEW)
 - ✅ `frontend-vite/src/App.jsx` (UPDATE - routing)
 
 #### 1.3 Backend: Update Role Checks
 **Files to Update**:
 - `core/views.py` - Replace OPERATOR/INSPECTOR/SUPER_ADMIN checks with USER/ADMIN
-- `core/permissions.py` - Simplify permission classes
 - `core/consumers.py` - Update WebSocket authentication
 
 **Key Changes**:
@@ -213,7 +209,7 @@ class IsAdmin(permissions.BasePermission):
 #### 1.4 Testing
 - [ ] Role migration works correctly
 - [ ] Existing users remapped properly
-- [ ] Unified dashboard loads without errors
+- [ ] OperatorPanel loads without errors
 - [ ] Camera feed works
 - [ ] WebSocket connections established
 - [ ] Detections display correctly
@@ -395,7 +391,6 @@ class LowConfidenceLogsViewSet(viewsets.ReadOnlyModelViewSet):
 - ✅ `core/views.py` - Add RetrainingBatchViewSet
 - ✅ `core/serializers.py` - Add RetrainingBatchSerializer
 - ✅ `core/urls.py` - Add batch routes
-- ✅ `core/permissions.py` - Add IsAdmin check
 
 #### 2.3 Label Studio Integration
 
@@ -997,7 +992,7 @@ POST   /api/models/<id>/rollback/       - Rollback model
 - [ ] Deploy frontend changes
 - [ ] Verify APIs responding
 - [ ] Test role-based access
-- [ ] Verify unified operator dashboard
+- [ ] Verify OperatorPanel
 - [ ] Verify admin batch dashboard
 - [ ] Test Label Studio integration
 
@@ -1068,7 +1063,7 @@ MODELS_DIR=/data/models
 | Metric | Target | Timeline |
 |--------|--------|----------|
 | Role migration complete | 100% users migrated | Day 1 |
-| Unified dashboard working | All operators on single page | Day 3 |
+| OperatorPanel working | All operators on single page | Day 3 |
 | Admin dashboard working | All admins can see batches | Day 5 |
 | Label Studio integration | Export/import working | Day 7 |
 | Auto-batch creation | Creates at 30 images | Day 10 |
