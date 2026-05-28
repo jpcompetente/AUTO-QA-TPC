@@ -1458,6 +1458,14 @@ function OperatorPanel({
                     {autoDetectEnabled ? "Pause" : "Resume"}
                   </button>
                 </div>
+                <button
+                  className="camera-exit-inline-button"
+                  onClick={toggleCameraFullscreen}
+                  aria-label="Exit fullscreen"
+                  type="button"
+                >
+                  Exit
+                </button>
               </div>
             )}
 
