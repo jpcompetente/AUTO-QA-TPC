@@ -1,4 +1,4 @@
-const CACHE_NAME = 'auto-qa-tpc-camera-v1';
+const CACHE_NAME = 'auto-qa-tpc-camera-v3-https';
 const APP_SHELL = ['/', '/?mode=camera', '/manifest.webmanifest', '/favicon.svg'];
 
 self.addEventListener('install', (event) => {

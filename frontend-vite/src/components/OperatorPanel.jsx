@@ -19,7 +19,7 @@ const STABLE_CAPTURE_DELAY_MS = 2000;
 const MOTION_SAMPLE_INTERVAL_MS = 250;
 const MOTION_THRESHOLD = 9; // For auto-capture (stable frame detection)
 const LIVE_INFERENCE_INTERVAL_MS = 1500;
-const LIVE_MOTION_THRESHOLD = 20; // Higher threshold for live feed (less noise)
+const LIVE_MOTION_THRESHOLD = 8; // Lower threshold for live feed (more responsive, less filtering)
 
 const REJECTION_REASONS = [
   ["MISSED_DEFECT", "Missed a defect"],
@@ -570,23 +570,25 @@ function OperatorPanel({
 
     const drawFrame = () => {
       const video = webcamRef.current?.video;
+      const ctx = canvas.getContext("2d");
+
+      // Always set canvas dimensions from wrapper container
+      const wrapper = canvas.parentElement;
+      if (wrapper && ctx) {
+        canvas.width = wrapper.offsetWidth || video?.clientWidth || 640;
+        canvas.height = wrapper.offsetHeight || video?.clientHeight || 480;
+      }
 
       // Only draw on live feed (not when captured frame is showing)
       if (!capturedFrame && video && video.readyState === 4) {
-        // Keep server-side rendered overlay on canvas when available.
+        // Clear canvas if server-side overlay is available (will show as img tag)
         if (detectionResult?.annotated_image_b64) {
+          if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
           animationFrameId = requestAnimationFrame(drawFrame);
           return;
         }
 
-        // Set canvas dimensions from wrapper container
-        const wrapper = canvas.parentElement;
-        if (wrapper) {
-          canvas.width = wrapper.offsetWidth || video.clientWidth || 640;
-          canvas.height = wrapper.offsetHeight || video.clientHeight || 480;
-        }
-
-        // Draw detections if available
+        // Draw detections if available (no server overlay)
         if (
           detectionResult &&
           detectionResult.detections &&
@@ -595,14 +597,11 @@ function OperatorPanel({
           drawOverlay(detectionResult);
         } else {
           // Clear canvas if no detections
-          const ctx = canvas.getContext("2d");
           if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
         }
-      } else if (capturedFrame) {
-        // Clear canvas when showing captured frame (annotations handled separately)
-        const ctx = canvas.getContext("2d");
-        if (ctx && canvas.width > 0)
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
+      } else {
+        // Clear canvas when showing captured frame or no video
+        if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
       }
 
       animationFrameId = requestAnimationFrame(drawFrame);
@@ -731,10 +730,18 @@ function OperatorPanel({
           const message = JSON.parse(event.data || "{}");
           if (message.type === "inference_result" && message.data) {
             setDetectionResult(message.data);
+            
+            const hasAnnotation = !!message.data.annotated_image_b64;
+            const annotationSize = message.data.annotated_image_b64?.length || 0;
+            const detectionCount = message.data.detections?.length || 0;
+            
+            console.debug(
+              `[InferenceStream] Result received: detections=${detectionCount}, has_annotation=${hasAnnotation}, annotation_kb=${(annotationSize / 1024).toFixed(1)}`
+            );
+            
             if (message.data.annotated_image_b64) {
-              setLiveAnnotatedOverlaySrc(
-                `data:image/png;base64,${message.data.annotated_image_b64}`,
-              );
+              const dataUrl = `data:image/png;base64,${message.data.annotated_image_b64}`;
+              setLiveAnnotatedOverlaySrc(dataUrl);
             } else {
               setLiveAnnotatedOverlaySrc("");
             }
@@ -1151,26 +1158,50 @@ function OperatorPanel({
     const startLive = () => {
       if (liveIntervalRef.current) return;
       console.debug("[LiveInference] Starting live inference loop");
+      let framesSent = 0;
+      let framesSkipped = 0;
+      
       liveIntervalRef.current = window.setInterval(() => {
         if (
           !sessionStarted ||
           captureInFlightRef.current ||
           reviewPendingRef.current ||
           !preset
-        )
+        ) {
           return;
-        if (waitForMotionAfterEmptyRef.current) return;
-        if (liveRequestInFlightRef.current) return;
+        }
+        if (waitForMotionAfterEmptyRef.current) {
+          framesSkipped++;
+          return;
+        }
+        if (liveRequestInFlightRef.current) {
+          framesSkipped++;
+          return;
+        }
 
         const socket = liveSocketRef.current;
-        if (!socket || socket.readyState !== WebSocket.OPEN) return;
+        if (!socket || socket.readyState !== WebSocket.OPEN) {
+          return;
+        }
 
         // Only send live inference when motion is detected
-        if (!checkLiveInferenceMotion()) return;
+        if (!checkLiveInferenceMotion()) {
+          framesSkipped++;
+          return;
+        }
 
         const imageSrc = webcamRef.current?.getScreenshot();
-        if (!imageSrc) return;
+        if (!imageSrc) {
+          return;
+        }
 
+        framesSent++;
+        if (framesSent % 10 === 0) {
+          console.debug(
+            `[LiveInference] Stats: sent=${framesSent}, skipped=${framesSkipped}`
+          );
+        }
+        
         liveRequestInFlightRef.current = true;
         socket.send(
           JSON.stringify({
@@ -1380,6 +1411,16 @@ function OperatorPanel({
                   src={liveAnnotatedOverlaySrc}
                   className="webcam-overlay"
                   alt="Live server annotation"
+                  onError={(e) => {
+                    console.error(
+                      "[LiveOverlay] Image failed to load:",
+                      e.target.src?.substring(0, 50),
+                    );
+                    setLiveAnnotatedOverlaySrc("");
+                  }}
+                  onLoad={() => {
+                    console.debug("[LiveOverlay] Server annotation image loaded successfully");
+                  }}
                   style={{
                     position: "absolute",
                     top: 0,

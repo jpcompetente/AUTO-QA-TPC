@@ -53,7 +53,10 @@ export default defineConfig(({ mode }) => {
     cert: readTlsFile(httpsCertPath),
   };
 
-  const useHttps = Boolean(httpsOptions.key && httpsOptions.cert);
+  // Allow disabling HTTPS for development when connecting to HTTP backend
+  // Set VITE_HTTPS_DISABLED=true in .env.local to run on HTTP
+  const httpsDisabled = env.VITE_HTTPS_DISABLED === "true";
+  const useHttps = !httpsDisabled && Boolean(httpsOptions.key && httpsOptions.cert);
 
   return {
     plugins: [react()],

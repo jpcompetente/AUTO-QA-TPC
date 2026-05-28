@@ -82,13 +82,32 @@ export const autoApproveInferenceLog = (id) =>
 
 export const buildWebSocketUrl = (path) => {
   const configuredBase = import.meta.env.VITE_WS_BASE_URL;
+  
+  if (configuredBase) {
+    // Convert HTTP/HTTPS to WS/WSS as needed
+    let wsUrl = configuredBase;
+    if (wsUrl.startsWith("http://")) {
+      wsUrl = wsUrl.replace("http://", "ws://");
+    } else if (wsUrl.startsWith("https://")) {
+      wsUrl = wsUrl.replace("https://", "wss://");
+    }
+    const wsBase = wsUrl.replace(/\/$/, "");
+    const normalizedPath = String(path || "").startsWith("/")
+      ? String(path)
+      : `/${String(path || "")}`;
+    return `${wsBase}${normalizedPath}`;
+  }
+  
+  // Fallback
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const defaultBase = `${protocol}://${window.location.host}`;
-  const wsBase = (configuredBase || defaultBase).replace(/\/$/, "");
+  const hostname = window.location.hostname;
+  const port = import.meta.env.VITE_BACKEND_PORT || "8000";
+  const baseUrl = `${protocol}://${hostname}:${port}`;
+  
   const normalizedPath = String(path || "").startsWith("/")
     ? String(path)
     : `/${String(path || "")}`;
-  return `${wsBase}${normalizedPath}`;
+  return `${baseUrl}${normalizedPath}`;
 };
 
 export const buildInferenceStreamUrl = (token) => {
