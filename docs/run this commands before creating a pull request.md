@@ -33,7 +33,7 @@ If you changed React components, styles, or frontend API calls:
 
 ```powershell
 cd frontend-vite
-npm run lint
+npm run lintwww
 npm run build
 ```
 
