@@ -1,16 +1,14 @@
-import { useCallback, useEffect, useState, useRef, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
-import Webcam from "react-webcam";
 import {
   createAdminSettings,
   deleteAdminSettings,
   getAdminSettings,
   getComponents,
+  getDetectionLogs,
   getModels,
   getOperators,
   updateAdminSettings,
-  detectImage,
-  getDetectionLogs,
 } from "../api/backend";
 const Icon = {
   Grid: () => (
@@ -19,12 +17,6 @@ const Icon = {
       <rect x="14" y="3" width="7" height="7" rx="1" />
       <rect x="3" y="14" width="7" height="7" rx="1" />
       <rect x="14" y="14" width="7" height="7" rx="1" />
-    </svg>
-  ),
-  Camera: () => (
-    <svg viewBox="0 0 24 24">
-      <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
-      <circle cx="12" cy="13" r="4" />
     </svg>
   ),
   List: () => (
@@ -82,11 +74,6 @@ const Icon = {
       <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   ),
-  Play: () => (
-    <svg viewBox="0 0 24 24">
-      <polygon points="5 3 19 12 5 21 5 3" />
-    </svg>
-  ),
   Save: () => (
     <svg viewBox="0 0 24 24">
       <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
@@ -115,17 +102,10 @@ const Icon = {
       <line x1="6" y1="6" x2="18" y2="18" />
     </svg>
   ),
-  CameraOff: () => (
-    <svg viewBox="0 0 24 24">
-      <line x1="1" y1="1" x2="23" y2="23" />
-      <path d="M21 21H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3m3-3h6l2 3h4a2 2 0 0 1 2 2v9.34m-7.72-2.06a4 4 0 1 1-5.56-5.56" />
-    </svg>
-  ),
 };
 
 const pages = [
   { id: "home", label: "Overview", IconC: Icon.Grid },
-  { id: "detection", label: "Detection", IconC: Icon.Camera },
   { id: "detection-logs", label: "Detection Logs", IconC: Icon.List },
   { id: "settings", label: "Settings", IconC: Icon.Settings },
 ];
@@ -146,11 +126,6 @@ function AdminDashboard({ onLogout }) {
   const [detectionLogs, setDetectionLogs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [formError, setFormError] = useState("");
-  const webcamRef = useRef(null);
-  const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const [detLoading, setDetLoading] = useState(false);
-  const [detError, setDetError] = useState("");
-  const [detResult, setDetResult] = useState(null);
   const [activePage, setActivePage] = useState("home");
   const [editingSettingId, setEditingSettingId] = useState(null);
   const [form, setForm] = useState({
@@ -189,7 +164,6 @@ function AdminDashboard({ onLogout }) {
         model: f.model || String(modelRes.data[0]?.id || ""),
         operator: f.operator || String(opRes.data[0]?.id || ""),
       }));
-      setDetResult(null);
     } finally {
       setIsLoading(false);
     }
@@ -201,11 +175,18 @@ function AdminDashboard({ onLogout }) {
     })();
   }, [fetchData]);
 
+  const compatibleModels = useMemo(() => {
+    if (!form.product) return [];
+    const pid = parseInt(form.product, 10);
+    return models.filter((m) => m.compatible_component_ids?.includes(pid));
+  }, [form.product, models]);
+
   // Sort detection logs
   const sortedDetectionLogs = useMemo(() => {
     const sorted = [...detectionLogs];
     sorted.sort((a, b) => {
-      let aVal, bVal;
+      let aVal;
+      let bVal;
 
       switch (logsSortField) {
         case "operator":
@@ -241,86 +222,6 @@ function AdminDashboard({ onLogout }) {
     return sorted;
   }, [detectionLogs, logsSortField, logsSortOrder]);
 
-  const getCompatibleModels = () => {
-    if (!form.product) return [];
-    const pid = parseInt(form.product);
-    return models.filter((m) => m.compatible_component_ids?.includes(pid));
-  };
-
-  const compatibleModels = getCompatibleModels();
-
-  const handleSubmit = async () => {
-    if (!form.product || !form.model || !form.operator) return;
-    setFormError("");
-    const payload = {
-      product: form.product,
-      operator: form.operator,
-      model: form.model,
-      threshold: Number(form.threshold),
-    };
-    try {
-      if (editingSettingId)
-        await updateAdminSettings(editingSettingId, payload);
-      else await createAdminSettings(payload);
-      setEditingSettingId(null);
-      fetchData();
-    } catch (err) {
-      const rd = err.response?.data;
-      const opErr = rd?.operator;
-      if (Array.isArray(opErr) && opErr.length > 0) setFormError(opErr[0]);
-      else if (typeof opErr === "string") setFormError(opErr);
-      else if (typeof rd?.detail === "string") setFormError(rd.detail);
-      else
-        setFormError(
-          "Failed to save config. This user may already have a configuration.",
-        );
-      setIsLoading(false);
-    }
-  };
-
-  const handleEdit = (setting) => {
-    setEditingSettingId(setting.id);
-    setFormError("");
-    setForm({
-      product: String(setting.product ?? setting.product_id ?? ""),
-      model: String(setting.model ?? setting.model_id ?? ""),
-      operator: String(setting.operator ?? setting.operator_id ?? ""),
-      threshold: setting.threshold ?? setting.confidence_threshold ?? 0.5,
-    });
-    setActivePage("settings");
-  };
-
-  const handleCancelEdit = () => {
-    setEditingSettingId(null);
-    setFormError("");
-    setForm((f) => ({
-      ...f,
-      product: components[0]?.id ? String(components[0].id) : "",
-      model: models[0]?.id ? String(models[0].id) : "",
-      operator: operators[0]?.id ? String(operators[0].id) : "",
-      threshold: 0.5,
-    }));
-  };
-
-  const handleDelete = async (id) => {
-    await deleteAdminSettings(id);
-    fetchData();
-  };
-
-  const currentSetting = settings[0];
-
-  const pageTitles = {
-    home: ["Overview", "Admin portal"],
-    detection: ["Detection", "Run inspections"],
-    "detection-logs": ["Detection logs", "Audit trail"],
-    settings: ["Settings", "Configuration"],
-  };
-
-  const [pageTitle, pageEyebrow] = pageTitles[activePage] || [
-    "Dashboard",
-    "Admin portal",
-  ];
-
   // Filters + pagination for detection logs (per-batch numbering starts at 1)
   const filteredSortedDetectionLogs = useMemo(() => {
     let logs = [...sortedDetectionLogs];
@@ -334,8 +235,9 @@ function AdminDashboard({ onLogout }) {
           l.operator == null &&
           l.operator_name == null &&
           l.operator_id == null
-        )
+        ) {
           return false;
+        }
         if (opObj) {
           return (
             Number(l.operator) === opId ||
@@ -403,6 +305,77 @@ function AdminDashboard({ onLogout }) {
   const shownTo = paginatedDetectionLogs.length
     ? startIndex + paginatedDetectionLogs.length
     : 0;
+
+  const handleSubmit = async () => {
+    if (!form.product || !form.model || !form.operator) return;
+    setFormError("");
+    const payload = {
+      product: form.product,
+      operator: form.operator,
+      model: form.model,
+      threshold: Number(form.threshold),
+    };
+    try {
+      if (editingSettingId)
+        await updateAdminSettings(editingSettingId, payload);
+      else await createAdminSettings(payload);
+      setEditingSettingId(null);
+      fetchData();
+    } catch (err) {
+      const rd = err.response?.data;
+      const opErr = rd?.operator;
+      if (Array.isArray(opErr) && opErr.length > 0) setFormError(opErr[0]);
+      else if (typeof opErr === "string") setFormError(opErr);
+      else if (typeof rd?.detail === "string") setFormError(rd.detail);
+      else
+        setFormError(
+          "Failed to save config. This user may already have a configuration.",
+        );
+      setIsLoading(false);
+    }
+  };
+
+  const handleEdit = (setting) => {
+    setEditingSettingId(setting.id);
+    setFormError("");
+    setForm({
+      product: String(setting.product ?? setting.product_id ?? ""),
+      model: String(setting.model ?? setting.model_id ?? ""),
+      operator: String(setting.operator ?? setting.operator_id ?? ""),
+      threshold: setting.threshold ?? setting.confidence_threshold ?? 0.5,
+    });
+    setActivePage("settings");
+  };
+
+  const handleCancelEdit = () => {
+    setEditingSettingId(null);
+    setFormError("");
+    setForm((f) => ({
+      ...f,
+      product: components[0]?.id ? String(components[0].id) : "",
+      model: models[0]?.id ? String(models[0].id) : "",
+      operator: operators[0]?.id ? String(operators[0].id) : "",
+      threshold: 0.5,
+    }));
+  };
+
+  const handleDelete = async (id) => {
+    await deleteAdminSettings(id);
+    fetchData();
+  };
+
+  const currentSetting = settings[0];
+
+  const pageTitles = {
+    home: ["Overview", "Admin portal"],
+    "detection-logs": ["Detection logs", "Audit trail"],
+    settings: ["Settings", "Configuration"],
+  };
+
+  const [pageTitle, pageEyebrow] = pageTitles[activePage] || [
+    "Dashboard",
+    "Admin portal",
+  ];
 
   return (
     <motion.div
@@ -562,83 +535,6 @@ function AdminDashboard({ onLogout }) {
                   </div>
                 </div>
               </div>
-            </>
-          )}
-
-          {/* ── Detection ── */}
-          {activePage === "detection" && (
-            <>
-              <div className="adash__section-header">
-                <h3>Single inspection</h3>
-                <span className="adash__section-badge">Admin only</span>
-              </div>
-
-              <div className="adash__camera-area">
-                {isCameraOpen ? (
-                  <Webcam
-                    ref={webcamRef}
-                    screenshotFormat="image/jpeg"
-                    audio={false}
-                    className="adash__webcam"
-                  />
-                ) : (
-                  <div className="adash__camera-empty">
-                    <Icon.CameraOff />
-                    <span>Open the camera to begin</span>
-                  </div>
-                )}
-              </div>
-
-              <div className="adash__detection-actions">
-                <button
-                  className="adash__btn adash__btn--ghost"
-                  type="button"
-                  onClick={() => setIsCameraOpen((v) => !v)}
-                >
-                  <Icon.Camera />
-                  {isCameraOpen ? "Close camera" : "Open camera"}
-                </button>
-
-                <button
-                  className="adash__btn adash__btn--primary"
-                  type="button"
-                  disabled={detLoading || !isCameraOpen}
-                  onClick={async () => {
-                    const imageSrc = webcamRef.current?.getScreenshot();
-                    if (!imageSrc) {
-                      setDetError("Open the camera first");
-                      return;
-                    }
-                    setDetLoading(true);
-                    setDetError("");
-                    try {
-                      const response = await detectImage({ image: imageSrc });
-                      setDetResult(response.data);
-                    } catch (err) {
-                      setDetError(
-                        err.response?.data?.error || "Detection failed",
-                      );
-                    } finally {
-                      setDetLoading(false);
-                    }
-                  }}
-                >
-                  <Icon.Play />
-                  {detLoading ? "Processing…" : "Capture & detect"}
-                </button>
-              </div>
-
-              {detError && (
-                <div className="adash__notice adash__notice--error">
-                  {detError}
-                </div>
-              )}
-
-              {detResult && (
-                <div className="adash__result">
-                  <pre>{JSON.stringify(detResult, null, 2)}</pre>
-                </div>
-              )}
             </>
           )}
 
@@ -997,7 +893,7 @@ function AdminDashboard({ onLogout }) {
                             <span
                               className={`adash__decision-badge ${decisionClass(log.final_decision || log.system_decision)}`}
                             >
-                              {log.final_decision || log.system_decision || "—"}
+                              {log.final_decision || log.system_decision || "-"}
                             </span>
                           </td>
                           <td>{log.status}</td>
