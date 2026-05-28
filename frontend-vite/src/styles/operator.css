@@ -283,6 +283,102 @@ body {
   height: 100%;
 }
 
+.section-card--camera:fullscreen,
+.section-card--camera:-webkit-full-screen {
+  width: 100vw;
+  height: 100vh;
+  border-radius: 0;
+  border: 0;
+  box-shadow: none;
+  padding: 18px;
+  background: var(--bg);
+}
+
+.section-card--camera:fullscreen .webcam-frame-wrap,
+.section-card--camera:-webkit-full-screen .webcam-frame-wrap {
+  min-height: 0;
+}
+
+.section-heading--camera {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.section-heading__copy {
+  min-width: 0;
+}
+
+.camera-fullscreen-button {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.camera-fullscreen-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--radius-lg);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.camera-fullscreen-controls .batch-status {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+  font-family: "DM Mono", monospace;
+}
+
+.camera-fullscreen-controls .batch-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.camera-brand-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(
+    135deg,
+    rgba(37, 99, 235, 0.08),
+    rgba(22, 163, 74, 0.08)
+  );
+  border: 1px solid rgba(37, 99, 235, 0.12);
+  flex-shrink: 0;
+}
+
+.camera-brand-banner img {
+  width: 42px;
+  height: 42px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.camera-brand-banner span {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text3);
+}
+
+.camera-brand-banner strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+
 .section-card--result {
   display: flex;
   flex-direction: column;
@@ -342,6 +438,12 @@ body {
   background: linear-gradient(180deg, #0d1117 0%, #161b22 100%);
   border: 1px solid rgba(15, 23, 42, 0.12);
   height: 100%;
+}
+
+.section-card--camera:fullscreen .webcam-frame-wrap,
+.section-card--camera:-webkit-full-screen .webcam-frame-wrap {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .webcam-frame {

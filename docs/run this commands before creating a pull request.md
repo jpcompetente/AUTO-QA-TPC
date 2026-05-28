@@ -50,9 +50,7 @@ If you changed the FastAPI inference service or its helpers:
 Before creating the pull request, make sure all of the following pass for the files you changed:
 
 ```powershell
-.\scripts\run_pr_checks.py
-or
-cd scripts; python run_pr_checks.py 
+.\.venv\Scripts\python.exe .\scripts\run_pr_checks.py
 ```
 
 If you prefer to run the checks individually, these are the equivalent commands:
@@ -72,3 +70,16 @@ Add the inference-server test command when the backend change touches `inference
 - Run the backend commands from the repo root.
 - Run the frontend commands from `frontend-vite/`.
 - If a command fails, fix the failure before opening the PR.
+
+
+## Unit Testing
+
+Frontend
+
+- npm run build
+- npm run lint
+
+Backend
+
+- Run Django app tests: run this "python manage.py test core --verbosity 2"
+- Run inference server unit test: run this "python -m unittest inference_server.tests"

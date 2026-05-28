@@ -38,6 +38,7 @@ function OperatorPanel({
 }) {
   const cameraConstraints = useMemo(() => buildCameraConstraints(), []);
   /* refs */
+  const cameraCardRef = useRef(null);
   const webcamRef = useRef(null);
   const frameRef = useRef(null);
   const overlayRef = useRef(null);
@@ -87,6 +88,7 @@ function OperatorPanel({
   const [liveAnnotatedOverlaySrc, setLiveAnnotatedOverlaySrc] = useState("");
   const [sessionCompletedLogs, setSessionCompletedLogs] = useState([]);
   const [showSessionHistory, setShowSessionHistory] = useState(false);
+  const [isCameraFullscreen, setIsCameraFullscreen] = useState(false);
   const [notification, setNotification] = useState(null);
   const [manualAnnotations, setManualAnnotations] = useState([]);
   const [currentPath, setCurrentPath] = useState([]);
@@ -105,6 +107,27 @@ function OperatorPanel({
     sessionStartedRef.current = sessionStarted;
   }, [sessionFilter, sessionStarted]);
 
+  useEffect(() => {
+    const syncFullscreenState = () => {
+      setIsCameraFullscreen(
+        document.fullscreenElement === cameraCardRef.current,
+      );
+    };
+
+    document.addEventListener("fullscreenchange", syncFullscreenState);
+    document.addEventListener("webkitfullscreenchange", syncFullscreenState);
+
+    syncFullscreenState();
+
+    return () => {
+      document.removeEventListener("fullscreenchange", syncFullscreenState);
+      document.removeEventListener(
+        "webkitfullscreenchange",
+        syncFullscreenState,
+      );
+    };
+  }, []);
+
   // Ensure camera-only mode shows the camera panel without causing
   // a synchronous setState inside an effect (avoids cascading renders).
   /* ── Helpers ─────────────────────────────────────────────────── */
@@ -112,6 +135,31 @@ function OperatorPanel({
     (payload) => payload?.results || payload || [],
     [],
   );
+
+  const toggleCameraFullscreen = useCallback(async () => {
+    const target = cameraCardRef.current;
+    if (!target) return;
+
+    try {
+      if (document.fullscreenElement === target) {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        }
+        return;
+      }
+
+      if (target.requestFullscreen) {
+        await target.requestFullscreen();
+        return;
+      }
+
+      if (target.webkitRequestFullscreen) {
+        await target.webkitRequestFullscreen();
+      }
+    } catch {
+      setError("Unable to open camera in fullscreen mode.");
+    }
+  }, []);
 
   const fetchOptions = useCallback(async () => {
     const response = await getOperatorPreset();
@@ -1256,14 +1304,29 @@ function OperatorPanel({
         ════════════════════════════════════════════════ */}
         <section className="content-grid content-grid--operator">
           {/* ── Left: camera card ── */}
-          <div className="section-card section-card--camera">
-            <div className="section-heading">
-              <p className="eyebrow">Camera feed</p>
-              <h2>Prepare the frame</h2>
-            </div>
+          <div
+            className="section-card section-card--camera"
+            ref={cameraCardRef}
+          >
+            {!isCameraFullscreen && (
+              <div className="section-heading section-heading--camera">
+                <div className="section-heading__copy">
+                  <p className="eyebrow">Camera feed</p>
+                  <h2>Prepare the frame</h2>
+                </div>
+                <button
+                  className="ghost-button camera-fullscreen-button"
+                  onClick={toggleCameraFullscreen}
+                  type="button"
+                  aria-pressed={isCameraFullscreen}
+                >
+                  {isCameraFullscreen ? "Exit fullscreen" : "Fullscreen"}
+                </button>
+              </div>
+            )}
 
             {/* Notification for auto-approval */}
-            {notification && (
+            {!isCameraFullscreen && notification && (
               <div
                 style={{
                   padding: "12px",
@@ -1282,7 +1345,7 @@ function OperatorPanel({
               </div>
             )}
 
-            {cameraOnly && (
+            {!isCameraFullscreen && cameraOnly && (
               <p className="camera-mode-note">
                 Phone camera mode is active. Keep this device pointed at the
                 inspection area and capture from the browser.
@@ -1363,32 +1426,71 @@ function OperatorPanel({
               />
             </div>
 
+            {isCameraFullscreen && (
+              <div className="camera-fullscreen-controls">
+                <div className="batch-status">
+                  {sessionStarted
+                    ? `Batch 1: ${autoDetectEnabled ? "Running" : "Paused"}`
+                    : "Batch 1: Stopped"}
+                </div>
+                <div className="batch-controls">
+                  <button
+                    className="batch-button"
+                    onClick={toggleSession}
+                    type="button"
+                  >
+                    {sessionStarted ? "Stop" : "Start Batch"}
+                  </button>
+                  <button
+                    className="batch-button"
+                    onClick={() => {
+                      const next = !autoDetectEnabled;
+                      setAutoDetectEnabled(next);
+                      stableSinceRef.current = null;
+                      setMotionStatus(
+                        next
+                          ? "Waiting for stable frame"
+                          : "Auto-detect paused",
+                      );
+                    }}
+                    type="button"
+                  >
+                    {autoDetectEnabled ? "Pause" : "Resume"}
+                  </button>
+                </div>
+              </div>
+            )}
+
             {/* Preset metadata chips */}
-            <div className="preset-summary" style={{ display: "none" }}>
-              <div>
-                <span>Product</span>
-                <strong>
-                  {preset?.product_name ||
-                    preset?.component_name ||
-                    "Unassigned"}
-                </strong>
+            {!isCameraFullscreen && (
+              <div className="preset-summary" style={{ display: "none" }}>
+                <div>
+                  <span>Product</span>
+                  <strong>
+                    {preset?.product_name ||
+                      preset?.component_name ||
+                      "Unassigned"}
+                  </strong>
+                </div>
+                <div>
+                  <span>Model</span>
+                  <strong>{preset?.model_name || "Unassigned"}</strong>
+                </div>
+                <div>
+                  <span>Confidence</span>
+                  <strong>
+                    {preset?.confidence_threshold !== undefined
+                      ? Number(preset.confidence_threshold).toFixed(2)
+                      : "--"}
+                  </strong>
+                </div>
               </div>
-              <div>
-                <span>Model</span>
-                <strong>{preset?.model_name || "Unassigned"}</strong>
-              </div>
-              <div>
-                <span>Confidence</span>
-                <strong>
-                  {preset?.confidence_threshold !== undefined
-                    ? Number(preset.confidence_threshold).toFixed(2)
-                    : "--"}
-                </strong>
-              </div>
-            </div>
+            )}
 
             {/* Error notice */}
-            {error && <div className="notice notice--error">{error}</div>}
+            {!isCameraFullscreen && error && (
+              <div className="notice notice--error">{error}</div>
+            )}
           </div>
 
           {/* ── Right: inspection info ── */}
@@ -1434,41 +1536,43 @@ function OperatorPanel({
               </div>
 
               {/* Batch Status */}
-              <div className="info-group">
-                <div className="info-label">Batch</div>
-                <div className="info-batch">
-                  <div className="batch-status">
-                    {sessionStarted
-                      ? `Batch 1: ${autoDetectEnabled ? "Running" : "Paused"}`
-                      : "Batch 1: Stopped"}
-                  </div>
-                  <div className="batch-controls">
-                    <button
-                      className="batch-button"
-                      onClick={toggleSession}
-                      type="button"
-                    >
-                      {sessionStarted ? "Stop" : "Start Batch"}
-                    </button>
-                    <button
-                      className="batch-button"
-                      onClick={() => {
-                        const next = !autoDetectEnabled;
-                        setAutoDetectEnabled(next);
-                        stableSinceRef.current = null;
-                        setMotionStatus(
-                          next
-                            ? "Waiting for stable frame"
-                            : "Auto-detect paused",
-                        );
-                      }}
-                      type="button"
-                    >
-                      {autoDetectEnabled ? "Pause" : "Resume"}
-                    </button>
+              {!isCameraFullscreen && (
+                <div className="info-group">
+                  <div className="info-label">Batch</div>
+                  <div className="info-batch">
+                    <div className="batch-status">
+                      {sessionStarted
+                        ? `Batch 1: ${autoDetectEnabled ? "Running" : "Paused"}`
+                        : "Batch 1: Stopped"}
+                    </div>
+                    <div className="batch-controls">
+                      <button
+                        className="batch-button"
+                        onClick={toggleSession}
+                        type="button"
+                      >
+                        {sessionStarted ? "Stop" : "Start Batch"}
+                      </button>
+                      <button
+                        className="batch-button"
+                        onClick={() => {
+                          const next = !autoDetectEnabled;
+                          setAutoDetectEnabled(next);
+                          stableSinceRef.current = null;
+                          setMotionStatus(
+                            next
+                              ? "Waiting for stable frame"
+                              : "Auto-detect paused",
+                          );
+                        }}
+                        type="button"
+                      >
+                        {autoDetectEnabled ? "Pause" : "Resume"}
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
+              )}
 
               {/* Product */}
               <div className="info-group">
