@@ -10,6 +10,7 @@ import {
   getOperators,
   updateAdminSettings,
 } from "../api/backend";
+
 const Icon = {
   Grid: () => (
     <svg viewBox="0 0 24 24">
@@ -56,29 +57,17 @@ const Icon = {
     <svg viewBox="0 0 24 24">
       <rect x="4" y="4" width="16" height="16" rx="2" />
       <rect x="9" y="9" width="6" height="6" />
-      <line x1="9" y1="1" x2="9" y2="4" />
-      <line x1="15" y1="1" x2="15" y2="4" />
-      <line x1="9" y1="20" x2="9" y2="23" />
-      <line x1="15" y1="20" x2="15" y2="23" />
-      <line x1="20" y1="9" x2="23" y2="9" />
-      <line x1="20" y1="14" x2="23" y2="14" />
-      <line x1="1" y1="9" x2="4" y2="9" />
-      <line x1="1" y1="14" x2="4" y2="14" />
     </svg>
   ),
   Users: () => (
     <svg viewBox="0 0 24 24">
       <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
       <circle cx="9" cy="7" r="4" />
-      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   ),
   Save: () => (
     <svg viewBox="0 0 24 24">
       <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-      <polyline points="17 21 17 13 7 13 7 21" />
-      <polyline points="7 3 7 8 15 8" />
     </svg>
   ),
   Edit: () => (
@@ -178,6 +167,10 @@ function AdminDashboard({ onLogout }) {
       setOperators(opRes.data);
       setSettings(settingsRes.data);
       setDetectionLogs(logsRes.data);
+      // If the user hasn't changed the page size (default 20), default to showing all logs
+      if (Array.isArray(logsRes.data) && logsRes.data.length > 0) {
+        setDetectionLogsLimit((prev) => (prev === 20 ? logsRes.data.length : prev));
+      }
       setForm((f) => ({
         ...f,
         product: f.product || String(compRes.data[0]?.id || ""),
@@ -369,16 +362,15 @@ function AdminDashboard({ onLogout }) {
     setCurrentPage((p) => Math.min(p, totalPages));
   }, [totalPages]);
 
-  // Paginate: if a specific batch is selected use that page, otherwise show page 1 slice
+  // Note: page size defaulting handled in fetchData to avoid synchronous setState in effects
+
+  // Paginate: compute window based on `detectionLogsLimit` and `currentPage`
   const startIndex = (currentPage - 1) * detectionLogsLimit;
-  // If viewing all batches, show the entire filtered set; otherwise paginate by page
+  // When detectionLogsLimit equals the full length we show everything; otherwise slice by page.
   const paginatedDetectionLogs =
-    filterBatch === "all"
+    detectionLogsLimit === filteredSortedDetectionLogs.length
       ? filteredSortedDetectionLogs
-      : filteredSortedDetectionLogs.slice(
-          startIndex,
-          startIndex + detectionLogsLimit,
-        );
+      : filteredSortedDetectionLogs.slice(startIndex, startIndex + detectionLogsLimit);
 
   // Compute shown-from / shown-to for the UI based on actual paginated list
   const shownFrom = paginatedDetectionLogs.length ? startIndex + 1 : 0;
@@ -1369,6 +1361,7 @@ function AdminDashboard({ onLogout }) {
                             : "▼"
                           : ""}
                       </th>
+                      <th style={{ cursor: "default" }}>Batch</th>
                       <th style={{ cursor: "default" }}>Image</th>
                       <th
                         style={{ cursor: "pointer" }}
@@ -1506,6 +1499,17 @@ function AdminDashboard({ onLogout }) {
                         filterBatch === "all"
                           ? filteredSortedDetectionLogs.indexOf(log) + 1
                           : idx + 1;
+                      // determine batch label: prefer explicit batch key, otherwise compute chunked batch number
+                      const explicitBatch = getBatchKey(log);
+                      let batchLabel = "-";
+                      if (explicitBatch != null) batchLabel = String(explicitBatch);
+                      else {
+                        const globalIndex = filteredSortedDetectionLogs.indexOf(log);
+                        if (globalIndex >= 0) {
+                          const num = Math.floor(globalIndex / detectionLogsLimit) + 1;
+                          batchLabel = `Batch ${num}`;
+                        }
+                      }
 
                       return (
                         <tr key={log.id}>
@@ -1528,6 +1532,7 @@ function AdminDashboard({ onLogout }) {
                           >
                             #{log.id}
                           </td>
+                          <td>{batchLabel}</td>
                           <td>
                             {getDetectionLogImageSrc(log) ? (
                               <button
@@ -1585,7 +1590,7 @@ function AdminDashboard({ onLogout }) {
                     })}
                     {detectionLogs.length === 0 && (
                       <tr>
-                        <td colSpan={9} className="adash__table-empty">
+                        <td colSpan={11} className="adash__table-empty">
                           No detection logs yet.
                         </td>
                       </tr>
