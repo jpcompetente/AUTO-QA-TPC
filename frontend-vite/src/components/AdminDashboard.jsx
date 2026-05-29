@@ -118,6 +118,22 @@ function decisionClass(val) {
   return "";
 }
 
+function getCompatibleModelsForProduct(models, productId) {
+  const pid = Number(productId);
+  if (!pid) return [];
+  return models.filter((model) => model.compatible_component_ids?.includes(pid));
+}
+
+function getDetectionLogImageSrc(log) {
+  return (
+    log?.image_snapshot_url ||
+    log?.snapshot_url ||
+    log?.image_snapshot ||
+    log?.image ||
+    ""
+  );
+}
+
 function AdminDashboard({ onLogout }) {
   const [components, setComponents] = useState([]);
   const [models, setModels] = useState([]);
@@ -141,6 +157,7 @@ function AdminDashboard({ onLogout }) {
   const [filterOperator, setFilterOperator] = useState("");
   const [filterBatch, setFilterBatch] = useState("all");
   const [filterSearch, setFilterSearch] = useState("");
+  const [selectedLogPreview, setSelectedLogPreview] = useState(null);
   
 
   const fetchData = useCallback(async () => {
@@ -162,7 +179,13 @@ function AdminDashboard({ onLogout }) {
       setForm((f) => ({
         ...f,
         product: f.product || String(compRes.data[0]?.id || ""),
-        model: f.model || String(modelRes.data[0]?.id || ""),
+        model:
+          f.model ||
+          String(
+            getCompatibleModelsForProduct(modelRes.data, compRes.data[0]?.id)[0]?.id ||
+              modelRes.data[0]?.id ||
+              "",
+          ),
         operator: f.operator || String(opRes.data[0]?.id || ""),
       }));
     } finally {
@@ -177,10 +200,46 @@ function AdminDashboard({ onLogout }) {
   }, [fetchData]);
 
   const compatibleModels = useMemo(() => {
-    if (!form.product) return [];
-    const pid = parseInt(form.product, 10);
-    return models.filter((m) => m.compatible_component_ids?.includes(pid));
+    return getCompatibleModelsForProduct(models, form.product);
   }, [form.product, models]);
+
+  const selectedProduct = useMemo(
+    () =>
+      components.find(
+        (component) => String(component.id) === String(form.product),
+      ),
+    [components, form.product],
+  );
+
+  const selectedModel = useMemo(
+    () => models.find((model) => String(model.id) === String(form.model)),
+    [models, form.model],
+  );
+
+  const selectedOperator = useMemo(
+    () =>
+      operators.find((operator) => String(operator.id) === String(form.operator)),
+    [operators, form.operator],
+  );
+
+  const selectedSettings = useMemo(
+    () => ({
+      product: selectedProduct?.name || "Select a product",
+      model: selectedModel
+        ? `${selectedModel.name}${selectedModel.version ? ` (${selectedModel.version})` : ""}`
+        : "Select a compatible model",
+      operator: selectedOperator?.username || "Select an operator",
+      threshold:
+        form.threshold === "" || form.threshold == null
+          ? "0.50"
+          : Number(form.threshold).toFixed(2),
+      modelCount: compatibleModels.length,
+    }),
+    [compatibleModels.length, form.threshold, selectedModel, selectedOperator, selectedProduct],
+  );
+
+  const canSaveSettings =
+    Boolean(form.product) && Boolean(form.model) && Boolean(form.operator) && !isLoading;
 
   // Sort detection logs
   const sortedDetectionLogs = useMemo(() => {
@@ -308,7 +367,10 @@ function AdminDashboard({ onLogout }) {
     : 0;
 
   const handleSubmit = async () => {
-    if (!form.product || !form.model || !form.operator) return;
+    if (!form.product || !form.model || !form.operator) {
+      setFormError("Choose a product, a compatible model, and an operator before saving.");
+      return;
+    }
     setFormError("");
     const payload = {
       product: form.product,
@@ -351,10 +413,19 @@ function AdminDashboard({ onLogout }) {
   const handleCancelEdit = () => {
     setEditingSettingId(null);
     setFormError("");
+    const defaultProductId = components[0]?.id ? String(components[0].id) : "";
+    const defaultCompatibleModels = getCompatibleModelsForProduct(
+      models,
+      defaultProductId,
+    );
     setForm((f) => ({
       ...f,
-      product: components[0]?.id ? String(components[0].id) : "",
-      model: models[0]?.id ? String(models[0].id) : "",
+      product: defaultProductId,
+      model: defaultCompatibleModels[0]?.id
+        ? String(defaultCompatibleModels[0].id)
+        : models[0]?.id
+          ? String(models[0].id)
+          : "",
       operator: operators[0]?.id ? String(operators[0].id) : "",
       threshold: 0.5,
     }));
@@ -676,6 +747,8 @@ function AdminDashboard({ onLogout }) {
                     display: "flex",
                     gap: "12px",
                     alignItems: "center",
+                    flexWrap: "wrap",
+                    justifyContent: "flex-end",
                   }}
                 >
                   <div
@@ -683,8 +756,43 @@ function AdminDashboard({ onLogout }) {
                       display: "flex",
                       gap: "8px",
                       alignItems: "center",
+                      flexWrap: "wrap",
                     }}
                   >
+                    <select
+                      value={logsSortField}
+                      onChange={(e) => setLogsSortField(e.target.value)}
+                      style={{
+                        padding: "6px 10px",
+                        fontSize: "12px",
+                        borderRadius: "4px",
+                        border: "1px solid #ccc",
+                      }}
+                    >
+                      <option value="timestamp">Time</option>
+                      <option value="operator">Operator</option>
+                      <option value="component">Component</option>
+                      <option value="model">Model</option>
+                      <option value="decision">Decision</option>
+                      <option value="status">Status</option>
+                      <option value="id">ID</option>
+                    </select>
+
+                    <button
+                      className="adash__btn adash__btn--ghost"
+                      type="button"
+                      onClick={() =>
+                        setLogsSortOrder((o) => (o === "asc" ? "desc" : "asc"))
+                      }
+                      style={{
+                        height: "30px",
+                        padding: "0 10px",
+                        fontSize: "12px",
+                      }}
+                    >
+                      {logsSortOrder === "asc" ? "Asc" : "Desc"}
+                    </button>
+
                     <input
                       placeholder="Search logs..."
                       value={filterSearch}
@@ -853,6 +961,7 @@ function AdminDashboard({ onLogout }) {
                             : "▼"
                           : ""}
                       </th>
+                      <th style={{ cursor: "default" }}>Image</th>
                       <th
                         style={{ cursor: "pointer" }}
                         onClick={() => {
@@ -1010,6 +1119,27 @@ function AdminDashboard({ onLogout }) {
                           >
                             #{log.id}
                           </td>
+                          <td>
+                            {getDetectionLogImageSrc(log) ? (
+                              <button
+                                type="button"
+                                className="adash__log-thumb-btn"
+                                onClick={() => setSelectedLogPreview(log)}
+                                aria-label={`Preview image for detection log ${log.id}`}
+                              >
+                                <img
+                                  className="adash__log-thumb-img"
+                                  src={getDetectionLogImageSrc(log)}
+                                  alt={`Detection preview ${log.id}`}
+                                  loading="lazy"
+                                />
+                              </button>
+                            ) : (
+                              <div className="adash__log-thumb-placeholder">
+                                No image
+                              </div>
+                            )}
+                          </td>
                           <td>{log.operator_name || log.operator}</td>
                           <td>{log.component_name || log.component}</td>
                           <td>{log.model_name || log.model_used}</td>
@@ -1037,7 +1167,7 @@ function AdminDashboard({ onLogout }) {
                     })}
                     {detectionLogs.length === 0 && (
                       <tr>
-                        <td colSpan={8} className="adash__table-empty">
+                        <td colSpan={9} className="adash__table-empty">
                           No detection logs yet.
                         </td>
                       </tr>
@@ -1045,6 +1175,49 @@ function AdminDashboard({ onLogout }) {
                   </tbody>
                 </table>
               </div>
+
+              {selectedLogPreview && getDetectionLogImageSrc(selectedLogPreview) && (
+                <motion.div
+                  className="adash__preview-backdrop"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => setSelectedLogPreview(null)}
+                >
+                  <motion.div
+                    className="adash__preview-modal"
+                    initial={{ scale: 0.96, y: 12, opacity: 0 }}
+                    animate={{ scale: 1, y: 0, opacity: 1 }}
+                    exit={{ scale: 0.96, y: 12, opacity: 0 }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="adash__preview-modal-header">
+                      <div>
+                        <div className="adash__card-label">Detection preview</div>
+                        <h3>Log #{selectedLogPreview.id}</h3>
+                      </div>
+                      <button
+                        type="button"
+                        className="adash__btn adash__btn--ghost"
+                        onClick={() => setSelectedLogPreview(null)}
+                      >
+                        <Icon.X />
+                        Close
+                      </button>
+                    </div>
+                    <img
+                      className="adash__preview-image"
+                      src={getDetectionLogImageSrc(selectedLogPreview)}
+                      alt={`Detection preview ${selectedLogPreview.id}`}
+                    />
+                    <div className="adash__preview-meta">
+                      <span>{selectedLogPreview.operator_name || selectedLogPreview.operator}</span>
+                      <span>{selectedLogPreview.component_name || selectedLogPreview.component}</span>
+                      <span>{selectedLogPreview.model_name || selectedLogPreview.model_used}</span>
+                    </div>
+                  </motion.div>
+                </motion.div>
+              )}
             </>
           )}
 
@@ -1058,7 +1231,13 @@ function AdminDashboard({ onLogout }) {
                     : "Assign models & thresholds"}
                 </h3>
                 <div
-                  style={{ display: "flex", gap: "8px", alignItems: "center" }}
+                  style={{
+                    display: "flex",
+                    gap: "8px",
+                    alignItems: "center",
+                    flexWrap: "wrap",
+                    justifyContent: "flex-end",
+                  }}
                 >
                   {editingSettingId && (
                     <button
@@ -1073,7 +1252,7 @@ function AdminDashboard({ onLogout }) {
                   <button
                     className="adash__btn adash__btn--primary"
                     onClick={handleSubmit}
-                    disabled={isLoading}
+                    disabled={!canSaveSettings}
                     type="button"
                   >
                     <Icon.Save />
@@ -1088,126 +1267,142 @@ function AdminDashboard({ onLogout }) {
                 </div>
               )}
 
-              <div className="adash__form-grid">
-                <div className="adash__field">
-                  <label>Product</label>
-                  <select
-                    value={form.product}
-                    onChange={(e) => {
-                      const np = e.target.value;
-                      const compat = models.filter((m) =>
-                        m.compatible_component_ids?.includes(parseInt(np)),
-                      );
-                      setForm({
-                        ...form,
-                        product: np,
-                        model: compat.length > 0 ? String(compat[0].id) : "",
-                      });
-                    }}
-                  >
-                    {components.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="adash__field">
-                  <label>Model</label>
-                  <select
-                    value={form.model}
-                    onChange={(e) =>
-                      setForm({ ...form, model: e.target.value })
-                    }
-                  >
-                    {compatibleModels.length > 0 ? (
-                      compatibleModels.map((m) => (
-                        <option key={m.id} value={m.id}>
-                          {m.name} ({m.version})
-                        </option>
-                      ))
-                    ) : (
-                      <option disabled>No compatible models</option>
-                    )}
-                  </select>
-                </div>
-
-                <div className="adash__field">
-                  <label>Operator</label>
-                  <select
-                    value={form.operator}
-                    onChange={(e) =>
-                      setForm({ ...form, operator: e.target.value })
-                    }
-                  >
-                    {operators.map((op) => (
-                      <option key={op.id} value={op.id}>
-                        {op.username}
-                      </option>
-                    ))}
-                  </select>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      gap: "6px",
-                      alignItems: "center",
-                    }}
-                  >
-                    <select
-                      value={logsSortField}
-                      onChange={(e) => setLogsSortField(e.target.value)}
-                      style={{
-                        padding: "6px 10px",
-                        fontSize: "12px",
-                        borderRadius: "4px",
-                        border: "1px solid #ccc",
-                      }}
-                    >
-                      <option value="timestamp">Time</option>
-                      <option value="operator">Operator</option>
-                      <option value="component">Component</option>
-                      <option value="model">Model</option>
-                      <option value="decision">Decision</option>
-                      <option value="status">Status</option>
-                      <option value="id">ID</option>
-                    </select>
-
-                    <button
-                      className="adash__btn adash__btn--ghost"
-                      type="button"
-                      onClick={() =>
-                        setLogsSortOrder((o) => (o === "asc" ? "desc" : "asc"))
-                      }
-                      style={{
-                        height: "30px",
-                        padding: "0 10px",
-                        fontSize: "12px",
-                      }}
-                    >
-                      {logsSortOrder === "asc" ? "Asc" : "Desc"}
-                    </button>
+              <div className="adash__settings-shell">
+                <div className="adash__settings-summary">
+                  <div className="adash__settings-summary-item">
+                    <span>Product</span>
+                    <strong>{selectedSettings.product}</strong>
+                  </div>
+                  <div className="adash__settings-summary-item">
+                    <span>Model</span>
+                    <strong>{selectedSettings.model}</strong>
+                  </div>
+                  <div className="adash__settings-summary-item">
+                    <span>Operator</span>
+                    <strong>{selectedSettings.operator}</strong>
+                  </div>
+                  <div className="adash__settings-summary-item">
+                    <span>Threshold</span>
+                    <strong>{selectedSettings.threshold}</strong>
                   </div>
                 </div>
 
-                <div className="adash__field">
-                  <label>Threshold</label>
-                  <input
-                    type="number"
-                    min="0"
-                    max="1"
-                    step="0.05"
-                    value={form.threshold}
-                    onChange={(e) =>
-                      setForm({ ...form, threshold: e.target.value })
-                    }
-                  />
+                <div className="adash__form-grid adash__form-grid--settings">
+                  <div className="adash__field">
+                    <label>Product</label>
+                    <select
+                      value={form.product}
+                      onChange={(e) => {
+                        const nextProduct = e.target.value;
+                        const nextCompatibleModels = getCompatibleModelsForProduct(
+                          models,
+                          nextProduct,
+                        );
+                        setForm((current) => ({
+                          ...current,
+                          product: nextProduct,
+                          model:
+                            nextCompatibleModels.some(
+                              (model) => String(model.id) === String(current.model),
+                            )
+                              ? current.model
+                              : String(nextCompatibleModels[0]?.id || ""),
+                        }));
+                      }}
+                      disabled={components.length === 0}
+                    >
+                      <option value="" disabled>
+                        Select a product
+                      </option>
+                      {components.map((component) => (
+                        <option key={component.id} value={component.id}>
+                          {component.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="adash__field">
+                    <label>Model</label>
+                    <select
+                      value={form.model}
+                      onChange={(e) =>
+                        setForm((current) => ({
+                          ...current,
+                          model: e.target.value,
+                        }))
+                      }
+                      disabled={compatibleModels.length === 0}
+                    >
+                      <option value="" disabled>
+                        {selectedProduct
+                          ? compatibleModels.length > 0
+                            ? "Select a model"
+                            : "No compatible models"
+                          : "Choose a product first"}
+                      </option>
+                      {compatibleModels.map((model) => (
+                        <option key={model.id} value={model.id}>
+                          {model.name} {model.version ? `(${model.version})` : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="adash__field">
+                    <label>Operator</label>
+                    <select
+                      value={form.operator}
+                      onChange={(e) =>
+                        setForm((current) => ({
+                          ...current,
+                          operator: e.target.value,
+                        }))
+                      }
+                      disabled={operators.length === 0}
+                    >
+                      <option value="" disabled>
+                        Select an operator
+                      </option>
+                      {operators.map((operator) => (
+                        <option key={operator.id} value={operator.id}>
+                          {operator.username}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="adash__field adash__field--full">
+                    <label>Threshold</label>
+                    <input
+                      type="number"
+                      min="0"
+                      max="1"
+                      step="0.05"
+                      value={form.threshold}
+                      onChange={(e) =>
+                        setForm((current) => ({
+                          ...current,
+                          threshold: e.target.value,
+                        }))
+                      }
+                    />
+                  </div>
                 </div>
               </div>
 
-              <div className="adash__table-wrap">
-                <table className="adash__table">
+              <div className="adash__section-header adash__section-header--compact">
+                <div>
+                  <h3>Existing configurations</h3>
+                  <div className="adash__section-subtitle">
+                    Review, edit, or remove active routing rules.
+                  </div>
+                </div>
+                <span className="adash__section-badge">{settings.length} saved</span>
+              </div>
+
+              <div className="adash__table-wrap adash__table-wrap--settings">
+                <table className="adash__table adash__table--settings">
                   <thead>
                     <tr>
                       <th>Operator</th>
