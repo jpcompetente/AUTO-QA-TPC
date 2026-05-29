@@ -438,6 +438,7 @@ def detect_image(request):
             final_decision=result.system_decision,
             status='PENDING',
             session_id=request.data.get('session_id', ''),
+            batch_number=int(request.data.get('batch_number') or 0),
         )
 
         payload = result.to_dict()
@@ -560,11 +561,57 @@ class AdminSettingsViewSet(viewsets.ModelViewSet):
 
 
 class InferenceLogViewSet(viewsets.ModelViewSet):
-    queryset = InferenceLog.objects.all().order_by('-timestamp')
+    queryset = InferenceLog.objects.all().order_by('-batch_number', '-timestamp')
     serializer_class = InferenceLogSerializer
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['operator', 'status', 'final_decision', 'component']
+
+    def get_queryset(self):
+        """Allow simple server-side filtering by batch and dates.
+
+        Supported query params:
+        - batch_number: integer
+        - date: YYYY-MM-DD (specific date)
+        - date_from: YYYY-MM-DD
+        - date_to: YYYY-MM-DD
+        """
+        qs = InferenceLog.objects.all().order_by('-batch_number', '-timestamp')
+        params = self.request.query_params
+
+        # Batch filter
+        batch = params.get('batch_number')
+        if batch is not None and batch != '' and batch.lower() != 'all':
+            try:
+                b = int(batch)
+                qs = qs.filter(batch_number=b)
+            except Exception:
+                pass
+
+        # Specific date
+        date = params.get('date')
+        if date:
+            try:
+                qs = qs.filter(timestamp__date=date)
+                return qs
+            except Exception:
+                pass
+
+        # Date range
+        date_from = params.get('date_from')
+        date_to = params.get('date_to')
+        if date_from:
+            try:
+                qs = qs.filter(timestamp__date__gte=date_from)
+            except Exception:
+                pass
+        if date_to:
+            try:
+                qs = qs.filter(timestamp__date__lte=date_to)
+            except Exception:
+                pass
+
+        return qs
     
     @action(detail=True, methods=['post'])
     def operator_override(self, request, pk=None):

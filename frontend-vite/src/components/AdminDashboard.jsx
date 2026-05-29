@@ -143,13 +143,18 @@ function AdminDashboard({ onLogout }) {
     operator: "",
   });
   const [detectionLogsLimit, setDetectionLogsLimit] = useState(20);
-  const [logsSortField, setLogsSortField] = useState("id");
-  const [logsSortOrder, setLogsSortOrder] = useState("asc");
+  const [logsSortField, setLogsSortField] = useState("batch_number");
+  const [logsSortOrder, setLogsSortOrder] = useState("desc");
   const [currentPage, setCurrentPage] = useState(1);
   const [filterOperator, setFilterOperator] = useState("");
   const [filterBatch, setFilterBatch] = useState("all");
+  const [filterDateMode, setFilterDateMode] = useState("all");
+  const [filterDateFrom, setFilterDateFrom] = useState("");
+  const [filterDateTo, setFilterDateTo] = useState("");
+  const [filterDateOnly, setFilterDateOnly] = useState("");
   const [filterSearch, setFilterSearch] = useState("");
   const [selectedLogPreview, setSelectedLogPreview] = useState(null);
+
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -194,6 +199,38 @@ function AdminDashboard({ onLogout }) {
       await fetchData();
     })();
   }, [fetchData]);
+
+  // Fetch logs from server using current server-side filters
+  const fetchLogs = useCallback(async (overrides = {}) => {
+    const params = { ...(overrides || {}) };
+    if (!('batch_number' in params) && filterBatch && filterBatch !== 'all') {
+      params.batch_number = filterBatch;
+    }
+    if (filterDateMode === 'single' && filterDateOnly) {
+      params.date = filterDateOnly;
+    }
+    if (filterDateMode === 'range') {
+      if (filterDateFrom) params.date_from = filterDateFrom;
+      if (filterDateTo) params.date_to = filterDateTo;
+    }
+    if (filterOperator) params.operator = filterOperator;
+
+    setIsLoading(true);
+    try {
+      const res = await getDetectionLogs(params);
+      setDetectionLogs(res.data);
+    } catch (err) {
+      console.error('Failed to fetch logs with params', params, err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [filterBatch, filterDateMode, filterDateOnly, filterDateFrom, filterDateTo, filterOperator]);
+
+  useEffect(() => {
+    void (async () => {
+      await fetchLogs();
+    })();
+  }, [fetchLogs]);
 
   const compatibleModels = useMemo(() => {
     return getCompatibleModelsForProduct(models, form.product);
@@ -276,6 +313,10 @@ function AdminDashboard({ onLogout }) {
           aVal = (a.status || "").toLowerCase();
           bVal = (b.status || "").toLowerCase();
           break;
+        case "batch_number":
+          aVal = Number(a.batch_number || 0);
+          bVal = Number(b.batch_number || 0);
+          break;
         case "timestamp":
         default:
           aVal = new Date(a.timestamp || a.created_at).getTime();
@@ -294,9 +335,28 @@ function AdminDashboard({ onLogout }) {
     return sorted;
   }, [detectionLogs, logsSortField, logsSortOrder]);
 
-  // Filters + pagination for detection logs (per-batch numbering starts at 1)
+  const availableBatchNumbers = useMemo(() => {
+    return [...new Set(detectionLogs.map((log) => Number(log.batch_number || 0)).filter((value) => value > 0))].sort(
+      (left, right) => left - right,
+    );
+  }, [detectionLogs]);
+
+  const getLocalDateKey = useCallback((value) => {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const offsetMs = date.getTimezoneOffset() * 60000;
+    return new Date(date.getTime() - offsetMs).toISOString().slice(0, 10);
+  }, []);
+
+  // Filters + pagination for detection logs
   const filteredSortedDetectionLogs = useMemo(() => {
     let logs = [...sortedDetectionLogs];
+
+    if (filterBatch !== "all") {
+      const selectedBatch = Number(filterBatch);
+      logs = logs.filter((log) => Number(log.batch_number || 0) === selectedBatch);
+    }
 
     // Operator filter (compare against id or name where available)
     if (filterOperator) {
@@ -322,6 +382,21 @@ function AdminDashboard({ onLogout }) {
           String(l.operator_id) === filterOperator ||
           l.operator_name === filterOperator
         );
+      });
+    }
+
+    if (filterDateMode === "single" && filterDateOnly) {
+      logs = logs.filter((log) => {
+        const logDate = getLocalDateKey(log.timestamp || log.created_at);
+        return logDate === filterDateOnly;
+      });
+    } else if (filterDateMode === "range" && (filterDateFrom || filterDateTo)) {
+      logs = logs.filter((log) => {
+        const logDate = getLocalDateKey(log.timestamp || log.created_at);
+        if (!logDate) return false;
+        if (filterDateFrom && logDate < filterDateFrom) return false;
+        if (filterDateTo && logDate > filterDateTo) return false;
+        return true;
       });
     }
 
@@ -351,7 +426,17 @@ function AdminDashboard({ onLogout }) {
     }
 
     return logs;
-  }, [sortedDetectionLogs, filterOperator, operators, filterSearch]);
+  }, [
+    sortedDetectionLogs,
+    filterBatch,
+    filterOperator,
+    filterDateFrom,
+    filterDateTo,
+    filterDateOnly,
+    operators,
+    filterSearch,
+    getLocalDateKey,
+  ]);
 
   const totalLogs = filteredSortedDetectionLogs.length;
   const totalPages = Math.max(1, Math.ceil(totalLogs / detectionLogsLimit));
@@ -362,15 +447,12 @@ function AdminDashboard({ onLogout }) {
     setCurrentPage((p) => Math.min(p, totalPages));
   }, [totalPages]);
 
-  // Note: page size defaulting handled in fetchData to avoid synchronous setState in effects
-
-  // Paginate: compute window based on `detectionLogsLimit` and `currentPage`
+  // Paginate filtered logs
   const startIndex = (currentPage - 1) * detectionLogsLimit;
-  // When detectionLogsLimit equals the full length we show everything; otherwise slice by page.
-  const paginatedDetectionLogs =
-    detectionLogsLimit === filteredSortedDetectionLogs.length
-      ? filteredSortedDetectionLogs
-      : filteredSortedDetectionLogs.slice(startIndex, startIndex + detectionLogsLimit);
+  const paginatedDetectionLogs = filteredSortedDetectionLogs.slice(
+    startIndex,
+    startIndex + detectionLogsLimit,
+  );
 
   // Compute shown-from / shown-to for the UI based on actual paginated list
   const shownFrom = paginatedDetectionLogs.length ? startIndex + 1 : 0;
@@ -1171,6 +1253,7 @@ function AdminDashboard({ onLogout }) {
                         border: "1px solid #ccc",
                       }}
                     >
+                      <option value="batch_number">Batch</option>
                       <option value="timestamp">Time</option>
                       <option value="operator">Operator</option>
                       <option value="component">Component</option>
@@ -1217,13 +1300,88 @@ function AdminDashboard({ onLogout }) {
                     />
 
                     <select
+                      value={filterDateMode}
+                      onChange={(e) => {
+                        const mode = e.target.value;
+                        setFilterDateMode(mode);
+                        if (mode === "all") {
+                          setFilterDateOnly("");
+                          setFilterDateFrom("");
+                          setFilterDateTo("");
+                        }
+                        setCurrentPage(1);
+                      }}
+                      style={{
+                        padding: "6px 10px",
+                        fontSize: "12px",
+                        borderRadius: "4px",
+                        border: "1px solid #ccc",
+                      }}
+                    >
+                      <option value="all">Date: all</option>
+                      <option value="single">Specific date</option>
+                      <option value="range">Date range</option>
+                    </select>
+
+                    {filterDateMode === "single" && (
+                      <input
+                        type="date"
+                        value={filterDateOnly}
+                        onChange={(e) => {
+                          setFilterDateOnly(e.target.value);
+                          setCurrentPage(1);
+                        }}
+                        title="Filter by specific date"
+                        style={{
+                          padding: "6px 10px",
+                          fontSize: "12px",
+                          borderRadius: "4px",
+                          border: "1px solid #ccc",
+                        }}
+                      />
+                    )}
+
+                    {filterDateMode === "range" && (
+                      <>
+                        <input
+                          type="date"
+                          value={filterDateFrom}
+                          onChange={(e) => {
+                            setFilterDateFrom(e.target.value);
+                            setCurrentPage(1);
+                          }}
+                          title="Start date"
+                          style={{
+                            padding: "6px 10px",
+                            fontSize: "12px",
+                            borderRadius: "4px",
+                            border: "1px solid #ccc",
+                          }}
+                        />
+                        <input
+                          type="date"
+                          value={filterDateTo}
+                          onChange={(e) => {
+                            setFilterDateTo(e.target.value);
+                            setCurrentPage(1);
+                          }}
+                          title="End date"
+                          style={{
+                            padding: "6px 10px",
+                            fontSize: "12px",
+                            borderRadius: "4px",
+                            border: "1px solid #ccc",
+                          }}
+                        />
+                      </>
+                    )}
+
+                    <select
                       value={filterBatch}
                       onChange={(e) => {
                         const v = e.target.value;
                         setFilterBatch(v);
-                        // if selecting a specific batch, move to that page; if 'all', move to page 1
-                        if (v === "all") setCurrentPage(1);
-                        else setCurrentPage(Number(v));
+                        setCurrentPage(1);
                       }}
                       style={{
                         padding: "6px 10px",
@@ -1233,13 +1391,11 @@ function AdminDashboard({ onLogout }) {
                       }}
                     >
                       <option value="all">All batches</option>
-                      {Array.from({ length: totalPages }, (_, i) => i + 1).map(
-                        (p) => (
-                          <option key={p} value={p}>
-                            Batch {p}
-                          </option>
-                        ),
-                      )}
+                      {availableBatchNumbers.map((batch) => (
+                        <option key={batch} value={batch}>
+                          Batch {batch}
+                        </option>
+                      ))}
                     </select>
 
                     <button
@@ -1248,6 +1404,10 @@ function AdminDashboard({ onLogout }) {
                       onClick={() => {
                         setFilterOperator("");
                         setFilterBatch("all");
+                        setFilterDateMode("all");
+                        setFilterDateFrom("");
+                        setFilterDateTo("");
+                        setFilterDateOnly("");
                         setFilterSearch("");
                         setCurrentPage(1);
                       }}
@@ -1290,7 +1450,7 @@ function AdminDashboard({ onLogout }) {
                     <button
                       className="adash__btn adash__btn--ghost"
                       type="button"
-                      disabled={filterBatch === "all" || currentPage <= 1}
+                      disabled={currentPage <= 1}
                       onClick={() => {
                         const np = Math.max(1, currentPage - 1);
                         setCurrentPage(np);
@@ -1306,14 +1466,12 @@ function AdminDashboard({ onLogout }) {
                     <span style={{ fontSize: "12px", color: "#444" }}>
                       {filterBatch === "all"
                         ? `All (${totalPages} pages)`
-                        : `Page ${currentPage} / ${totalPages}`}
+                        : `Batch ${filterBatch} • Page ${currentPage} / ${totalPages}`}
                     </span>
                     <button
                       className="adash__btn adash__btn--ghost"
                       type="button"
-                      disabled={
-                        filterBatch === "all" || currentPage >= totalPages
-                      }
+                      disabled={currentPage >= totalPages}
                       onClick={() => {
                         const np = Math.min(totalPages, currentPage + 1);
                         setCurrentPage(np);
@@ -1340,6 +1498,27 @@ function AdminDashboard({ onLogout }) {
                   <thead>
                     <tr>
                       <th style={{ cursor: "default" }}>No.</th>
+                      <th
+                        style={{ cursor: "pointer" }}
+                        onClick={() => {
+                          const f = "batch_number";
+                          if (logsSortField === f)
+                            setLogsSortOrder((o) =>
+                              o === "asc" ? "desc" : "asc",
+                            );
+                          else {
+                            setLogsSortField(f);
+                            setLogsSortOrder("desc");
+                          }
+                        }}
+                      >
+                        Batch {" "}
+                        {logsSortField === "batch_number"
+                          ? logsSortOrder === "asc"
+                            ? "▲"
+                            : "▼"
+                          : ""}
+                      </th>
                       <th
                         style={{ cursor: "pointer" }}
                         onClick={() => {
@@ -1494,22 +1673,9 @@ function AdminDashboard({ onLogout }) {
                   </thead>
                   <tbody>
                     {paginatedDetectionLogs.map((log, idx) => {
-                      // compute display number: global when showing all, otherwise per-batch starting at 1
+                      // compute display number within the current filtered view
                       const displayNo =
-                        filterBatch === "all"
-                          ? filteredSortedDetectionLogs.indexOf(log) + 1
-                          : idx + 1;
-                      // determine batch label: prefer explicit batch key, otherwise compute chunked batch number
-                      const explicitBatch = getBatchKey(log);
-                      let batchLabel = "-";
-                      if (explicitBatch != null) batchLabel = String(explicitBatch);
-                      else {
-                        const globalIndex = filteredSortedDetectionLogs.indexOf(log);
-                        if (globalIndex >= 0) {
-                          const num = Math.floor(globalIndex / detectionLogsLimit) + 1;
-                          batchLabel = `Batch ${num}`;
-                        }
-                      }
+                        filteredSortedDetectionLogs.indexOf(log) + 1;
 
                       return (
                         <tr key={log.id}>
@@ -1522,6 +1688,9 @@ function AdminDashboard({ onLogout }) {
                             }}
                           >
                             {displayNo}
+                          </td>
+                          <td style={{ fontFamily: "var(--font-mono)", fontSize: "12px" }}>
+                            {log.batch_number || "—"}
                           </td>
                           <td
                             style={{

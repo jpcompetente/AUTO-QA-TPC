@@ -74,6 +74,7 @@ function OperatorPanel({
   const [autoDetectEnabled, setAutoDetectEnabled] = useState(true);
   const [sessionStarted, setSessionStarted] = useState(false);
   const [sessionId, setSessionId] = useState("");
+  const [batchNumber, setBatchNumber] = useState(1);
   const [sessionFilter] = useState("");
   const [motionStatus, setMotionStatus] = useState("Waiting for camera");
   const [reviewMode, setReviewMode] = useState("ACKNOWLEDGE");
@@ -93,6 +94,8 @@ function OperatorPanel({
   const [manualAnnotations, setManualAnnotations] = useState([]);
   const [currentPath, setCurrentPath] = useState([]);
   const [isDrawing, setIsDrawing] = useState(false);
+  const completedBatchNumber = !sessionStarted && batchNumber > 1 ? batchNumber - 1 : null;
+  const nextBatchNumber = sessionStarted ? batchNumber + 1 : batchNumber;
 
   useEffect(() => {
     // Auto-dismiss notification after 4 seconds
@@ -249,6 +252,9 @@ function OperatorPanel({
     })();
 
     setSessionStarted(false);
+    // Advance to next batch when a session stops so subsequent detections
+    // are grouped under a new batch_number.
+    setBatchNumber((current) => current + 1);
     setSessionId("");
   }, [sessionId, normalizeList]);
 
@@ -876,7 +882,8 @@ function OperatorPanel({
         formData.append("config_hash", preset.config_hash);
         formData.append("trigger", trigger);
         formData.append("session_id", sessionId || "");
-        formData.append("session_active", sessionStarted ? "true" : "false");
+          formData.append("session_active", sessionStarted ? "true" : "false");
+          formData.append("batch_number", String(batchNumber || 1));
 
         const detectResponse = await detectImage(formData);
         const result = detectResponse.data;
@@ -1186,6 +1193,7 @@ function OperatorPanel({
             trigger: "live",
             session_id: sessionId || "",
             session_active: sessionStarted,
+                      batch_number: batchNumber || 1,
           }),
         );
       }, LIVE_INFERENCE_INTERVAL_MS);
@@ -1430,8 +1438,15 @@ function OperatorPanel({
               <div className="camera-fullscreen-controls">
                 <div className="batch-status">
                   {sessionStarted
-                    ? `Batch 1: ${autoDetectEnabled ? "Running" : "Paused"}`
-                    : "Batch 1: Stopped"}
+                    ? `Active batch ${batchNumber}: ${autoDetectEnabled ? "Running" : "Paused"}`
+                    : completedBatchNumber
+                      ? `Completed batch ${completedBatchNumber}`
+                      : `Ready for batch ${batchNumber}`}
+                </div>
+                <div style={{ fontSize: "11px", color: "var(--text3)" }}>
+                  {sessionStarted
+                    ? `Next batch ${nextBatchNumber}`
+                    : `Next batch ${nextBatchNumber}`}
                 </div>
                 <div className="batch-controls">
                   <button
@@ -1550,8 +1565,15 @@ function OperatorPanel({
                   <div className="info-batch">
                     <div className="batch-status">
                       {sessionStarted
-                        ? `Batch 1: ${autoDetectEnabled ? "Running" : "Paused"}`
-                        : "Batch 1: Stopped"}
+                        ? `Active batch ${batchNumber}: ${autoDetectEnabled ? "Running" : "Paused"}`
+                        : completedBatchNumber
+                          ? `Completed batch ${completedBatchNumber}`
+                          : `Ready for batch ${batchNumber}`}
+                    </div>
+                    <div style={{ fontSize: "11px", color: "var(--text3)" }}>
+                      {sessionStarted
+                        ? `Next batch ${nextBatchNumber}`
+                        : `Next batch ${nextBatchNumber}`}
                     </div>
                     <div className="batch-controls">
                       <button

@@ -57,9 +57,10 @@ body {
 .panel-page {
   display: flex;
   flex-direction: column;
-  width: 100vw;
-  min-height: 100vh;
-  overflow: hidden;
+  width: 100%;
+  min-height: 100dvh;
+  overflow-x: hidden;
+  overflow-y: auto;
   background: var(--bg);
 }
 .panel-shell {
@@ -67,9 +68,9 @@ body {
   flex-direction: column;
   width: 100%;
   max-width: none;
-  min-height: 100vh;
-  height: 100%;
-  overflow: hidden;
+  min-height: 100dvh;
+  height: auto;
+  overflow: visible;
   padding: 12px 16px 14px;
   gap: 8px;
 }
