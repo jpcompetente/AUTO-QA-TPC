@@ -10,6 +10,7 @@ import {
   getOperators,
   updateAdminSettings,
 } from "../api/backend";
+
 const Icon = {
   Grid: () => (
     <svg viewBox="0 0 24 24">
@@ -56,29 +57,17 @@ const Icon = {
     <svg viewBox="0 0 24 24">
       <rect x="4" y="4" width="16" height="16" rx="2" />
       <rect x="9" y="9" width="6" height="6" />
-      <line x1="9" y1="1" x2="9" y2="4" />
-      <line x1="15" y1="1" x2="15" y2="4" />
-      <line x1="9" y1="20" x2="9" y2="23" />
-      <line x1="15" y1="20" x2="15" y2="23" />
-      <line x1="20" y1="9" x2="23" y2="9" />
-      <line x1="20" y1="14" x2="23" y2="14" />
-      <line x1="1" y1="9" x2="4" y2="9" />
-      <line x1="1" y1="14" x2="4" y2="14" />
     </svg>
   ),
   Users: () => (
     <svg viewBox="0 0 24 24">
       <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" />
       <circle cx="9" cy="7" r="4" />
-      <path d="M23 21v-2a4 4 0 0 0-3-3.87" />
-      <path d="M16 3.13a4 4 0 0 1 0 7.75" />
     </svg>
   ),
   Save: () => (
     <svg viewBox="0 0 24 24">
       <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-      <polyline points="17 21 17 13 7 13 7 21" />
-      <polyline points="7 3 7 8 15 8" />
     </svg>
   ),
   Edit: () => (
@@ -107,6 +96,7 @@ const Icon = {
 const pages = [
   { id: "home", label: "Overview", IconC: Icon.Grid },
   { id: "detection-logs", label: "Detection Logs", IconC: Icon.List },
+  { id: "batches", label: "Batches", IconC: Icon.Box },
   { id: "settings", label: "Settings", IconC: Icon.Settings },
 ];
 
@@ -121,7 +111,9 @@ function decisionClass(val) {
 function getCompatibleModelsForProduct(models, productId) {
   const pid = Number(productId);
   if (!pid) return [];
-  return models.filter((model) => model.compatible_component_ids?.includes(pid));
+  return models.filter((model) =>
+    model.compatible_component_ids?.includes(pid),
+  );
 }
 
 function getDetectionLogImageSrc(log) {
@@ -180,13 +172,18 @@ function AdminDashboard({ onLogout }) {
       setOperators(opRes.data);
       setSettings(settingsRes.data);
       setDetectionLogs(logsRes.data);
+      // If the user hasn't changed the page size (default 20), default to showing all logs
+      if (Array.isArray(logsRes.data) && logsRes.data.length > 0) {
+        setDetectionLogsLimit((prev) => (prev === 20 ? logsRes.data.length : prev));
+      }
       setForm((f) => ({
         ...f,
         product: f.product || String(compRes.data[0]?.id || ""),
         model:
           f.model ||
           String(
-            getCompatibleModelsForProduct(modelRes.data, compRes.data[0]?.id)[0]?.id ||
+            getCompatibleModelsForProduct(modelRes.data, compRes.data[0]?.id)[0]
+              ?.id ||
               modelRes.data[0]?.id ||
               "",
           ),
@@ -254,7 +251,9 @@ function AdminDashboard({ onLogout }) {
 
   const selectedOperator = useMemo(
     () =>
-      operators.find((operator) => String(operator.id) === String(form.operator)),
+      operators.find(
+        (operator) => String(operator.id) === String(form.operator),
+      ),
     [operators, form.operator],
   );
 
@@ -271,11 +270,20 @@ function AdminDashboard({ onLogout }) {
           : Number(form.threshold).toFixed(2),
       modelCount: compatibleModels.length,
     }),
-    [compatibleModels.length, form.threshold, selectedModel, selectedOperator, selectedProduct],
+    [
+      compatibleModels.length,
+      form.threshold,
+      selectedModel,
+      selectedOperator,
+      selectedProduct,
+    ],
   );
 
   const canSaveSettings =
-    Boolean(form.product) && Boolean(form.model) && Boolean(form.operator) && !isLoading;
+    Boolean(form.product) &&
+    Boolean(form.model) &&
+    Boolean(form.operator) &&
+    !isLoading;
 
   // Sort detection logs
   const sortedDetectionLogs = useMemo(() => {
@@ -313,6 +321,11 @@ function AdminDashboard({ onLogout }) {
         default:
           aVal = new Date(a.timestamp || a.created_at).getTime();
           bVal = new Date(b.timestamp || b.created_at).getTime();
+          break;
+        case "id":
+          aVal = Number(a.id ?? a.log_id ?? 0);
+          bVal = Number(b.id ?? b.log_id ?? 0);
+          break;
       }
 
       if (aVal < bVal) return logsSortOrder === "asc" ? -1 : 1;
@@ -449,7 +462,9 @@ function AdminDashboard({ onLogout }) {
 
   const handleSubmit = async () => {
     if (!form.product || !form.model || !form.operator) {
-      setFormError("Choose a product, a compatible model, and an operator before saving.");
+      setFormError(
+        "Choose a product, a compatible model, and an operator before saving.",
+      );
       return;
     }
     setFormError("");
@@ -521,20 +536,147 @@ function AdminDashboard({ onLogout }) {
 
   const getConfidence = (log) => {
     return (
-      log.confidence ?? log.score ?? log.probability ?? log.model_confidence ?? null
+      log.confidence ??
+      log.score ??
+      log.probability ??
+      log.model_confidence ??
+      null
     );
   };
 
-  
+  // Normalize status from available fields
+  const getStatus = (log) => {
+    const s =
+      log.status ??
+      log.final_decision ??
+      log.system_decision ??
+      log.decision ??
+      log.result ??
+      null;
+    if (s == null) return "";
+    return String(s);
+  };
+
+  const formatConfidence = (log) => {
+    const c = getConfidence(log);
+    if (c == null) return "-";
+    const n = Number(c);
+    if (Number.isNaN(n)) return "-";
+    if (n <= 1) return `${(n * 100).toFixed(1)}%`;
+    return `${n.toFixed(1)}%`;
+  };
+
+  // Batch grouping for Batches page
+  const getBatchKey = (log) => {
+    return (
+      log.batch ||
+      log.batch_id ||
+      log.batch_number ||
+      log.batch_no ||
+      log.batchName ||
+      log.batch_name ||
+      null
+    );
+  };
+
+  const batches = useMemo(() => {
+    const logs = [...sortedDetectionLogs];
+    // detect if logs contain explicit batch keys
+    const explicitKeys = new Set();
+    logs.forEach((l) => {
+      const k = getBatchKey(l);
+      if (k != null) explicitKeys.add(String(k));
+    });
+
+    if (explicitKeys.size > 0) {
+      const map = {};
+      logs.forEach((l) => {
+        const k = String(getBatchKey(l) ?? "unknown");
+        if (!map[k]) map[k] = [];
+        map[k].push(l);
+      });
+      const keys = Object.keys(map);
+      const extractNum = (s) => {
+        const m = String(s).match(/(\d+)/);
+        return m ? Number(m[1]) : null;
+      };
+      keys.sort((a, b) => {
+        const na = extractNum(a);
+        const nb = extractNum(b);
+        if (na != null && nb != null) return na - nb; // numeric order
+        if (na != null) return -1;
+        if (nb != null) return 1;
+        return String(a).localeCompare(String(b));
+      });
+      return keys.map((k) => ({ key: k, logs: map[k] }));
+    }
+
+    // fallback: chunk into pages sized by detectionLogsLimit
+    const chunks = [];
+    for (let i = 0; i < logs.length; i += detectionLogsLimit) {
+      const chunk = logs.slice(i, i + detectionLogsLimit);
+      const idx = chunks.length + 1;
+      chunks.push({ key: `Batch ${idx}`, logs: chunk });
+    }
+    return chunks.length > 0 ? chunks : [{ key: "Batch 1", logs: [] }];
+  }, [sortedDetectionLogs, detectionLogsLimit]);
+
+  const [activeBatchKey, setActiveBatchKey] = useState(null);
+
+  const getFailLogsForBatch = (batch) => {
+    return (batch.logs || []).filter((l) => {
+      const d = (l.final_decision || l.system_decision || "")
+        .toString()
+        .toLowerCase();
+      return (
+        d.includes("fail") ||
+        d.includes("reject") ||
+        (l.status || "").toString().toLowerCase() === "fail"
+      );
+    });
+  };
+
+  // Export failed images as individual PNG downloads (one file per failed item)
+  const exportImagesForLogs = async (logsToExport, filenamePrefix = "fail") => {
+    const items = logsToExport.map((l) => ({
+      id: l.id,
+      url: getDetectionLogImageSrc(l),
+    }));
+    if (items.length === 0) return;
+    for (const it of items) {
+      if (!it.url) continue;
+      try {
+        const res = await fetch(it.url, { cache: "no-cache" });
+        if (!res.ok) continue;
+        const blob = await res.blob();
+        const ext = blob.type?.split("/")?.pop() || "png";
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `${filenamePrefix}_${it.id}.${ext}`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      } catch (e) {
+        // ignore single failures
+        console.warn("Failed to export image", it.url, e);
+      }
+    }
+  };
 
   // derived metrics for Model Health + Alerts
   const currentModelObj = models.find(
-    (m) => String(m.id) === String(currentSetting?.model || currentSetting?.model_id),
+    (m) =>
+      String(m.id) ===
+      String(currentSetting?.model || currentSetting?.model_id),
   );
 
   const decisionCounts = detectionLogs.reduce(
     (acc, l) => {
-      const d = (l.final_decision || l.system_decision || "").toString().toLowerCase();
+      const d = (l.final_decision || l.system_decision || "")
+        .toString()
+        .toLowerCase();
       if (d.includes("pass")) acc.pass += 1;
       else if (d.includes("fail") || d.includes("reject")) acc.fail += 1;
       else acc.other += 1;
@@ -545,11 +687,21 @@ function AdminDashboard({ onLogout }) {
 
   const recent = detectionLogs.slice(-100);
   const recentPassRate = recent.length
-    ? recent.filter((l) => (l.final_decision || l.system_decision || "").toString().toLowerCase().includes("pass")).length / recent.length
+    ? recent.filter((l) =>
+        (l.final_decision || l.system_decision || "")
+          .toString()
+          .toLowerCase()
+          .includes("pass"),
+      ).length / recent.length
     : null;
   const prev = detectionLogs.slice(-200, -100);
   const prevPassRate = prev.length
-    ? prev.filter((l) => (l.final_decision || l.system_decision || "").toString().toLowerCase().includes("pass")).length / prev.length
+    ? prev.filter((l) =>
+        (l.final_decision || l.system_decision || "")
+          .toString()
+          .toLowerCase()
+          .includes("pass"),
+      ).length / prev.length
     : null;
   const performanceDelta =
     recentPassRate != null && prevPassRate != null
@@ -559,7 +711,12 @@ function AdminDashboard({ onLogout }) {
   const lowConfidenceClusters = (() => {
     const byKey = {};
     detectionLogs.forEach((l) => {
-      const key = l.model_name || l.model_used || l.component_name || l.component || "unknown";
+      const key =
+        l.model_name ||
+        l.model_used ||
+        l.component_name ||
+        l.component ||
+        "unknown";
       const c = getConfidence(l);
       if (!byKey[key]) byKey[key] = { sum: 0, n: 0 };
       if (c != null && !Number.isNaN(Number(c))) {
@@ -577,6 +734,7 @@ function AdminDashboard({ onLogout }) {
   const pageTitles = {
     home: ["Overview", "Admin portal"],
     "detection-logs": ["Detection logs", "Audit trail"],
+    batches: ["Batches", "Export fails"],
     settings: ["Settings", "Configuration"],
   };
 
@@ -744,69 +902,176 @@ function AdminDashboard({ onLogout }) {
                 </div>
               </div>
 
-              <div className="adash__overview-grid" style={{ marginTop: 18, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
-                <div className="adash__card" style={{ padding: 18, minHeight: 180 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div
+                className="adash__overview-grid"
+                style={{
+                  marginTop: 18,
+                  display: "grid",
+                  gridTemplateColumns: "1fr 1fr",
+                  gap: 16,
+                }}
+              >
+                <div
+                  className="adash__card"
+                  style={{ padding: 18, minHeight: 180 }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
                     <div>
                       <div className="adash__card-label">Model Health</div>
-                      <div style={{ fontWeight: 600, marginTop: 6 }}>{currentModelObj ? `${currentModelObj.name} ${currentModelObj.version || ''}` : (currentSetting?.model_name || 'No model selected')}</div>
+                      <div style={{ fontWeight: 600, marginTop: 6 }}>
+                        {currentModelObj
+                          ? `${currentModelObj.name} ${currentModelObj.version || ""}`
+                          : currentSetting?.model_name || "No model selected"}
+                      </div>
                     </div>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 12, color: '#666' }}>Recent vs prior</div>
-                      <div style={{ fontWeight: 700, marginTop: 6 }}>{performanceDelta == null ? '—' : `${(performanceDelta * 100).toFixed(1)}%`}</div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{ fontSize: 12, color: "#666" }}>
+                        Recent vs prior
+                      </div>
+                      <div style={{ fontWeight: 700, marginTop: 6 }}>
+                        {performanceDelta == null
+                          ? "—"
+                          : `${(performanceDelta * 100).toFixed(1)}%`}
+                      </div>
                     </div>
                   </div>
 
                   <div style={{ marginTop: 12 }}>
-                    <div style={{ fontSize: 13, marginBottom: 6 }}>Confusion snapshot</div>
-                    <div style={{ display: 'flex', gap: 12 }}>
-                      <div style={{ flex: 1, padding: 8, background: '#f7f7f7', borderRadius: 6 }}>
-                        <div style={{ fontSize: 12, color: '#666' }}>Pass</div>
-                        <div style={{ fontWeight: 700, fontSize: 18 }}>{decisionCounts.pass}</div>
+                    <div style={{ fontSize: 13, marginBottom: 6 }}>
+                      Confusion snapshot
+                    </div>
+                    <div style={{ display: "flex", gap: 12 }}>
+                      <div
+                        style={{
+                          flex: 1,
+                          padding: 8,
+                          background: "#f7f7f7",
+                          borderRadius: 6,
+                        }}
+                      >
+                        <div style={{ fontSize: 12, color: "#666" }}>Pass</div>
+                        <div style={{ fontWeight: 700, fontSize: 18 }}>
+                          {decisionCounts.pass}
+                        </div>
                       </div>
-                      <div style={{ flex: 1, padding: 8, background: '#f7f7f7', borderRadius: 6 }}>
-                        <div style={{ fontSize: 12, color: '#666' }}>Fail</div>
-                        <div style={{ fontWeight: 700, fontSize: 18 }}>{decisionCounts.fail}</div>
+                      <div
+                        style={{
+                          flex: 1,
+                          padding: 8,
+                          background: "#f7f7f7",
+                          borderRadius: 6,
+                        }}
+                      >
+                        <div style={{ fontSize: 12, color: "#666" }}>Fail</div>
+                        <div style={{ fontWeight: 700, fontSize: 18 }}>
+                          {decisionCounts.fail}
+                        </div>
                       </div>
-                      <div style={{ flex: 1, padding: 8, background: '#f7f7f7', borderRadius: 6 }}>
-                        <div style={{ fontSize: 12, color: '#666' }}>Other</div>
-                        <div style={{ fontWeight: 700, fontSize: 18 }}>{decisionCounts.other}</div>
+                      <div
+                        style={{
+                          flex: 1,
+                          padding: 8,
+                          background: "#f7f7f7",
+                          borderRadius: 6,
+                        }}
+                      >
+                        <div style={{ fontSize: 12, color: "#666" }}>Other</div>
+                        <div style={{ fontWeight: 700, fontSize: 18 }}>
+                          {decisionCounts.other}
+                        </div>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="adash__card" style={{ padding: 18, minHeight: 180 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div
+                  className="adash__card"
+                  style={{ padding: 18, minHeight: 180 }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                    }}
+                  >
                     <div>
                       <div className="adash__card-label">Alerts & Issues</div>
-                      <div style={{ fontSize: 13, color: '#666', marginTop: 6 }}>{detectionLogs.length} observations</div>
+                      <div
+                        style={{ fontSize: 13, color: "#666", marginTop: 6 }}
+                      >
+                        {detectionLogs.length} observations
+                      </div>
                     </div>
-                    <div style={{ fontSize: 12, color: '#888' }}>Auto-detected</div>
+                    <div style={{ fontSize: 12, color: "#888" }}>
+                      Auto-detected
+                    </div>
                   </div>
 
                   <div style={{ marginTop: 12 }}>
-                    <div style={{ fontSize: 13, marginBottom: 6 }}>Low-confidence clusters</div>
+                    <div style={{ fontSize: 13, marginBottom: 6 }}>
+                      Low-confidence clusters
+                    </div>
                     {lowConfidenceClusters.length === 0 ? (
-                      <div style={{ color: '#666', fontSize: 13 }}>No low-confidence clusters found.</div>
+                      <div style={{ color: "#666", fontSize: 13 }}>
+                        No low-confidence clusters found.
+                      </div>
                     ) : (
                       <ul style={{ margin: 0, paddingLeft: 16 }}>
                         {lowConfidenceClusters.map((c) => (
                           <li key={c.key} style={{ marginBottom: 6 }}>
-                            <strong>{c.key}</strong>: avg {c.avg.toFixed(2)} across {c.n} samples
+                            <strong>{c.key}</strong>: avg {c.avg.toFixed(2)}{" "}
+                            across {c.n} samples
                           </li>
                         ))}
                       </ul>
                     )}
 
                     <div style={{ marginTop: 12 }}>
-                      <div style={{ fontSize: 13, marginBottom: 6 }}>Active alerts</div>
-                      {detectionLogs.filter((l) => (l.status || '').toString().toLowerCase() === 'alert').slice(0,5).map((a) => (
-                        <div key={a.id} style={{ padding: 8, background: '#fff6f6', borderRadius: 6, marginBottom: 8 }}>
-                          <div style={{ fontSize: 13, fontWeight: 600 }}>{a.component_name || a.component || a.model_name || a.model_used || `#${a.id}`}</div>
-                          <div style={{ fontSize: 12, color: '#666' }}>{(a.final_decision || a.system_decision || a.status) + ' • ' + (new Date(a.timestamp || a.created_at).toLocaleString())}</div>
-                        </div>
-                      ))}
+                      <div style={{ fontSize: 13, marginBottom: 6 }}>
+                        Active alerts
+                      </div>
+                      {detectionLogs
+                        .filter(
+                          (l) =>
+                            (l.status || "").toString().toLowerCase() ===
+                            "alert",
+                        )
+                        .slice(0, 5)
+                        .map((a) => (
+                          <div
+                            key={a.id}
+                            style={{
+                              padding: 8,
+                              background: "#fff6f6",
+                              borderRadius: 6,
+                              marginBottom: 8,
+                            }}
+                          >
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>
+                              {a.component_name ||
+                                a.component ||
+                                a.model_name ||
+                                a.model_used ||
+                                `#${a.id}`}
+                            </div>
+                            <div style={{ fontSize: 12, color: "#666" }}>
+                              {(a.final_decision ||
+                                a.system_decision ||
+                                a.status) +
+                                " • " +
+                                new Date(
+                                  a.timestamp || a.created_at,
+                                ).toLocaleString()}
+                            </div>
+                          </div>
+                        ))}
                     </div>
                   </div>
                 </div>
@@ -815,6 +1080,144 @@ function AdminDashboard({ onLogout }) {
           )}
 
           {/* ── Detection Logs ── */}
+          {/* ── Batches ── */}
+          {activePage === "batches" && (
+            <>
+              <div className="adash__section-header">
+                <h3>Batches</h3>
+                <span className="adash__section-badge">
+                  {batches.length} batches
+                </span>
+                <div style={{ marginLeft: "auto" }} />
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: 12,
+                }}
+              >
+                {batches.map((b) => {
+                  const failCount = getFailLogsForBatch(b).length;
+                  return (
+                    <div
+                      key={b.key}
+                      className="adash__card"
+                      style={{ padding: 12 }}
+                    >
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: 13, color: "#666" }}>
+                            {b.key}
+                          </div>
+                          <div style={{ fontWeight: 700, marginTop: 6 }}>
+                            {b.logs.length} items
+                          </div>
+                        </div>
+                        <div style={{ textAlign: "right" }}>
+                          <div style={{ fontSize: 12, color: "#666" }}>
+                            Fails
+                          </div>
+                          <div style={{ fontWeight: 700, marginTop: 6 }}>
+                            {failCount}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+                        <button
+                          className="adash__btn adash__btn--ghost"
+                          type="button"
+                          onClick={() =>
+                            setActiveBatchKey(
+                              activeBatchKey === b.key ? null : b.key,
+                            )
+                          }
+                        >
+                          {activeBatchKey === b.key ? "Hide" : "View fails"}
+                        </button>
+                        <button
+                          className="adash__btn adash__btn--primary"
+                          type="button"
+                          onClick={() =>
+                            exportImagesForLogs(
+                              getFailLogsForBatch(b),
+                              `${b.key.replace(/\s+/g, "_")}_fail`,
+                            )
+                          }
+                          disabled={failCount === 0}
+                        >
+                          Export Images
+                        </button>
+                      </div>
+                      {activeBatchKey === b.key && (
+                        <div style={{ marginTop: 12 }}>
+                          <div style={{ fontSize: 13, marginBottom: 8 }}>
+                            Failed items in {b.key}
+                          </div>
+                          <div
+                            style={{
+                              display: "flex",
+                              gap: 8,
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            {getFailLogsForBatch(b).map((l) => (
+                              <div
+                                key={l.id}
+                                style={{ width: 120, textAlign: "center" }}
+                              >
+                                {getDetectionLogImageSrc(l) ? (
+                                  <img
+                                    src={getDetectionLogImageSrc(l)}
+                                    alt={`#${l.id}`}
+                                    style={{
+                                      width: 120,
+                                      height: 80,
+                                      objectFit: "cover",
+                                      borderRadius: 6,
+                                    }}
+                                  />
+                                ) : (
+                                  <div
+                                    style={{
+                                      width: 120,
+                                      height: 80,
+                                      background: "#f3f3f3",
+                                      borderRadius: 6,
+                                      display: "flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                    }}
+                                  >
+                                    No image
+                                  </div>
+                                )}
+                                <div
+                                  style={{ fontSize: 12, marginTop: 6 }}
+                                >{`#${l.id}`}</div>
+                              </div>
+                            ))}
+                            {getFailLogsForBatch(b).length === 0 && (
+                              <div style={{ color: "#666" }}>
+                                No failed items in this batch.
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
           {activePage === "detection-logs" && (
             <>
               <div className="adash__section-header">
@@ -1137,6 +1540,7 @@ function AdminDashboard({ onLogout }) {
                             : "▼"
                           : ""}
                       </th>
+                      <th style={{ cursor: "default" }}>Batch</th>
                       <th style={{ cursor: "default" }}>Image</th>
                       <th
                         style={{ cursor: "pointer" }}
@@ -1243,6 +1647,7 @@ function AdminDashboard({ onLogout }) {
                             : "▼"
                           : ""}
                       </th>
+                      <th style={{ cursor: "default" }}>Confidence</th>
                       <th
                         style={{ cursor: "pointer" }}
                         onClick={() => {
@@ -1296,6 +1701,7 @@ function AdminDashboard({ onLogout }) {
                           >
                             #{log.id}
                           </td>
+                          <td>{batchLabel}</td>
                           <td>
                             {getDetectionLogImageSrc(log) ? (
                               <button
@@ -1327,7 +1733,16 @@ function AdminDashboard({ onLogout }) {
                               {log.final_decision || log.system_decision || "-"}
                             </span>
                           </td>
-                          <td>{log.status}</td>
+                          <td>{getStatus(log)}</td>
+                          <td
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: "12px",
+                              color: "var(--text-3)",
+                            }}
+                          >
+                            {formatConfidence(log)}
+                          </td>
                           <td
                             style={{
                               color: "var(--text-3)",
@@ -1344,7 +1759,7 @@ function AdminDashboard({ onLogout }) {
                     })}
                     {detectionLogs.length === 0 && (
                       <tr>
-                        <td colSpan={9} className="adash__table-empty">
+                        <td colSpan={11} className="adash__table-empty">
                           No detection logs yet.
                         </td>
                       </tr>
@@ -1353,48 +1768,63 @@ function AdminDashboard({ onLogout }) {
                 </table>
               </div>
 
-              {selectedLogPreview && getDetectionLogImageSrc(selectedLogPreview) && (
-                <motion.div
-                  className="adash__preview-backdrop"
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  onClick={() => setSelectedLogPreview(null)}
-                >
+              {selectedLogPreview &&
+                getDetectionLogImageSrc(selectedLogPreview) && (
                   <motion.div
-                    className="adash__preview-modal"
-                    initial={{ scale: 0.96, y: 12, opacity: 0 }}
-                    animate={{ scale: 1, y: 0, opacity: 1 }}
-                    exit={{ scale: 0.96, y: 12, opacity: 0 }}
-                    onClick={(e) => e.stopPropagation()}
+                    className="adash__preview-backdrop"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    onClick={() => setSelectedLogPreview(null)}
                   >
-                    <div className="adash__preview-modal-header">
-                      <div>
-                        <div className="adash__card-label">Detection preview</div>
-                        <h3>Log #{selectedLogPreview.id}</h3>
+                    <motion.div
+                      className="adash__preview-modal"
+                      initial={{ scale: 0.96, y: 12, opacity: 0 }}
+                      animate={{ scale: 1, y: 0, opacity: 1 }}
+                      exit={{ scale: 0.96, y: 12, opacity: 0 }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <div className="adash__preview-modal-header">
+                        <div>
+                          <div className="adash__card-label">
+                            Detection preview
+                          </div>
+                          <h3>Log #{selectedLogPreview.id}</h3>
+                        </div>
+                        <button
+                          type="button"
+                          className="adash__btn adash__btn--ghost"
+                          onClick={() => setSelectedLogPreview(null)}
+                        >
+                          <Icon.X />
+                          Close
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        className="adash__btn adash__btn--ghost"
-                        onClick={() => setSelectedLogPreview(null)}
-                      >
-                        <Icon.X />
-                        Close
-                      </button>
-                    </div>
-                    <img
-                      className="adash__preview-image"
-                      src={getDetectionLogImageSrc(selectedLogPreview)}
-                      alt={`Detection preview ${selectedLogPreview.id}`}
-                    />
-                    <div className="adash__preview-meta">
-                      <span>{selectedLogPreview.operator_name || selectedLogPreview.operator}</span>
-                      <span>{selectedLogPreview.component_name || selectedLogPreview.component}</span>
-                      <span>{selectedLogPreview.model_name || selectedLogPreview.model_used}</span>
-                    </div>
+                      <img
+                        className="adash__preview-image"
+                        src={getDetectionLogImageSrc(selectedLogPreview)}
+                        alt={`Detection preview ${selectedLogPreview.id}`}
+                      />
+                      <div className="adash__preview-meta">
+                        <span>
+                          {selectedLogPreview.operator_name ||
+                            selectedLogPreview.operator}
+                        </span>
+                        <span>
+                          {selectedLogPreview.component_name ||
+                            selectedLogPreview.component}
+                        </span>
+                        <span>
+                          {selectedLogPreview.model_name ||
+                            selectedLogPreview.model_used}
+                        </span>
+                        <span>
+                          Confidence: {formatConfidence(selectedLogPreview)}
+                        </span>
+                      </div>
+                    </motion.div>
                   </motion.div>
-                </motion.div>
-              )}
+                )}
             </>
           )}
 
@@ -1471,19 +1901,17 @@ function AdminDashboard({ onLogout }) {
                       value={form.product}
                       onChange={(e) => {
                         const nextProduct = e.target.value;
-                        const nextCompatibleModels = getCompatibleModelsForProduct(
-                          models,
-                          nextProduct,
-                        );
+                        const nextCompatibleModels =
+                          getCompatibleModelsForProduct(models, nextProduct);
                         setForm((current) => ({
                           ...current,
                           product: nextProduct,
-                          model:
-                            nextCompatibleModels.some(
-                              (model) => String(model.id) === String(current.model),
-                            )
-                              ? current.model
-                              : String(nextCompatibleModels[0]?.id || ""),
+                          model: nextCompatibleModels.some(
+                            (model) =>
+                              String(model.id) === String(current.model),
+                          )
+                            ? current.model
+                            : String(nextCompatibleModels[0]?.id || ""),
                         }));
                       }}
                       disabled={components.length === 0}
@@ -1520,7 +1948,8 @@ function AdminDashboard({ onLogout }) {
                       </option>
                       {compatibleModels.map((model) => (
                         <option key={model.id} value={model.id}>
-                          {model.name} {model.version ? `(${model.version})` : ""}
+                          {model.name}{" "}
+                          {model.version ? `(${model.version})` : ""}
                         </option>
                       ))}
                     </select>
@@ -1575,7 +2004,9 @@ function AdminDashboard({ onLogout }) {
                     Review, edit, or remove active routing rules.
                   </div>
                 </div>
-                <span className="adash__section-badge">{settings.length} saved</span>
+                <span className="adash__section-badge">
+                  {settings.length} saved
+                </span>
               </div>
 
               <div className="adash__table-wrap adash__table-wrap--settings">
