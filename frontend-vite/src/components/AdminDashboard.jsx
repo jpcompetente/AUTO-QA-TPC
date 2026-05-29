@@ -158,36 +158,60 @@ function AdminDashboard({ onLogout }) {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [compRes, modelRes, opRes, settingsRes, logsRes] =
-        await Promise.all([
+      const [logsRes, compRes, modelRes, opRes, settingsRes] =
+        await Promise.allSettled([
+          getDetectionLogs(),
           getComponents(),
           getModels(),
           getOperators(),
           getAdminSettings(),
-          getDetectionLogs(),
         ]);
-      setComponents(compRes.data);
-      setModels(modelRes.data);
-      setOperators(opRes.data);
-      setSettings(settingsRes.data);
-      setDetectionLogs(logsRes.data);
-      // If the user hasn't changed the page size (default 20), default to showing all logs
-      if (Array.isArray(logsRes.data) && logsRes.data.length > 0) {
-        setDetectionLogsLimit((prev) => (prev === 20 ? logsRes.data.length : prev));
+
+      if (logsRes.status === "fulfilled") {
+        const logs = Array.isArray(logsRes.value.data)
+          ? logsRes.value.data
+          : logsRes.value.data?.results || [];
+        setDetectionLogs(logs);
+
+        // If the user hasn't changed the page size (default 20), default to showing all logs
+        if (logs.length > 0) {
+          setDetectionLogsLimit((prev) => (prev === 20 ? logs.length : prev));
+        }
+      } else {
+        console.error("Failed to fetch detection logs", logsRes.reason);
       }
-      setForm((f) => ({
-        ...f,
-        product: f.product || String(compRes.data[0]?.id || ""),
-        model:
-          f.model ||
-          String(
-            getCompatibleModelsForProduct(modelRes.data, compRes.data[0]?.id)[0]
-              ?.id ||
-              modelRes.data[0]?.id ||
-              "",
-          ),
-        operator: f.operator || String(opRes.data[0]?.id || ""),
-      }));
+
+      if (compRes.status === "fulfilled") setComponents(compRes.value.data);
+      else console.error("Failed to fetch components", compRes.reason);
+
+      if (modelRes.status === "fulfilled") setModels(modelRes.value.data);
+      else console.error("Failed to fetch models", modelRes.reason);
+
+      if (opRes.status === "fulfilled") setOperators(opRes.value.data);
+      else console.error("Failed to fetch operators", opRes.reason);
+
+      if (settingsRes.status === "fulfilled") setSettings(settingsRes.value.data);
+      else console.error("Failed to fetch settings", settingsRes.reason);
+
+      if (compRes.status === "fulfilled" && modelRes.status === "fulfilled" && opRes.status === "fulfilled") {
+        const compData = compRes.value.data;
+        const modelData = modelRes.value.data;
+        const opData = opRes.value.data;
+
+        setForm((f) => ({
+          ...f,
+          product: f.product || String(compData[0]?.id || ""),
+          model:
+            f.model ||
+            String(
+              getCompatibleModelsForProduct(modelData, compData[0]?.id)[0]
+                ?.id ||
+                modelData[0]?.id ||
+                "",
+            ),
+          operator: f.operator || String(opData[0]?.id || ""),
+        }));
+      }
     } finally {
       setIsLoading(false);
     }
@@ -335,7 +359,7 @@ function AdminDashboard({ onLogout }) {
   }, [detectionLogs, logsSortField, logsSortOrder]);
 
   const availableBatchNumbers = useMemo(() => {
-    return [...new Set(detectionLogs.map((log) => Number(log.batch_number || 0)).filter((value) => value > 0))].sort(
+    return [...new Set(detectionLogs.map((log) => Number(log.batch_number ?? 0)).filter((value) => value >= 0))].sort(
       (left, right) => left - right,
     );
   }, [detectionLogs]);
@@ -354,7 +378,7 @@ function AdminDashboard({ onLogout }) {
 
     if (filterBatch !== "all") {
       const selectedBatch = Number(filterBatch);
-      logs = logs.filter((log) => Number(log.batch_number || 0) === selectedBatch);
+      logs = logs.filter((log) => Number(log.batch_number ?? 0) === selectedBatch);
     }
 
     // Operator filter (compare against id or name where available)
@@ -428,6 +452,7 @@ function AdminDashboard({ onLogout }) {
   }, [
     sortedDetectionLogs,
     filterBatch,
+    filterDateMode,
     filterOperator,
     filterDateFrom,
     filterDateTo,
@@ -571,12 +596,12 @@ function AdminDashboard({ onLogout }) {
   // Batch grouping for Batches page
   const getBatchKey = (log) => {
     return (
-      log.batch ||
-      log.batch_id ||
-      log.batch_number ||
-      log.batch_no ||
-      log.batchName ||
-      log.batch_name ||
+      log.batch ??
+      log.batch_id ??
+      log.batch_number ??
+      log.batch_no ??
+      log.batchName ??
+      log.batch_name ??
       null
     );
   };
@@ -1542,7 +1567,6 @@ function AdminDashboard({ onLogout }) {
                             : "▼"
                           : ""}
                       </th>
-                      <th style={{ cursor: "default" }}>Batch</th>
                       <th style={{ cursor: "default" }}>Image</th>
                       <th
                         style={{ cursor: "pointer" }}
@@ -1705,7 +1729,7 @@ function AdminDashboard({ onLogout }) {
                             {displayNo}
                           </td>
                           <td style={{ fontFamily: "var(--font-mono)", fontSize: "12px" }}>
-                            {log.batch_number || "—"}
+                            {log.batch_number ?? "—"}
                           </td>
                           <td
                             style={{
@@ -1716,7 +1740,6 @@ function AdminDashboard({ onLogout }) {
                           >
                             #{log.id}
                           </td>
-                          <td>{batchLabel}</td>
                           <td>
                             {getDetectionLogImageSrc(log) ? (
                               <button

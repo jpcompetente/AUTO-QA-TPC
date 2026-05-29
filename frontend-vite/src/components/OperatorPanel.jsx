@@ -94,7 +94,8 @@ function OperatorPanel({
   const [manualAnnotations, setManualAnnotations] = useState([]);
   const [currentPath, setCurrentPath] = useState([]);
   const [isDrawing, setIsDrawing] = useState(false);
-  const completedBatchNumber = !sessionStarted && batchNumber > 1 ? batchNumber - 1 : null;
+  const completedBatchNumber =
+    !sessionStarted && batchNumber > 1 ? batchNumber - 1 : null;
   const nextBatchNumber = sessionStarted ? batchNumber + 1 : batchNumber;
 
   useEffect(() => {
@@ -314,17 +315,20 @@ function OperatorPanel({
     setCurrentPath([{ x, y }]);
   }, []);
 
-  const drawLine = useCallback((e) => {
-    if (!isDrawing || !reviewPendingRef.current) return;
-    const canvas = manualCanvasRef.current;
-    if (!canvas) return;
+  const drawLine = useCallback(
+    (e) => {
+      if (!isDrawing || !reviewPendingRef.current) return;
+      const canvas = manualCanvasRef.current;
+      if (!canvas) return;
 
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
 
-    setCurrentPath((prev) => [...prev, { x, y }]);
-  }, [isDrawing]);
+      setCurrentPath((prev) => [...prev, { x, y }]);
+    },
+    [isDrawing],
+  );
 
   const stopDrawing = useCallback(() => {
     if (!isDrawing) return;
@@ -385,13 +389,20 @@ function OperatorPanel({
 
       // Get wrapper dimensions for more reliable sizing
       const wrapper = canvas.parentElement;
-      let displayWidth = wrapper?.offsetWidth || canvas.offsetWidth || media.clientWidth || 640;
-      let displayHeight = wrapper?.offsetHeight || canvas.offsetHeight || media.clientHeight || 480;
+      let displayWidth =
+        wrapper?.offsetWidth || canvas.offsetWidth || media.clientWidth || 640;
+      let displayHeight =
+        wrapper?.offsetHeight ||
+        canvas.offsetHeight ||
+        media.clientHeight ||
+        480;
 
       // Fallback: use media element dimensions if available
       if (media.tagName === "VIDEO") {
-        if (!displayWidth || displayWidth < 100) displayWidth = media.clientWidth || 640;
-        if (!displayHeight || displayHeight < 100) displayHeight = media.clientHeight || 480;
+        if (!displayWidth || displayWidth < 100)
+          displayWidth = media.clientWidth || 640;
+        if (!displayHeight || displayHeight < 100)
+          displayHeight = media.clientHeight || 480;
       }
 
       // Get source dimensions - handle both video and img elements
@@ -524,7 +535,7 @@ function OperatorPanel({
         const wrapper = canvas.parentElement;
         let displayWidth = wrapper?.offsetWidth || img.width;
         let displayHeight = wrapper?.offsetHeight || img.height;
-        
+
         // If dimensions are still too small, use image dimensions
         if (displayWidth < 100) displayWidth = img.width;
         if (displayHeight < 100) displayHeight = img.height;
@@ -537,7 +548,7 @@ function OperatorPanel({
           const imgRatio = img.width / img.height;
           const displayRatio = displayWidth / displayHeight;
           let drawWidth, drawHeight, drawX, drawY;
-          
+
           if (displayRatio > imgRatio) {
             drawHeight = displayHeight;
             drawWidth = displayHeight * imgRatio;
@@ -549,7 +560,7 @@ function OperatorPanel({
             drawX = 0;
             drawY = (displayHeight - drawHeight) / 2;
           }
-          
+
           ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
           console.debug("[ServerAnnotation] Rendered annotated image:", {
             width: displayWidth,
@@ -714,7 +725,7 @@ function OperatorPanel({
       if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
         setStreamStatus("failed");
         console.warn(
-          `[InferenceStream] Max reconnection attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Giving up.`
+          `[InferenceStream] Max reconnection attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Giving up.`,
         );
         return;
       }
@@ -788,7 +799,7 @@ function OperatorPanel({
         if (attempt >= MAX_RECONNECT_ATTEMPTS) {
           setStreamStatus("failed");
           console.warn(
-            `[InferenceStream] Connection closed. Max reconnection attempts reached.`
+            `[InferenceStream] Connection closed. Max reconnection attempts reached.`,
           );
           return;
         }
@@ -796,7 +807,7 @@ function OperatorPanel({
         const delayMs = Math.min(1000 * 2 ** (attempt - 1), 8000);
         setStreamStatus("reconnecting");
         console.debug(
-          `[InferenceStream] Reconnecting in ${delayMs}ms (attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS})`
+          `[InferenceStream] Reconnecting in ${delayMs}ms (attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS})`,
         );
         reconnectTimerRef.current = window.setTimeout(() => {
           connectStream();
@@ -882,8 +893,8 @@ function OperatorPanel({
         formData.append("config_hash", preset.config_hash);
         formData.append("trigger", trigger);
         formData.append("session_id", sessionId || "");
-          formData.append("session_active", sessionStarted ? "true" : "false");
-          formData.append("batch_number", String(batchNumber || 1));
+        formData.append("session_active", sessionStarted ? "true" : "false");
+        formData.append("batch_number", String(batchNumber || 1));
 
         const detectResponse = await detectImage(formData);
         const result = detectResponse.data;
@@ -984,7 +995,7 @@ function OperatorPanel({
         captureInFlightRef.current = false;
       }
     },
-    [autoAnnotateDetection, preset, sessionId, sessionStarted],
+    [autoAnnotateDetection, batchNumber, preset, sessionId, sessionStarted],
   );
 
   /* ── Motion detection ────────────────────────────────────────── */
@@ -1193,7 +1204,7 @@ function OperatorPanel({
             trigger: "live",
             session_id: sessionId || "",
             session_active: sessionStarted,
-                      batch_number: batchNumber || 1,
+            batch_number: batchNumber || 1,
           }),
         );
       }, LIVE_INFERENCE_INTERVAL_MS);
@@ -1214,7 +1225,13 @@ function OperatorPanel({
     else stopLive();
 
     return () => stopLive();
-  }, [checkLiveInferenceMotion, preset, sessionId, sessionStarted]);
+  }, [
+    batchNumber,
+    checkLiveInferenceMotion,
+    preset,
+    sessionId,
+    sessionStarted,
+  ]);
 
   /* ── Submit review ───────────────────────────────────────────── */
   const submitReview = async () => {

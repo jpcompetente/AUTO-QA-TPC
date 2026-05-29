@@ -1,5 +1,15 @@
-﻿import { createHotContext as __vite__createHotContext } from "/@vite/client";import.meta.hot = __vite__createHotContext("/src/App.jsx");const useEffect = __vite__cjsImport0_react["useEffect"]; const useMemo = __vite__cjsImport0_react["useMemo"]; const useState = __vite__cjsImport0_react["useState"];const _jsxDEV = __vite__cjsImport10_react_jsxDevRuntime["jsxDEV"]; const _Fragment = __vite__cjsImport10_react_jsxDevRuntime["Fragment"];import __vite__cjsImport0_react from "/node_modules/.vite/deps/react.js?v=26363500";
-import { AnimatePresence, motion } from "/node_modules/.vite/deps/framer-motion.js?v=26363500";
+﻿import { createHotContext as __vite__createHotContext } from "/@vite/client";
+import.meta.hot = __vite__createHotContext("/src/App.jsx");
+const useEffect = __vite__cjsImport0_react["useEffect"];
+const useMemo = __vite__cjsImport0_react["useMemo"];
+const useState = __vite__cjsImport0_react["useState"];
+const _jsxDEV = __vite__cjsImport10_react_jsxDevRuntime["jsxDEV"];
+const _Fragment = __vite__cjsImport10_react_jsxDevRuntime["Fragment"];
+import __vite__cjsImport0_react from "/node_modules/.vite/deps/react.js?v=26363500";
+import {
+  AnimatePresence,
+  motion,
+} from "/node_modules/.vite/deps/framer-motion.js?v=26363500";
 import { jwtDecode } from "/node_modules/.vite/deps/jwt-decode.js?v=26363500";
 import { getApiStatus } from "/src/api/backend.js";
 import AdminDashboard from "/src/components/AdminDashboard.jsx?t=1780033874513";
@@ -8,333 +18,514 @@ import OperatorPanel from "/src/components/OperatorPanel.jsx?t=1780035339102";
 import CameraSender from "/src/components/CameraSender.jsx";
 import "/src/components/CameraReceiver.jsx";
 import "/src/App.css?t=1780032347181";
-var _jsxFileName = "C:/Users/TPC-USER/Desktop/AUTO-QA-TPC/frontend-vite/src/App.jsx";
+var _jsxFileName =
+  "C:/Users/TPC-USER/Desktop/AUTO-QA-TPC/frontend-vite/src/App.jsx";
 import __vite__cjsImport10_react_jsxDevRuntime from "/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=26363500";
 var _s = $RefreshSig$();
 function normalizeRole(role) {
-	if (!role) return null;
-	const normalized = role.toLowerCase().replace(/_/g, "");
-	if (normalized === "admin") return "admin";
-	if (normalized === "operator") return "user";
-	return normalized;
+  if (!role) return null;
+  const normalized = role.toLowerCase().replace(/_/g, "");
+  if (normalized === "admin") return "admin";
+  if (normalized === "operator") return "user";
+  return normalized;
 }
 function readRole(token) {
-	if (!token) {
-		return null;
-	}
-	try {
-		const decoded = jwtDecode(token);
-		return normalizeRole(decoded.role || decoded.groups?.[0] || "operator");
-	} catch {
-		return null;
-	}
+  if (!token) {
+    return null;
+  }
+  try {
+    const decoded = jwtDecode(token);
+    return normalizeRole(decoded.role || decoded.groups?.[0] || "operator");
+  } catch {
+    return null;
+  }
 }
 function readUsername(token) {
-	if (!token) {
-		return null;
-	}
-	try {
-		const decoded = jwtDecode(token);
-		return decoded.username || decoded.sub || "User";
-	} catch {
-		return null;
-	}
+  if (!token) {
+    return null;
+  }
+  try {
+    const decoded = jwtDecode(token);
+    return decoded.username || decoded.sub || "User";
+  } catch {
+    return null;
+  }
 }
 function readStoredToken() {
-	const storedToken = localStorage.getItem("token");
-	if (!storedToken) {
-		return null;
-	}
-	if (!readRole(storedToken)) {
-		localStorage.removeItem("token");
-		localStorage.removeItem("refresh");
-		return null;
-	}
-	return storedToken;
+  const storedToken = localStorage.getItem("token");
+  if (!storedToken) {
+    return null;
+  }
+  if (!readRole(storedToken)) {
+    localStorage.removeItem("token");
+    localStorage.removeItem("refresh");
+    return null;
+  }
+  return storedToken;
 }
 function readAppMode() {
-	if (typeof window === "undefined") {
-		return "standard";
-	}
-	const mode = new URLSearchParams(window.location.search).get("mode");
-	if (!mode) return "standard";
-	if (mode === "camera") return "camera";
-	if (mode === "relay-sender") return "relay-sender";
-	if (mode === "relay-receiver") return "relay-receiver";
-	return "standard";
+  if (typeof window === "undefined") {
+    return "standard";
+  }
+  const mode = new URLSearchParams(window.location.search).get("mode");
+  if (!mode) return "standard";
+  if (mode === "camera") return "camera";
+  if (mode === "relay-sender") return "relay-sender";
+  if (mode === "relay-receiver") return "relay-receiver";
+  return "standard";
 }
 function App() {
-	_s();
-	const [token, setToken] = useState(() => readStoredToken());
-	const [apiMessage, setApiMessage] = useState("Connecting to backend...");
-	const [logoutOpen, setLogoutOpen] = useState(false);
-	const appMode = useMemo(() => readAppMode(), []);
-	const role = useMemo(() => readRole(token), [token]);
-	const username = useMemo(() => readUsername(token), [token]);
-	const handleLogin = (accessToken) => {
-		localStorage.setItem("token", accessToken);
-		setToken(accessToken);
-	};
-	const requestLogout = () => {
-		setLogoutOpen(true);
-	};
-	const confirmLogout = () => {
-		localStorage.removeItem("token");
-		localStorage.removeItem("refresh");
-		setToken(null);
-		setLogoutOpen(false);
-	};
-	const cancelLogout = () => setLogoutOpen(false);
-	useEffect(() => {
-		getApiStatus().then((response) => {
-			setApiMessage(response.data.message || "Backend connected");
-		}).catch(() => {
-			setApiMessage("Backend not reachable yet");
-		});
-	}, []);
-	useEffect(() => {
-		if (!logoutOpen) return undefined;
-		const onKeyDown = (event) => {
-			if (event.key === "Escape") {
-				cancelLogout();
-			}
-		};
-		window.addEventListener("keydown", onKeyDown);
-		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [logoutOpen]);
-	useEffect(() => {
-		if (typeof document === "undefined") return undefined;
-		const previousOverflow = document.body.style.overflow;
-		if (logoutOpen) {
-			document.body.style.overflow = "hidden";
-		}
-		return () => {
-			document.body.style.overflow = previousOverflow;
-		};
-	}, [logoutOpen]);
-	if (!token) {
-		return /* @__PURE__ */ _jsxDEV(Login, {
-			onLogin: handleLogin,
-			apiMessage
-		}, void 0, false, {
-			fileName: _jsxFileName,
-			lineNumber: 141,
-			columnNumber: 12
-		}, this);
-	}
-	// eslint-disable-next-line no-useless-assignment
-	let mainContent = null;
-	if (role === "admin") {
-		return /* @__PURE__ */ _jsxDEV(_Fragment, { children: [/* @__PURE__ */ _jsxDEV(AdminDashboard, {
-			onLogout: requestLogout,
-			role
-		}, void 0, false, {
-			fileName: _jsxFileName,
-			lineNumber: 150,
-			columnNumber: 9
-		}, this), /* @__PURE__ */ _jsxDEV(AnimatePresence, { children: logoutOpen ? /* @__PURE__ */ _jsxDEV(motion.div, {
-			className: "logout-modal",
-			role: "presentation",
-			initial: { opacity: 0 },
-			animate: { opacity: 1 },
-			exit: { opacity: 0 },
-			onClick: cancelLogout,
-			children: /* @__PURE__ */ _jsxDEV(motion.div, {
-				className: "logout-modal__panel",
-				role: "dialog",
-				"aria-modal": "true",
-				"aria-labelledby": "logout-modal-title",
-				"aria-describedby": "logout-modal-description",
-				initial: {
-					opacity: 0,
-					y: 24,
-					scale: .98
-				},
-				animate: {
-					opacity: 1,
-					y: 0,
-					scale: 1
-				},
-				exit: {
-					opacity: 0,
-					y: 20,
-					scale: .98
-				},
-				transition: { duration: .18 },
-				onClick: (event) => event.stopPropagation(),
-				children: [
-					/* @__PURE__ */ _jsxDEV("h2", {
-						id: "logout-modal-title",
-						children: "Log out of your session?"
-					}, void 0, false, {
-						fileName: _jsxFileName,
-						lineNumber: 173,
-						columnNumber: 17
-					}, this),
-					/* @__PURE__ */ _jsxDEV("p", {
-						id: "logout-modal-description",
-						children: [
-							"You are signed in as ",
-							username || "User",
-							role ? ` (${role})` : "",
-							"."
-						]
-					}, void 0, true, {
-						fileName: _jsxFileName,
-						lineNumber: 174,
-						columnNumber: 17
-					}, this),
-					/* @__PURE__ */ _jsxDEV("div", {
-						className: "logout-modal__actions",
-						children: [/* @__PURE__ */ _jsxDEV("button", {
-							className: "logout-modal__button logout-modal__button--secondary",
-							type: "button",
-							onClick: cancelLogout,
-							children: "Stay signed in"
-						}, void 0, false, {
-							fileName: _jsxFileName,
-							lineNumber: 180,
-							columnNumber: 19
-						}, this), /* @__PURE__ */ _jsxDEV("button", {
-							className: "logout-modal__button logout-modal__button--primary",
-							type: "button",
-							onClick: confirmLogout,
-							children: "Sign out"
-						}, void 0, false, {
-							fileName: _jsxFileName,
-							lineNumber: 187,
-							columnNumber: 19
-						}, this)]
-					}, void 0, true, {
-						fileName: _jsxFileName,
-						lineNumber: 179,
-						columnNumber: 17
-					}, this)
-				]
-			}, void 0, true, {
-				fileName: _jsxFileName,
-				lineNumber: 161,
-				columnNumber: 15
-			}, this)
-		}, void 0, false, {
-			fileName: _jsxFileName,
-			lineNumber: 153,
-			columnNumber: 13
-		}, this) : null }, void 0, false, {
-			fileName: _jsxFileName,
-			lineNumber: 151,
-			columnNumber: 9
-		}, this)] }, void 0, true);
-	}
-	if (appMode === "relay-sender") {
-		return /* @__PURE__ */ _jsxDEV(CameraSender, {}, void 0, false, {
-			fileName: _jsxFileName,
-			lineNumber: 204,
-			columnNumber: 12
-		}, this);
-	}
-	mainContent = /* @__PURE__ */ _jsxDEV(OperatorPanel, {
-		onLogout: requestLogout,
-		username,
-		cameraOnly: appMode === "camera"
-	}, void 0, false, {
-		fileName: _jsxFileName,
-		lineNumber: 208,
-		columnNumber: 5
-	}, this);
-	return /* @__PURE__ */ _jsxDEV(_Fragment, { children: [mainContent, /* @__PURE__ */ _jsxDEV(AnimatePresence, { children: logoutOpen ? /* @__PURE__ */ _jsxDEV(motion.div, {
-		className: "logout-modal",
-		role: "presentation",
-		initial: { opacity: 0 },
-		animate: { opacity: 1 },
-		exit: { opacity: 0 },
-		onClick: cancelLogout,
-		children: /* @__PURE__ */ _jsxDEV(motion.div, {
-			className: "logout-modal__panel",
-			role: "dialog",
-			"aria-modal": "true",
-			"aria-labelledby": "logout-modal-title",
-			"aria-describedby": "logout-modal-description",
-			initial: {
-				opacity: 0,
-				y: 24,
-				scale: .98
-			},
-			animate: {
-				opacity: 1,
-				y: 0,
-				scale: 1
-			},
-			exit: {
-				opacity: 0,
-				y: 20,
-				scale: .98
-			},
-			transition: { duration: .18 },
-			onClick: (event) => event.stopPropagation(),
-			children: [
-				/* @__PURE__ */ _jsxDEV("h2", {
-					id: "logout-modal-title",
-					children: "Log out of your session?"
-				}, void 0, false, {
-					fileName: _jsxFileName,
-					lineNumber: 240,
-					columnNumber: 15
-				}, this),
-				/* @__PURE__ */ _jsxDEV("p", {
-					id: "logout-modal-description",
-					children: [
-						"You are signed in as ",
-						username || "User",
-						role ? ` (${role})` : "",
-						"."
-					]
-				}, void 0, true, {
-					fileName: _jsxFileName,
-					lineNumber: 241,
-					columnNumber: 15
-				}, this),
-				/* @__PURE__ */ _jsxDEV("div", {
-					className: "logout-modal__actions",
-					children: [/* @__PURE__ */ _jsxDEV("button", {
-						className: "logout-modal__button logout-modal__button--secondary",
-						type: "button",
-						onClick: cancelLogout,
-						children: "Stay signed in"
-					}, void 0, false, {
-						fileName: _jsxFileName,
-						lineNumber: 247,
-						columnNumber: 17
-					}, this), /* @__PURE__ */ _jsxDEV("button", {
-						className: "logout-modal__button logout-modal__button--primary",
-						type: "button",
-						onClick: confirmLogout,
-						children: "Sign out"
-					}, void 0, false, {
-						fileName: _jsxFileName,
-						lineNumber: 254,
-						columnNumber: 17
-					}, this)]
-				}, void 0, true, {
-					fileName: _jsxFileName,
-					lineNumber: 246,
-					columnNumber: 15
-				}, this)
-			]
-		}, void 0, true, {
-			fileName: _jsxFileName,
-			lineNumber: 228,
-			columnNumber: 13
-		}, this)
-	}, void 0, false, {
-		fileName: _jsxFileName,
-		lineNumber: 220,
-		columnNumber: 11
-	}, this) : null }, void 0, false, {
-		fileName: _jsxFileName,
-		lineNumber: 218,
-		columnNumber: 7
-	}, this)] }, void 0, true);
+  _s();
+  const [token, setToken] = useState(() => readStoredToken());
+  const [apiMessage, setApiMessage] = useState("Connecting to backend...");
+  const [logoutOpen, setLogoutOpen] = useState(false);
+  const appMode = useMemo(() => readAppMode(), []);
+  const role = useMemo(() => readRole(token), [token]);
+  const username = useMemo(() => readUsername(token), [token]);
+  const handleLogin = (accessToken) => {
+    localStorage.setItem("token", accessToken);
+    setToken(accessToken);
+  };
+  const requestLogout = () => {
+    setLogoutOpen(true);
+  };
+  const confirmLogout = () => {
+    localStorage.removeItem("token");
+    localStorage.removeItem("refresh");
+    setToken(null);
+    setLogoutOpen(false);
+  };
+  const cancelLogout = () => setLogoutOpen(false);
+  useEffect(() => {
+    getApiStatus()
+      .then((response) => {
+        setApiMessage(response.data.message || "Backend connected");
+      })
+      .catch(() => {
+        setApiMessage("Backend not reachable yet");
+      });
+  }, []);
+  useEffect(() => {
+    if (!logoutOpen) return undefined;
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") {
+        cancelLogout();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [logoutOpen]);
+  useEffect(() => {
+    if (typeof document === "undefined") return undefined;
+    const previousOverflow = document.body.style.overflow;
+    if (logoutOpen) {
+      document.body.style.overflow = "hidden";
+    }
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [logoutOpen]);
+  if (!token) {
+    return /* @__PURE__ */ _jsxDEV(
+      Login,
+      {
+        onLogin: handleLogin,
+        apiMessage,
+      },
+      void 0,
+      false,
+      {
+        fileName: _jsxFileName,
+        lineNumber: 141,
+        columnNumber: 12,
+      },
+      this,
+    );
+  }
+  // eslint-disable-next-line no-useless-assignment
+  let mainContent = null;
+  if (role === "admin") {
+    return /* @__PURE__ */ _jsxDEV(
+      _Fragment,
+      {
+        children: [
+          /* @__PURE__ */ _jsxDEV(
+            AdminDashboard,
+            {
+              onLogout: requestLogout,
+              role,
+            },
+            void 0,
+            false,
+            {
+              fileName: _jsxFileName,
+              lineNumber: 150,
+              columnNumber: 9,
+            },
+            this,
+          ),
+          /* @__PURE__ */ _jsxDEV(
+            AnimatePresence,
+            {
+              children: logoutOpen
+                ? /* @__PURE__ */ _jsxDEV(
+                    motion.div,
+                    {
+                      className: "logout-modal",
+                      role: "presentation",
+                      initial: { opacity: 0 },
+                      animate: { opacity: 1 },
+                      exit: { opacity: 0 },
+                      onClick: cancelLogout,
+                      children: /* @__PURE__ */ _jsxDEV(
+                        motion.div,
+                        {
+                          className: "logout-modal__panel",
+                          role: "dialog",
+                          "aria-modal": "true",
+                          "aria-labelledby": "logout-modal-title",
+                          "aria-describedby": "logout-modal-description",
+                          initial: {
+                            opacity: 0,
+                            y: 24,
+                            scale: 0.98,
+                          },
+                          animate: {
+                            opacity: 1,
+                            y: 0,
+                            scale: 1,
+                          },
+                          exit: {
+                            opacity: 0,
+                            y: 20,
+                            scale: 0.98,
+                          },
+                          transition: { duration: 0.18 },
+                          onClick: (event) => event.stopPropagation(),
+                          children: [
+                            /* @__PURE__ */ _jsxDEV(
+                              "h2",
+                              {
+                                id: "logout-modal-title",
+                                children: "Log out of your session?",
+                              },
+                              void 0,
+                              false,
+                              {
+                                fileName: _jsxFileName,
+                                lineNumber: 173,
+                                columnNumber: 17,
+                              },
+                              this,
+                            ),
+                            /* @__PURE__ */ _jsxDEV(
+                              "p",
+                              {
+                                id: "logout-modal-description",
+                                children: [
+                                  "You are signed in as ",
+                                  username || "User",
+                                  role ? ` (${role})` : "",
+                                  ".",
+                                ],
+                              },
+                              void 0,
+                              true,
+                              {
+                                fileName: _jsxFileName,
+                                lineNumber: 174,
+                                columnNumber: 17,
+                              },
+                              this,
+                            ),
+                            /* @__PURE__ */ _jsxDEV(
+                              "div",
+                              {
+                                className: "logout-modal__actions",
+                                children: [
+                                  /* @__PURE__ */ _jsxDEV(
+                                    "button",
+                                    {
+                                      className:
+                                        "logout-modal__button logout-modal__button--secondary",
+                                      type: "button",
+                                      onClick: cancelLogout,
+                                      children: "Stay signed in",
+                                    },
+                                    void 0,
+                                    false,
+                                    {
+                                      fileName: _jsxFileName,
+                                      lineNumber: 180,
+                                      columnNumber: 19,
+                                    },
+                                    this,
+                                  ),
+                                  /* @__PURE__ */ _jsxDEV(
+                                    "button",
+                                    {
+                                      className:
+                                        "logout-modal__button logout-modal__button--primary",
+                                      type: "button",
+                                      onClick: confirmLogout,
+                                      children: "Sign out",
+                                    },
+                                    void 0,
+                                    false,
+                                    {
+                                      fileName: _jsxFileName,
+                                      lineNumber: 187,
+                                      columnNumber: 19,
+                                    },
+                                    this,
+                                  ),
+                                ],
+                              },
+                              void 0,
+                              true,
+                              {
+                                fileName: _jsxFileName,
+                                lineNumber: 179,
+                                columnNumber: 17,
+                              },
+                              this,
+                            ),
+                          ],
+                        },
+                        void 0,
+                        true,
+                        {
+                          fileName: _jsxFileName,
+                          lineNumber: 161,
+                          columnNumber: 15,
+                        },
+                        this,
+                      ),
+                    },
+                    void 0,
+                    false,
+                    {
+                      fileName: _jsxFileName,
+                      lineNumber: 153,
+                      columnNumber: 13,
+                    },
+                    this,
+                  )
+                : null,
+            },
+            void 0,
+            false,
+            {
+              fileName: _jsxFileName,
+              lineNumber: 151,
+              columnNumber: 9,
+            },
+            this,
+          ),
+        ],
+      },
+      void 0,
+      true,
+    );
+  }
+  if (appMode === "relay-sender") {
+    return /* @__PURE__ */ _jsxDEV(
+      CameraSender,
+      {},
+      void 0,
+      false,
+      {
+        fileName: _jsxFileName,
+        lineNumber: 204,
+        columnNumber: 12,
+      },
+      this,
+    );
+  }
+  mainContent = /* @__PURE__ */ _jsxDEV(
+    OperatorPanel,
+    {
+      onLogout: requestLogout,
+      username,
+      cameraOnly: appMode === "camera",
+    },
+    void 0,
+    false,
+    {
+      fileName: _jsxFileName,
+      lineNumber: 208,
+      columnNumber: 5,
+    },
+    this,
+  );
+  return /* @__PURE__ */ _jsxDEV(
+    _Fragment,
+    {
+      children: [
+        mainContent,
+        /* @__PURE__ */ _jsxDEV(
+          AnimatePresence,
+          {
+            children: logoutOpen
+              ? /* @__PURE__ */ _jsxDEV(
+                  motion.div,
+                  {
+                    className: "logout-modal",
+                    role: "presentation",
+                    initial: { opacity: 0 },
+                    animate: { opacity: 1 },
+                    exit: { opacity: 0 },
+                    onClick: cancelLogout,
+                    children: /* @__PURE__ */ _jsxDEV(
+                      motion.div,
+                      {
+                        className: "logout-modal__panel",
+                        role: "dialog",
+                        "aria-modal": "true",
+                        "aria-labelledby": "logout-modal-title",
+                        "aria-describedby": "logout-modal-description",
+                        initial: {
+                          opacity: 0,
+                          y: 24,
+                          scale: 0.98,
+                        },
+                        animate: {
+                          opacity: 1,
+                          y: 0,
+                          scale: 1,
+                        },
+                        exit: {
+                          opacity: 0,
+                          y: 20,
+                          scale: 0.98,
+                        },
+                        transition: { duration: 0.18 },
+                        onClick: (event) => event.stopPropagation(),
+                        children: [
+                          /* @__PURE__ */ _jsxDEV(
+                            "h2",
+                            {
+                              id: "logout-modal-title",
+                              children: "Log out of your session?",
+                            },
+                            void 0,
+                            false,
+                            {
+                              fileName: _jsxFileName,
+                              lineNumber: 240,
+                              columnNumber: 15,
+                            },
+                            this,
+                          ),
+                          /* @__PURE__ */ _jsxDEV(
+                            "p",
+                            {
+                              id: "logout-modal-description",
+                              children: [
+                                "You are signed in as ",
+                                username || "User",
+                                role ? ` (${role})` : "",
+                                ".",
+                              ],
+                            },
+                            void 0,
+                            true,
+                            {
+                              fileName: _jsxFileName,
+                              lineNumber: 241,
+                              columnNumber: 15,
+                            },
+                            this,
+                          ),
+                          /* @__PURE__ */ _jsxDEV(
+                            "div",
+                            {
+                              className: "logout-modal__actions",
+                              children: [
+                                /* @__PURE__ */ _jsxDEV(
+                                  "button",
+                                  {
+                                    className:
+                                      "logout-modal__button logout-modal__button--secondary",
+                                    type: "button",
+                                    onClick: cancelLogout,
+                                    children: "Stay signed in",
+                                  },
+                                  void 0,
+                                  false,
+                                  {
+                                    fileName: _jsxFileName,
+                                    lineNumber: 247,
+                                    columnNumber: 17,
+                                  },
+                                  this,
+                                ),
+                                /* @__PURE__ */ _jsxDEV(
+                                  "button",
+                                  {
+                                    className:
+                                      "logout-modal__button logout-modal__button--primary",
+                                    type: "button",
+                                    onClick: confirmLogout,
+                                    children: "Sign out",
+                                  },
+                                  void 0,
+                                  false,
+                                  {
+                                    fileName: _jsxFileName,
+                                    lineNumber: 254,
+                                    columnNumber: 17,
+                                  },
+                                  this,
+                                ),
+                              ],
+                            },
+                            void 0,
+                            true,
+                            {
+                              fileName: _jsxFileName,
+                              lineNumber: 246,
+                              columnNumber: 15,
+                            },
+                            this,
+                          ),
+                        ],
+                      },
+                      void 0,
+                      true,
+                      {
+                        fileName: _jsxFileName,
+                        lineNumber: 228,
+                        columnNumber: 13,
+                      },
+                      this,
+                    ),
+                  },
+                  void 0,
+                  false,
+                  {
+                    fileName: _jsxFileName,
+                    lineNumber: 220,
+                    columnNumber: 11,
+                  },
+                  this,
+                )
+              : null,
+          },
+          void 0,
+          false,
+          {
+            fileName: _jsxFileName,
+            lineNumber: 218,
+            columnNumber: 7,
+          },
+          this,
+        ),
+      ],
+    },
+    void 0,
+    true,
+  );
 }
 _s(App, "sv5VW2bD+/Uug3qGsz/80jyC1uA=");
 _c = App;
@@ -342,26 +533,45 @@ export default App;
 var _c;
 $RefreshReg$(_c, "App");
 import * as RefreshRuntime from "/@react-refresh";
-const inWebWorker = typeof WorkerGlobalScope !== 'undefined' && self instanceof WorkerGlobalScope;
+const inWebWorker =
+  typeof globalThis.WorkerGlobalScope !== "undefined" &&
+  self instanceof globalThis.WorkerGlobalScope;
 import * as __vite_react_currentExports from "/src/App.jsx?t=1780035339102";
 if (import.meta.hot && !inWebWorker) {
   if (!window.$RefreshReg$) {
     throw new Error(
-      "@vitejs/plugin-react can't detect preamble. Something is wrong."
+      "@vitejs/plugin-react can't detect preamble. Something is wrong.",
     );
   }
 
   const currentExports = __vite_react_currentExports;
   queueMicrotask(() => {
-    RefreshRuntime.registerExportsForReactRefresh("C:/Users/TPC-USER/Desktop/AUTO-QA-TPC/frontend-vite/src/App.jsx", currentExports);
+    RefreshRuntime.registerExportsForReactRefresh(
+      "C:/Users/TPC-USER/Desktop/AUTO-QA-TPC/frontend-vite/src/App.jsx",
+      currentExports,
+    );
     import.meta.hot.accept((nextExports) => {
       if (!nextExports) return;
-      const invalidateMessage = RefreshRuntime.validateRefreshBoundaryAndEnqueueUpdate("C:/Users/TPC-USER/Desktop/AUTO-QA-TPC/frontend-vite/src/App.jsx", currentExports, nextExports);
+      const invalidateMessage =
+        RefreshRuntime.validateRefreshBoundaryAndEnqueueUpdate(
+          "C:/Users/TPC-USER/Desktop/AUTO-QA-TPC/frontend-vite/src/App.jsx",
+          currentExports,
+          nextExports,
+        );
       if (invalidateMessage) import.meta.hot.invalidate(invalidateMessage);
     });
   });
 }
-function $RefreshReg$(type, id) { return RefreshRuntime.register(type, "C:/Users/TPC-USER/Desktop/AUTO-QA-TPC/frontend-vite/src/App.jsx" + ' ' + id); }
-function $RefreshSig$() { return RefreshRuntime.createSignatureFunctionForTransform(); }
+function $RefreshReg$(type, id) {
+  return RefreshRuntime.register(
+    type,
+    "C:/Users/TPC-USER/Desktop/AUTO-QA-TPC/frontend-vite/src/App.jsx" +
+      " " +
+      id,
+  );
+}
+function $RefreshSig$() {
+  return RefreshRuntime.createSignatureFunctionForTransform();
+}
 
 //# sourceMappingURL=data:application/json;base64,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QyxPQUFPLEtBQUssS0FBSyxLQUFLO01BQUc7TUFDeEI7Ozs7OztJQUVKLHdCQUFDLE9BQUQ7S0FBSyxXQUFVO2VBQWYsQ0FDRSx3QkFBQyxVQUFEO01BQ0UsV0FBVTtNQUNWLE1BQUs7TUFDTCxTQUFTO2dCQUNWO01BRVE7Ozs7ZUFDVCx3QkFBQyxVQUFEO01BQ0UsV0FBVTtNQUNWLE1BQUs7TUFDTCxTQUFTO2dCQUNWO01BRVE7Ozs7Y0FDTDs7Ozs7O0lBQ0s7Ozs7OztFQUNGOzs7O1lBQ1gsTUFDWTs7OztVQUNqQjs7dUNBRU47O0FBRUQsZUFBZSIsIm5hbWVzIjpbXSwic291cmNlcyI6WyJBcHAuanN4Il0sInZlcnNpb24iOjMsInNvdXJjZXNDb250ZW50IjpbImltcG9ydCB7IHVzZUVmZmVjdCwgdXNlTWVtbywgdXNlU3RhdGUgfSBmcm9tIFwicmVhY3RcIjtcclxuaW1wb3J0IHsgQW5pbWF0ZVByZXNlbmNlLCBtb3Rpb24gfSBmcm9tIFwiZnJhbWVyLW1vdGlvblwiO1xyXG5pbXBvcnQgeyBqd3REZWNvZGUgfSBmcm9tIFwiand0LWRlY29kZVwiO1xyXG5pbXBvcnQgeyBnZXRBcGlTdGF0dXMgfSBmcm9tIFwiLi9hcGkvYmFja2VuZFwiO1xyXG5pbXBvcnQgQWRtaW5EYXNoYm9hcmQgZnJvbSBcIi4vY29tcG9uZW50cy9BZG1pbkRhc2hib2FyZFwiO1xyXG5pbXBvcnQgTG9naW4gZnJvbSBcIi4vY29tcG9uZW50cy9Mb2dpblwiO1xyXG5pbXBvcnQgT3BlcmF0b3JQYW5lbCBmcm9tIFwiLi9jb21wb25lbnRzL09wZXJhdG9yUGFuZWxcIjtcclxuaW1wb3J0IENhbWVyYVNlbmRlciBmcm9tIFwiLi9jb21wb25lbnRzL0NhbWVyYVNlbmRlclwiO1xyXG5pbXBvcnQgXCIuL2NvbXBvbmVudHMvQ2FtZXJhUmVjZWl2ZXJcIjtcclxuaW1wb3J0IFwiLi9BcHAuY3NzXCI7XHJcblxyXG5mdW5jdGlvbiBub3JtYWxpemVSb2xlKHJvbGUpIHtcclxuICBpZiAoIXJvbGUpIHJldHVybiBudWxsO1xyXG4gIGNvbnN0IG5vcm1hbGl6ZWQgPSByb2xlLnRvTG93ZXJDYXNlKCkucmVwbGFjZSgvXy9nLCBcIlwiKTtcclxuXHJcbiAgaWYgKG5vcm1hbGl6ZWQgPT09IFwiYWRtaW5cIikgcmV0dXJuIFwiYWRtaW5cIjtcclxuICBpZiAobm9ybWFsaXplZCA9PT0gXCJvcGVyYXRvclwiKSByZXR1cm4gXCJ1c2VyXCI7XHJcblxyXG4gIHJldHVybiBub3JtYWxpemVkO1xyXG59XHJcblxyXG5mdW5jdGlvbiByZWFkUm9sZSh0b2tlbikge1xyXG4gIGlmICghdG9rZW4pIHtcclxuICAgIHJldHVybiBudWxsO1xyXG4gIH1cclxuXHJcbiAgdHJ5IHtcclxuICAgIGNvbnN0IGRlY29kZWQgPSBqd3REZWNvZGUodG9rZW4pO1xyXG4gICAgcmV0dXJuIG5vcm1hbGl6ZVJvbGUoZGVjb2RlZC5yb2xlIHx8IGRlY29kZWQuZ3JvdXBzPy5bMF0gfHwgXCJvcGVyYXRvclwiKTtcclxuICB9IGNhdGNoIHtcclxuICAgIHJldHVybiBudWxsO1xyXG4gIH1cclxufVxyXG5cclxuZnVuY3Rpb24gcmVhZFVzZXJuYW1lKHRva2VuKSB7XHJcbiAgaWYgKCF0b2tlbikge1xyXG4gICAgcmV0dXJuIG51bGw7XHJcbiAgfVxyXG5cclxuICB0cnkge1xyXG4gICAgY29uc3QgZGVjb2RlZCA9IGp3dERlY29kZSh0b2tlbik7XHJcbiAgICByZXR1cm4gZGVjb2RlZC51c2VybmFtZSB8fCBkZWNvZGVkLnN1YiB8fCBcIlVzZXJcIjtcclxuICB9IGNhdGNoIHtcclxuICAgIHJldHVybiBudWxsO1xyXG4gIH1cclxufVxyXG5cclxuZnVuY3Rpb24gcmVhZFN0b3JlZFRva2VuKCkge1xyXG4gIGNvbnN0IHN0b3JlZFRva2VuID0gbG9jYWxTdG9yYWdlLmdldEl0ZW0oXCJ0b2tlblwiKTtcclxuXHJcbiAgaWYgKCFzdG9yZWRUb2tlbikge1xyXG4gICAgcmV0dXJuIG51bGw7XHJcbiAgfVxyXG5cclxuICBpZiAoIXJlYWRSb2xlKHN0b3JlZFRva2VuKSkge1xyXG4gICAgbG9jYWxTdG9yYWdlLnJlbW92ZUl0ZW0oXCJ0b2tlblwiKTtcclxuICAgIGxvY2FsU3RvcmFnZS5yZW1vdmVJdGVtKFwicmVmcmVzaFwiKTtcclxuICAgIHJldHVybiBudWxsO1xyXG4gIH1cclxuXHJcbiAgcmV0dXJuIHN0b3JlZFRva2VuO1xyXG59XHJcblxyXG5mdW5jdGlvbiByZWFkQXBwTW9kZSgpIHtcclxuICBpZiAodHlwZW9mIHdpbmRvdyA9PT0gXCJ1bmRlZmluZWRcIikge1xyXG4gICAgcmV0dXJuIFwic3RhbmRhcmRcIjtcclxuICB9XHJcblxyXG4gIGNvbnN0IG1vZGUgPSBuZXcgVVJMU2VhcmNoUGFyYW1zKHdpbmRvdy5sb2NhdGlvbi5zZWFyY2gpLmdldChcIm1vZGVcIik7XHJcbiAgaWYgKCFtb2RlKSByZXR1cm4gXCJzdGFuZGFyZFwiO1xyXG4gIGlmIChtb2RlID09PSBcImNhbWVyYVwiKSByZXR1cm4gXCJjYW1lcmFcIjtcclxuICBpZiAobW9kZSA9PT0gXCJyZWxheS1zZW5kZXJcIikgcmV0dXJuIFwicmVsYXktc2VuZGVyXCI7XHJcbiAgaWYgKG1vZGUgPT09IFwicmVsYXktcmVjZWl2ZXJcIikgcmV0dXJuIFwicmVsYXktcmVjZWl2ZXJcIjtcclxuICByZXR1cm4gXCJzdGFuZGFyZFwiO1xyXG59XHJcblxyXG5mdW5jdGlvbiBBcHAoKSB7XHJcbiAgY29uc3QgW3Rva2VuLCBzZXRUb2tlbl0gPSB1c2VTdGF0ZSgoKSA9PiByZWFkU3RvcmVkVG9rZW4oKSk7XHJcbiAgY29uc3QgW2FwaU1lc3NhZ2UsIHNldEFwaU1lc3NhZ2VdID0gdXNlU3RhdGUoXCJDb25uZWN0aW5nIHRvIGJhY2tlbmQuLi5cIik7XHJcbiAgY29uc3QgW2xvZ291dE9wZW4sIHNldExvZ291dE9wZW5dID0gdXNlU3RhdGUoZmFsc2UpO1xyXG4gIGNvbnN0IGFwcE1vZGUgPSB1c2VNZW1vKCgpID0+IHJlYWRBcHBNb2RlKCksIFtdKTtcclxuXHJcbiAgY29uc3Qgcm9sZSA9IHVzZU1lbW8oKCkgPT4gcmVhZFJvbGUodG9rZW4pLCBbdG9rZW5dKTtcclxuICBjb25zdCB1c2VybmFtZSA9IHVzZU1lbW8oKCkgPT4gcmVhZFVzZXJuYW1lKHRva2VuKSwgW3Rva2VuXSk7XHJcblxyXG4gIGNvbnN0IGhhbmRsZUxvZ2luID0gKGFjY2Vzc1Rva2VuKSA9PiB7XHJcbiAgICBsb2NhbFN0b3JhZ2Uuc2V0SXRlbShcInRva2VuXCIsIGFjY2Vzc1Rva2VuKTtcclxuICAgIHNldFRva2VuKGFjY2Vzc1Rva2VuKTtcclxuICB9O1xyXG5cclxuICBjb25zdCByZXF1ZXN0TG9nb3V0ID0gKCkgPT4ge1xyXG4gICAgc2V0TG9nb3V0T3Blbih0cnVlKTtcclxuICB9O1xyXG5cclxuICBjb25zdCBjb25maXJtTG9nb3V0ID0gKCkgPT4ge1xyXG4gICAgbG9jYWxTdG9yYWdlLnJlbW92ZUl0ZW0oXCJ0b2tlblwiKTtcclxuICAgIGxvY2FsU3RvcmFnZS5yZW1vdmVJdGVtKFwicmVmcmVzaFwiKTtcclxuICAgIHNldFRva2VuKG51bGwpO1xyXG4gICAgc2V0TG9nb3V0T3BlbihmYWxzZSk7XHJcbiAgfTtcclxuXHJcbiAgY29uc3QgY2FuY2VsTG9nb3V0ID0gKCkgPT4gc2V0TG9nb3V0T3BlbihmYWxzZSk7XHJcblxyXG4gIHVzZUVmZmVjdCgoKSA9PiB7XHJcbiAgICBnZXRBcGlTdGF0dXMoKVxyXG4gICAgICAudGhlbigocmVzcG9uc2UpID0+IHtcclxuICAgICAgICBzZXRBcGlNZXNzYWdlKHJlc3BvbnNlLmRhdGEubWVzc2FnZSB8fCBcIkJhY2tlbmQgY29ubmVjdGVkXCIpO1xyXG4gICAgICB9KVxyXG4gICAgICAuY2F0Y2goKCkgPT4ge1xyXG4gICAgICAgIHNldEFwaU1lc3NhZ2UoXCJCYWNrZW5kIG5vdCByZWFjaGFibGUgeWV0XCIpO1xyXG4gICAgICB9KTtcclxuICB9LCBbXSk7XHJcblxyXG4gIHVzZUVmZmVjdCgoKSA9PiB7XHJcbiAgICBpZiAoIWxvZ291dE9wZW4pIHJldHVybiB1bmRlZmluZWQ7XHJcblxyXG4gICAgY29uc3Qgb25LZXlEb3duID0gKGV2ZW50KSA9PiB7XHJcbiAgICAgIGlmIChldmVudC5rZXkgPT09IFwiRXNjYXBlXCIpIHtcclxuICAgICAgICBjYW5jZWxMb2dvdXQoKTtcclxuICAgICAgfVxyXG4gICAgfTtcclxuXHJcbiAgICB3aW5kb3cuYWRkRXZlbnRMaXN0ZW5lcihcImtleWRvd25cIiwgb25LZXlEb3duKTtcclxuICAgIHJldHVybiAoKSA9PiB3aW5kb3cucmVtb3ZlRXZlbnRMaXN0ZW5lcihcImtleWRvd25cIiwgb25LZXlEb3duKTtcclxuICB9LCBbbG9nb3V0T3Blbl0pO1xyXG5cclxuICB1c2VFZmZlY3QoKCkgPT4ge1xyXG4gICAgaWYgKHR5cGVvZiBkb2N1bWVudCA9PT0gXCJ1bmRlZmluZWRcIikgcmV0dXJuIHVuZGVmaW5lZDtcclxuXHJcbiAgICBjb25zdCBwcmV2aW91c092ZXJmbG93ID0gZG9jdW1lbnQuYm9keS5zdHlsZS5vdmVyZmxvdztcclxuICAgIGlmIChsb2dvdXRPcGVuKSB7XHJcbiAgICAgIGRvY3VtZW50LmJvZHkuc3R5bGUub3ZlcmZsb3cgPSBcImhpZGRlblwiO1xyXG4gICAgfVxyXG5cclxuICAgIHJldHVybiAoKSA9PiB7XHJcbiAgICAgIGRvY3VtZW50LmJvZHkuc3R5bGUub3ZlcmZsb3cgPSBwcmV2aW91c092ZXJmbG93O1xyXG4gICAgfTtcclxuICB9LCBbbG9nb3V0T3Blbl0pO1xyXG5cclxuICBpZiAoIXRva2VuKSB7XHJcbiAgICByZXR1cm4gPExvZ2luIG9uTG9naW49e2hhbmRsZUxvZ2lufSBhcGlNZXNzYWdlPXthcGlNZXNzYWdlfSAvPjtcclxuICB9XHJcblxyXG4gIC8vIGVzbGludC1kaXNhYmxlLW5leHQtbGluZSBuby11c2VsZXNzLWFzc2lnbm1lbnRcclxuICBsZXQgbWFpbkNvbnRlbnQgPSBudWxsO1xyXG5cclxuICBpZiAocm9sZSA9PT0gXCJhZG1pblwiKSB7XHJcbiAgICByZXR1cm4gKFxyXG4gICAgICA8PlxyXG4gICAgICAgIDxBZG1pbkRhc2hib2FyZCBvbkxvZ291dD17cmVxdWVzdExvZ291dH0gcm9sZT17cm9sZX0gLz5cclxuICAgICAgICA8QW5pbWF0ZVByZXNlbmNlPlxyXG4gICAgICAgICAge2xvZ291dE9wZW4gPyAoXHJcbiAgICAgICAgICAgIDxtb3Rpb24uZGl2XHJcbiAgICAgICAgICAgICAgY2xhc3NOYW1lPVwibG9nb3V0LW1vZGFsXCJcclxuICAgICAgICAgICAgICByb2xlPVwicHJlc2VudGF0aW9uXCJcclxuICAgICAgICAgICAgICBpbml0aWFsPXt7IG9wYWNpdHk6IDAgfX1cclxuICAgICAgICAgICAgICBhbmltYXRlPXt7IG9wYWNpdHk6IDEgfX1cclxuICAgICAgICAgICAgICBleGl0PXt7IG9wYWNpdHk6IDAgfX1cclxuICAgICAgICAgICAgICBvbkNsaWNrPXtjYW5jZWxMb2dvdXR9XHJcbiAgICAgICAgICAgID5cclxuICAgICAgICAgICAgICA8bW90aW9uLmRpdlxyXG4gICAgICAgICAgICAgICAgY2xhc3NOYW1lPVwibG9nb3V0LW1vZGFsX19wYW5lbFwiXHJcbiAgICAgICAgICAgICAgICByb2xlPVwiZGlhbG9nXCJcclxuICAgICAgICAgICAgICAgIGFyaWEtbW9kYWw9XCJ0cnVlXCJcclxuICAgICAgICAgICAgICAgIGFyaWEtbGFiZWxsZWRieT1cImxvZ291dC1tb2RhbC10aXRsZVwiXHJcbiAgICAgICAgICAgICAgICBhcmlhLWRlc2NyaWJlZGJ5PVwibG9nb3V0LW1vZGFsLWRlc2NyaXB0aW9uXCJcclxuICAgICAgICAgICAgICAgIGluaXRpYWw9e3sgb3BhY2l0eTogMCwgeTogMjQsIHNjYWxlOiAwLjk4IH19XHJcbiAgICAgICAgICAgICAgICBhbmltYXRlPXt7IG9wYWNpdHk6IDEsIHk6IDAsIHNjYWxlOiAxIH19XHJcbiAgICAgICAgICAgICAgICBleGl0PXt7IG9wYWNpdHk6IDAsIHk6IDIwLCBzY2FsZTogMC45OCB9fVxyXG4gICAgICAgICAgICAgICAgdHJhbnNpdGlvbj17eyBkdXJhdGlvbjogMC4xOCB9fVxyXG4gICAgICAgICAgICAgICAgb25DbGljaz17KGV2ZW50KSA9PiBldmVudC5zdG9wUHJvcGFnYXRpb24oKX1cclxuICAgICAgICAgICAgICA+XHJcbiAgICAgICAgICAgICAgICA8aDIgaWQ9XCJsb2dvdXQtbW9kYWwtdGl0bGVcIj5Mb2cgb3V0IG9mIHlvdXIgc2Vzc2lvbj88L2gyPlxyXG4gICAgICAgICAgICAgICAgPHAgaWQ9XCJsb2dvdXQtbW9kYWwtZGVzY3JpcHRpb25cIj5cclxuICAgICAgICAgICAgICAgICAgWW91IGFyZSBzaWduZWQgaW4gYXMge3VzZXJuYW1lIHx8IFwiVXNlclwifVxyXG4gICAgICAgICAgICAgICAgICB7cm9sZSA/IGAgKCR7cm9sZX0pYCA6IFwiXCJ9LlxyXG4gICAgICAgICAgICAgICAgPC9wPlxyXG5cclxuICAgICAgICAgICAgICAgIDxkaXYgY2xhc3NOYW1lPVwibG9nb3V0LW1vZGFsX19hY3Rpb25zXCI+XHJcbiAgICAgICAgICAgICAgICAgIDxidXR0b25cclxuICAgICAgICAgICAgICAgICAgICBjbGFzc05hbWU9XCJsb2dvdXQtbW9kYWxfX2J1dHRvbiBsb2dvdXQtbW9kYWxfX2J1dHRvbi0tc2Vjb25kYXJ5XCJcclxuICAgICAgICAgICAgICAgICAgICB0eXBlPVwiYnV0dG9uXCJcclxuICAgICAgICAgICAgICAgICAgICBvbkNsaWNrPXtjYW5jZWxMb2dvdXR9XHJcbiAgICAgICAgICAgICAgICAgID5cclxuICAgICAgICAgICAgICAgICAgICBTdGF5IHNpZ25lZCBpblxyXG4gICAgICAgICAgICAgICAgICA8L2J1dHRvbj5cclxuICAgICAgICAgICAgICAgICAgPGJ1dHRvblxyXG4gICAgICAgICAgICAgICAgICAgIGNsYXNzTmFtZT1cImxvZ291dC1tb2RhbF9fYnV0dG9uIGxvZ291dC1tb2RhbF9fYnV0dG9uLS1wcmltYXJ5XCJcclxuICAgICAgICAgICAgICAgICAgICB0eXBlPVwiYnV0dG9uXCJcclxuICAgICAgICAgICAgICAgICAgICBvbkNsaWNrPXtjb25maXJtTG9nb3V0fVxyXG4gICAgICAgICAgICAgICAgICA+XHJcbiAgICAgICAgICAgICAgICAgICAgU2lnbiBvdXRcclxuICAgICAgICAgICAgICAgICAgPC9idXR0b24+XHJcbiAgICAgICAgICAgICAgICA8L2Rpdj5cclxuICAgICAgICAgICAgICA8L21vdGlvbi5kaXY+XHJcbiAgICAgICAgICAgIDwvbW90aW9uLmRpdj5cclxuICAgICAgICAgICkgOiBudWxsfVxyXG4gICAgICAgIDwvQW5pbWF0ZVByZXNlbmNlPlxyXG4gICAgICA8Lz5cclxuICAgICk7XHJcbiAgfVxyXG5cclxuICBpZiAoYXBwTW9kZSA9PT0gXCJyZWxheS1zZW5kZXJcIikge1xyXG4gICAgcmV0dXJuIDxDYW1lcmFTZW5kZXIgLz47XHJcbiAgfVxyXG5cclxuICBtYWluQ29udGVudCA9IChcclxuICAgIDxPcGVyYXRvclBhbmVsXHJcbiAgICAgIG9uTG9nb3V0PXtyZXF1ZXN0TG9nb3V0fVxyXG4gICAgICB1c2VybmFtZT17dXNlcm5hbWV9XHJcbiAgICAgIGNhbWVyYU9ubHk9e2FwcE1vZGUgPT09IFwiY2FtZXJhXCJ9XHJcbiAgICAvPlxyXG4gICk7XHJcblxyXG4gIHJldHVybiAoXHJcbiAgICA8PlxyXG4gICAgICB7bWFpbkNvbnRlbnR9XHJcbiAgICAgIDxBbmltYXRlUHJlc2VuY2U+XHJcbiAgICAgICAge2xvZ291dE9wZW4gPyAoXHJcbiAgICAgICAgICA8bW90aW9uLmRpdlxyXG4gICAgICAgICAgICBjbGFzc05hbWU9XCJsb2dvdXQtbW9kYWxcIlxyXG4gICAgICAgICAgICByb2xlPVwicHJlc2VudGF0aW9uXCJcclxuICAgICAgICAgICAgaW5pdGlhbD17eyBvcGFjaXR5OiAwIH19XHJcbiAgICAgICAgICAgIGFuaW1hdGU9e3sgb3BhY2l0eTogMSB9fVxyXG4gICAgICAgICAgICBleGl0PXt7IG9wYWNpdHk6IDAgfX1cclxuICAgICAgICAgICAgb25DbGljaz17Y2FuY2VsTG9nb3V0fVxyXG4gICAgICAgICAgPlxyXG4gICAgICAgICAgICA8bW90aW9uLmRpdlxyXG4gICAgICAgICAgICAgIGNsYXNzTmFtZT1cImxvZ291dC1tb2RhbF9fcGFuZWxcIlxyXG4gICAgICAgICAgICAgIHJvbGU9XCJkaWFsb2dcIlxyXG4gICAgICAgICAgICAgIGFyaWEtbW9kYWw9XCJ0cnVlXCJcclxuICAgICAgICAgICAgICBhcmlhLWxhYmVsbGVkYnk9XCJsb2dvdXQtbW9kYWwtdGl0bGVcIlxyXG4gICAgICAgICAgICAgIGFyaWEtZGVzY3JpYmVkYnk9XCJsb2dvdXQtbW9kYWwtZGVzY3JpcHRpb25cIlxyXG4gICAgICAgICAgICAgIGluaXRpYWw9e3sgb3BhY2l0eTogMCwgeTogMjQsIHNjYWxlOiAwLjk4IH19XHJcbiAgICAgICAgICAgICAgYW5pbWF0ZT17eyBvcGFjaXR5OiAxLCB5OiAwLCBzY2FsZTogMSB9fVxyXG4gICAgICAgICAgICAgIGV4aXQ9e3sgb3BhY2l0eTogMCwgeTogMjAsIHNjYWxlOiAwLjk4IH19XHJcbiAgICAgICAgICAgICAgdHJhbnNpdGlvbj17eyBkdXJhdGlvbjogMC4xOCB9fVxyXG4gICAgICAgICAgICAgIG9uQ2xpY2s9eyhldmVudCkgPT4gZXZlbnQuc3RvcFByb3BhZ2F0aW9uKCl9XHJcbiAgICAgICAgICAgID5cclxuICAgICAgICAgICAgICA8aDIgaWQ9XCJsb2dvdXQtbW9kYWwtdGl0bGVcIj5Mb2cgb3V0IG9mIHlvdXIgc2Vzc2lvbj88L2gyPlxyXG4gICAgICAgICAgICAgIDxwIGlkPVwibG9nb3V0LW1vZGFsLWRlc2NyaXB0aW9uXCI+XHJcbiAgICAgICAgICAgICAgICBZb3UgYXJlIHNpZ25lZCBpbiBhcyB7dXNlcm5hbWUgfHwgXCJVc2VyXCJ9XHJcbiAgICAgICAgICAgICAgICB7cm9sZSA/IGAgKCR7cm9sZX0pYCA6IFwiXCJ9LlxyXG4gICAgICAgICAgICAgIDwvcD5cclxuXHJcbiAgICAgICAgICAgICAgPGRpdiBjbGFzc05hbWU9XCJsb2dvdXQtbW9kYWxfX2FjdGlvbnNcIj5cclxuICAgICAgICAgICAgICAgIDxidXR0b25cclxuICAgICAgICAgICAgICAgICAgY2xhc3NOYW1lPVwibG9nb3V0LW1vZGFsX19idXR0b24gbG9nb3V0LW1vZGFsX19idXR0b24tLXNlY29uZGFyeVwiXHJcbiAgICAgICAgICAgICAgICAgIHR5cGU9XCJidXR0b25cIlxyXG4gICAgICAgICAgICAgICAgICBvbkNsaWNrPXtjYW5jZWxMb2dvdXR9XHJcbiAgICAgICAgICAgICAgICA+XHJcbiAgICAgICAgICAgICAgICAgIFN0YXkgc2lnbmVkIGluXHJcbiAgICAgICAgICAgICAgICA8L2J1dHRvbj5cclxuICAgICAgICAgICAgICAgIDxidXR0b25cclxuICAgICAgICAgICAgICAgICAgY2xhc3NOYW1lPVwibG9nb3V0LW1vZGFsX19idXR0b24gbG9nb3V0LW1vZGFsX19idXR0b24tLXByaW1hcnlcIlxyXG4gICAgICAgICAgICAgICAgICB0eXBlPVwiYnV0dG9uXCJcclxuICAgICAgICAgICAgICAgICAgb25DbGljaz17Y29uZmlybUxvZ291dH1cclxuICAgICAgICAgICAgICAgID5cclxuICAgICAgICAgICAgICAgICAgU2lnbiBvdXRcclxuICAgICAgICAgICAgICAgIDwvYnV0dG9uPlxyXG4gICAgICAgICAgICAgIDwvZGl2PlxyXG4gICAgICAgICAgICA8L21vdGlvbi5kaXY+XHJcbiAgICAgICAgICA8L21vdGlvbi5kaXY+XHJcbiAgICAgICAgKSA6IG51bGx9XHJcbiAgICAgIDwvQW5pbWF0ZVByZXNlbmNlPlxyXG4gICAgPC8+XHJcbiAgKTtcclxufVxyXG5cclxuZXhwb3J0IGRlZmF1bHQgQXBwO1xyXG4iXX0=
