@@ -1729,7 +1729,7 @@ function AdminDashboard({ onLogout }) {
                             {displayNo}
                           </td>
                           <td style={{ fontFamily: "var(--font-mono)", fontSize: "12px" }}>
-                            {log.batch_number ?? "—"}
+                            {batchLabel}
                           </td>
                           <td
                             style={{
