@@ -155,7 +155,6 @@ function AdminDashboard({ onLogout }) {
   const [filterSearch, setFilterSearch] = useState("");
   const [selectedLogPreview, setSelectedLogPreview] = useState(null);
 
-
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -229,13 +228,13 @@ function AdminDashboard({ onLogout }) {
     })();
   }, [fetchData]);
 
-  // Fetch logs from server using server-side filters.
-  // NOTE: We intentionally do NOT send `batch_number` here; otherwise the API would
-  // return only the selected batch and the Batch dropdown would lose the other
-  // existing batches. Batch selection is handled client-side.
+  // Fetch logs from server using current server-side filters.
   const fetchLogs = useCallback(
     async (overrides = {}) => {
       const params = { ...(overrides || {}) };
+      if (filterBatch && filterBatch !== "all" && !("batch_number" in params)) {
+        params.batch_number = filterBatch;
+      }
       if (filterDateMode === "single" && filterDateOnly) {
         params.date = filterDateOnly;
       }
@@ -245,16 +244,25 @@ function AdminDashboard({ onLogout }) {
       }
       if (filterOperator) params.operator = filterOperator;
 
-    setIsLoading(true);
-    try {
-      const res = await getDetectionLogs(params);
-      setDetectionLogs(res.data);
-    } catch (err) {
-      console.error('Failed to fetch logs with params', params, err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [filterDateMode, filterDateOnly, filterDateFrom, filterDateTo, filterOperator]);
+      setIsLoading(true);
+      try {
+        const res = await getDetectionLogs(params);
+        setDetectionLogs(res.data);
+      } catch (err) {
+        console.error("Failed to fetch logs with params", params, err);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [
+      filterBatch,
+      filterDateMode,
+      filterDateOnly,
+      filterDateFrom,
+      filterDateTo,
+      filterOperator,
+    ],
+  );
 
   useEffect(() => {
     void (async () => {
@@ -486,11 +494,10 @@ function AdminDashboard({ onLogout }) {
 
   // Paginate filtered logs
   const startIndex = (currentPage - 1) * detectionLogsLimit;
-  // When detectionLogsLimit equals the full length we show everything; otherwise slice by page.
-  const paginatedDetectionLogs =
-    detectionLogsLimit === filteredSortedDetectionLogs.length
-      ? filteredSortedDetectionLogs
-      : filteredSortedDetectionLogs.slice(startIndex, startIndex + detectionLogsLimit);
+  const paginatedDetectionLogs = filteredSortedDetectionLogs.slice(
+    startIndex,
+    startIndex + detectionLogsLimit,
+  );
 
   // Compute shown-from / shown-to for the UI based on actual paginated list
   const shownFrom = paginatedDetectionLogs.length ? startIndex + 1 : 0;
