@@ -190,10 +190,15 @@ function AdminDashboard({ onLogout }) {
       if (opRes.status === "fulfilled") setOperators(opRes.value.data);
       else console.error("Failed to fetch operators", opRes.reason);
 
-      if (settingsRes.status === "fulfilled") setSettings(settingsRes.value.data);
+      if (settingsRes.status === "fulfilled")
+        setSettings(settingsRes.value.data);
       else console.error("Failed to fetch settings", settingsRes.reason);
 
-      if (compRes.status === "fulfilled" && modelRes.status === "fulfilled" && opRes.status === "fulfilled") {
+      if (
+        compRes.status === "fulfilled" &&
+        modelRes.status === "fulfilled" &&
+        opRes.status === "fulfilled"
+      ) {
         const compData = compRes.value.data;
         const modelData = modelRes.value.data;
         const opData = opRes.value.data;
@@ -223,31 +228,41 @@ function AdminDashboard({ onLogout }) {
     })();
   }, [fetchData]);
 
-  // Fetch logs from server using server-side filters.
-  // NOTE: We intentionally do NOT send `batch_number` here; otherwise the API would
-  // return only the selected batch and the Batch dropdown would lose the other
-  // existing batches. Batch selection is handled client-side.
-  const fetchLogs = useCallback(async (overrides = {}) => {
-    const params = { ...(overrides || {}) };
-    if (filterDateMode === 'single' && filterDateOnly) {
-      params.date = filterDateOnly;
-    }
-    if (filterDateMode === 'range') {
-      if (filterDateFrom) params.date_from = filterDateFrom;
-      if (filterDateTo) params.date_to = filterDateTo;
-    }
-    if (filterOperator) params.operator = filterOperator;
+  // Fetch logs from server using current server-side filters.
+  const fetchLogs = useCallback(
+    async (overrides = {}) => {
+      const params = { ...(overrides || {}) };
+      if (filterBatch && filterBatch !== "all" && !("batch_number" in params)) {
+        params.batch_number = filterBatch;
+      }
+      if (filterDateMode === "single" && filterDateOnly) {
+        params.date = filterDateOnly;
+      }
+      if (filterDateMode === "range") {
+        if (filterDateFrom) params.date_from = filterDateFrom;
+        if (filterDateTo) params.date_to = filterDateTo;
+      }
+      if (filterOperator) params.operator = filterOperator;
 
-    setIsLoading(true);
-    try {
-      const res = await getDetectionLogs(params);
-      setDetectionLogs(res.data);
-    } catch (err) {
-      console.error('Failed to fetch logs with params', params, err);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [filterDateMode, filterDateOnly, filterDateFrom, filterDateTo, filterOperator]);
+      setIsLoading(true);
+      try {
+        const res = await getDetectionLogs(params);
+        setDetectionLogs(res.data);
+      } catch (err) {
+        console.error("Failed to fetch logs with params", params, err);
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [
+      filterBatch,
+      filterDateMode,
+      filterDateOnly,
+      filterDateFrom,
+      filterDateTo,
+      filterOperator,
+    ],
+  );
 
   useEffect(() => {
     void (async () => {
@@ -359,9 +374,13 @@ function AdminDashboard({ onLogout }) {
   }, [detectionLogs, logsSortField, logsSortOrder]);
 
   const availableBatchNumbers = useMemo(() => {
-    return [...new Set(detectionLogs.map((log) => Number(log.batch_number || 1)).filter((value) => value >= 1))].sort(
-      (left, right) => left - right,
-    );
+    return [
+      ...new Set(
+        detectionLogs
+          .map((log) => Number(log.batch_number || 1))
+          .filter((value) => value >= 1),
+      ),
+    ].sort((left, right) => left - right);
   }, [detectionLogs]);
 
   const getLocalDateKey = useCallback((value) => {
@@ -378,7 +397,9 @@ function AdminDashboard({ onLogout }) {
 
     if (filterBatch !== "all") {
       const selectedBatch = Number(filterBatch) || 1;
-      logs = logs.filter((log) => Number(log.batch_number || 1) === selectedBatch);
+      logs = logs.filter(
+        (log) => Number(log.batch_number || 1) === selectedBatch,
+      );
     }
 
     // Operator filter (compare against id or name where available)
@@ -1548,7 +1569,7 @@ function AdminDashboard({ onLogout }) {
                           }
                         }}
                       >
-                        Batch {" "}
+                        Batch{" "}
                         {logsSortField === "batch_number"
                           ? logsSortOrder === "asc"
                             ? "▲"
@@ -1708,7 +1729,7 @@ function AdminDashboard({ onLogout }) {
                   </thead>
                   <tbody>
                     {paginatedDetectionLogs.map((log, idx) => {
-                      // compute display number: global when showing all, otherwise per-batch starting at 1
+                      // compute display number within the current filtered view
                       const displayNo =
                         filterBatch === "all"
                           ? filteredSortedDetectionLogs.indexOf(log) + 1
@@ -1737,7 +1758,12 @@ function AdminDashboard({ onLogout }) {
                           >
                             {displayNo}
                           </td>
-                          <td style={{ fontFamily: "var(--font-mono)", fontSize: "12px" }}>
+                          <td
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: "12px",
+                            }}
+                          >
                             {Number(log.batch_number || 1)}
                           </td>
                           <td
