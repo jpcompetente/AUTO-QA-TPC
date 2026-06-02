@@ -177,7 +177,7 @@ class InferenceLog(models.Model):
     
     # Real-time Streaming Metadata
     session_id = models.CharField(max_length=100, blank=True, db_index=True)  # WebSocket session identifier
-    batch_number = models.PositiveIntegerField(default=0, db_index=True)
+    batch_number = models.PositiveIntegerField(default=1, db_index=True)
     stream_timestamp = models.DateTimeField(null=True, blank=True)  # When streamed to Super Admin
     manufacturing_order = models.CharField(max_length=100, blank=True, db_index=True)
     is_confidence_below_threshold = models.BooleanField(
@@ -203,6 +203,11 @@ class InferenceLog(models.Model):
     
     def __str__(self):
         return f"Log {self.id} - {self.operator.username} ({self.final_decision})"
+
+    def save(self, *args, **kwargs):
+        if not self.batch_number or self.batch_number < 1:
+            self.batch_number = 1
+        super().save(*args, **kwargs)
 
     def check_and_flag_low_confidence(self, threshold=0.5):
         """Flag low-confidence results for manual review."""

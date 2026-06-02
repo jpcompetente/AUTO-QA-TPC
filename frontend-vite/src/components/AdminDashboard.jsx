@@ -338,8 +338,8 @@ function AdminDashboard({ onLogout }) {
           bVal = (b.status || "").toLowerCase();
           break;
         case "batch_number":
-          aVal = Number(a.batch_number || 0);
-          bVal = Number(b.batch_number || 0);
+          aVal = Number(a.batch_number || 1);
+          bVal = Number(b.batch_number || 1);
           break;
         case "timestamp":
         default:
@@ -360,7 +360,7 @@ function AdminDashboard({ onLogout }) {
   }, [detectionLogs, logsSortField, logsSortOrder]);
 
   const availableBatchNumbers = useMemo(() => {
-    return [...new Set(detectionLogs.map((log) => Number(log.batch_number ?? 0)).filter((value) => value >= 0))].sort(
+    return [...new Set(detectionLogs.map((log) => Number(log.batch_number || 1)).filter((value) => value >= 1))].sort(
       (left, right) => left - right,
     );
   }, [detectionLogs]);
@@ -378,8 +378,8 @@ function AdminDashboard({ onLogout }) {
     let logs = [...sortedDetectionLogs];
 
     if (filterBatch !== "all") {
-      const selectedBatch = Number(filterBatch);
-      logs = logs.filter((log) => Number(log.batch_number ?? 0) === selectedBatch);
+      const selectedBatch = Number(filterBatch) || 1;
+      logs = logs.filter((log) => Number(log.batch_number || 1) === selectedBatch);
     }
 
     // Operator filter (compare against id or name where available)
@@ -593,10 +593,12 @@ function AdminDashboard({ onLogout }) {
 
   // Batch grouping for Batches page
   const getBatchKey = (log) => {
+    if (log.batch_number != null) {
+      return Number(log.batch_number || 1);
+    }
     return (
       log.batch ??
       log.batch_id ??
-      log.batch_number ??
       log.batch_no ??
       log.batchName ??
       log.batch_name ??
@@ -1125,6 +1127,13 @@ function AdminDashboard({ onLogout }) {
               >
                 {batches.map((b) => {
                   const failCount = getFailLogsForBatch(b).length;
+                  const numericBatchKey = Number(b.key);
+                  const batchLabel =
+                    Number.isFinite(numericBatchKey) && numericBatchKey >= 1
+                      ? `Batch ${numericBatchKey}`
+                      : Number.isFinite(numericBatchKey)
+                        ? "Batch 1"
+                        : String(b.key);
                   return (
                     <div
                       key={b.key}
@@ -1140,7 +1149,7 @@ function AdminDashboard({ onLogout }) {
                       >
                         <div>
                           <div style={{ fontSize: 13, color: "#666" }}>
-                            {b.key}
+                            {batchLabel}
                           </div>
                           <div style={{ fontWeight: 700, marginTop: 6 }}>
                             {b.logs.length} items
@@ -1173,7 +1182,7 @@ function AdminDashboard({ onLogout }) {
                           onClick={() =>
                             exportImagesForLogs(
                               getFailLogsForBatch(b),
-                              `${b.key.replace(/\s+/g, "_")}_fail`,
+                              `${String(batchLabel).replace(/\s+/g, "_")}_fail`,
                             )
                           }
                           disabled={failCount === 0}
@@ -1184,7 +1193,7 @@ function AdminDashboard({ onLogout }) {
                       {activeBatchKey === b.key && (
                         <div style={{ marginTop: 12 }}>
                           <div style={{ fontSize: 13, marginBottom: 8 }}>
-                            Failed items in {b.key}
+                            Failed items in {batchLabel}
                           </div>
                           <div
                             style={{
@@ -1714,7 +1723,7 @@ function AdminDashboard({ onLogout }) {
                             {displayNo}
                           </td>
                           <td style={{ fontFamily: "var(--font-mono)", fontSize: "12px" }}>
-                            {log.batch_number ?? "—"}
+                            {Number(log.batch_number || 1)}
                           </td>
                           <td
                             style={{

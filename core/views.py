@@ -48,6 +48,14 @@ def user_role(user):
         return ''
 
 
+def _coerce_batch_number(raw_value):
+    try:
+        batch_number = int(raw_value)
+    except (TypeError, ValueError):
+        return 1
+    return max(batch_number, 1)
+
+
 class IsUser(permissions.BasePermission):
     def has_permission(self, request, view):
         if not request.user or not request.user.is_authenticated:
@@ -438,7 +446,7 @@ def detect_image(request):
             final_decision=result.system_decision,
             status='PENDING',
             session_id=request.data.get('session_id', ''),
-            batch_number=int(request.data.get('batch_number') or 0),
+            batch_number=_coerce_batch_number(request.data.get('batch_number')),
         )
 
         payload = result.to_dict()
@@ -583,7 +591,7 @@ class InferenceLogViewSet(viewsets.ModelViewSet):
         batch = params.get('batch_number')
         if batch is not None and batch != '' and batch.lower() != 'all':
             try:
-                b = int(batch)
+                b = _coerce_batch_number(batch)
                 qs = qs.filter(batch_number=b)
             except Exception:
                 pass
