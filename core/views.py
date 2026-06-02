@@ -41,7 +41,7 @@ def normalize_role(role):
     return UserProfile.normalize_role(role)
 
 
-def user_role(user):
+def user_role(  user):
     try:
         return normalize_role(user.profile.role)
     except Exception:
@@ -761,7 +761,7 @@ class InferenceLogViewSet(viewsets.ModelViewSet):
 class RetrainingQueueViewSet(viewsets.ModelViewSet):
     queryset = RetrainingQueue.objects.filter(status__in=['PENDING', 'LABELED'])
     serializer_class = RetrainingQueueSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminOnly]
     
     @action(detail=True, methods=['post'])
     def label(self, request, pk=None):
@@ -839,7 +839,7 @@ class RetrainingQueueViewSet(viewsets.ModelViewSet):
 class TrainingJobViewSet(viewsets.ModelViewSet):
     queryset = TrainingJob.objects.all()
     serializer_class = TrainingJobSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminOnly]
     
     @action(detail=True, methods=['post'])
     def deploy(self, request, pk=None):
@@ -871,7 +871,7 @@ class TrainingJobViewSet(viewsets.ModelViewSet):
 class DatasetBufferViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = DatasetBuffer.objects.all()
     serializer_class = DatasetBufferSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminOnly]
 
 
 class OperatorViewSet(viewsets.ReadOnlyModelViewSet):

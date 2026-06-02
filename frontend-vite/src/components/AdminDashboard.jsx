@@ -143,8 +143,8 @@ function AdminDashboard({ onLogout }) {
     operator: "",
   });
   const [detectionLogsLimit, setDetectionLogsLimit] = useState(20);
-  const [logsSortField, setLogsSortField] = useState("batch_number");
-  const [logsSortOrder, setLogsSortOrder] = useState("desc");
+  const [logsSortField, setLogsSortField] = useState("id");
+  const [logsSortOrder, setLogsSortOrder] = useState("asc");
   const [currentPage, setCurrentPage] = useState(1);
   const [filterOperator, setFilterOperator] = useState("");
   const [filterBatch, setFilterBatch] = useState("all");
@@ -492,12 +492,15 @@ function AdminDashboard({ onLogout }) {
     setCurrentPage((p) => Math.min(p, totalPages));
   }, [totalPages]);
 
-  // Paginate filtered logs
+  // Note: page size defaulting handled in fetchData to avoid synchronous setState in effects
+
+  // Paginate: compute window based on `detectionLogsLimit` and `currentPage`
   const startIndex = (currentPage - 1) * detectionLogsLimit;
-  const paginatedDetectionLogs = filteredSortedDetectionLogs.slice(
-    startIndex,
-    startIndex + detectionLogsLimit,
-  );
+  // When detectionLogsLimit equals the full length we show everything; otherwise slice by page.
+  const paginatedDetectionLogs =
+    detectionLogsLimit === filteredSortedDetectionLogs.length
+      ? filteredSortedDetectionLogs
+      : filteredSortedDetectionLogs.slice(startIndex, startIndex + detectionLogsLimit);
 
   // Compute shown-from / shown-to for the UI based on actual paginated list
   const shownFrom = paginatedDetectionLogs.length ? startIndex + 1 : 0;
@@ -1731,6 +1734,17 @@ function AdminDashboard({ onLogout }) {
                         filterBatch === "all"
                           ? filteredSortedDetectionLogs.indexOf(log) + 1
                           : idx + 1;
+                      // determine batch label: prefer explicit batch key, otherwise compute chunked batch number
+                      const explicitBatch = getBatchKey(log);
+                      let batchLabel = "-";
+                      if (explicitBatch != null) batchLabel = String(explicitBatch);
+                      else {
+                        const globalIndex = filteredSortedDetectionLogs.indexOf(log);
+                        if (globalIndex >= 0) {
+                          const num = Math.floor(globalIndex / detectionLogsLimit) + 1;
+                          batchLabel = `Batch ${num}`;
+                        }
+                      }
 
                       return (
                         <tr key={log.id}>
