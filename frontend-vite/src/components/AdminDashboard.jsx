@@ -191,10 +191,15 @@ function AdminDashboard({ onLogout }) {
       if (opRes.status === "fulfilled") setOperators(opRes.value.data);
       else console.error("Failed to fetch operators", opRes.reason);
 
-      if (settingsRes.status === "fulfilled") setSettings(settingsRes.value.data);
+      if (settingsRes.status === "fulfilled")
+        setSettings(settingsRes.value.data);
       else console.error("Failed to fetch settings", settingsRes.reason);
 
-      if (compRes.status === "fulfilled" && modelRes.status === "fulfilled" && opRes.status === "fulfilled") {
+      if (
+        compRes.status === "fulfilled" &&
+        modelRes.status === "fulfilled" &&
+        opRes.status === "fulfilled"
+      ) {
         const compData = compRes.value.data;
         const modelData = modelRes.value.data;
         const opData = opRes.value.data;
@@ -224,20 +229,21 @@ function AdminDashboard({ onLogout }) {
     })();
   }, [fetchData]);
 
-  // Fetch logs from server using current server-side filters
-  const fetchLogs = useCallback(async (overrides = {}) => {
-    const params = { ...(overrides || {}) };
-    if (!('batch_number' in params) && filterBatch && filterBatch !== 'all') {
-      params.batch_number = filterBatch;
-    }
-    if (filterDateMode === 'single' && filterDateOnly) {
-      params.date = filterDateOnly;
-    }
-    if (filterDateMode === 'range') {
-      if (filterDateFrom) params.date_from = filterDateFrom;
-      if (filterDateTo) params.date_to = filterDateTo;
-    }
-    if (filterOperator) params.operator = filterOperator;
+  // Fetch logs from server using server-side filters.
+  // NOTE: We intentionally do NOT send `batch_number` here; otherwise the API would
+  // return only the selected batch and the Batch dropdown would lose the other
+  // existing batches. Batch selection is handled client-side.
+  const fetchLogs = useCallback(
+    async (overrides = {}) => {
+      const params = { ...(overrides || {}) };
+      if (filterDateMode === "single" && filterDateOnly) {
+        params.date = filterDateOnly;
+      }
+      if (filterDateMode === "range") {
+        if (filterDateFrom) params.date_from = filterDateFrom;
+        if (filterDateTo) params.date_to = filterDateTo;
+      }
+      if (filterOperator) params.operator = filterOperator;
 
     setIsLoading(true);
     try {
@@ -248,7 +254,7 @@ function AdminDashboard({ onLogout }) {
     } finally {
       setIsLoading(false);
     }
-  }, [filterBatch, filterDateMode, filterDateOnly, filterDateFrom, filterDateTo, filterOperator]);
+  }, [filterDateMode, filterDateOnly, filterDateFrom, filterDateTo, filterOperator]);
 
   useEffect(() => {
     void (async () => {
@@ -360,9 +366,13 @@ function AdminDashboard({ onLogout }) {
   }, [detectionLogs, logsSortField, logsSortOrder]);
 
   const availableBatchNumbers = useMemo(() => {
-    return [...new Set(detectionLogs.map((log) => Number(log.batch_number || 1)).filter((value) => value >= 1))].sort(
-      (left, right) => left - right,
-    );
+    return [
+      ...new Set(
+        detectionLogs
+          .map((log) => Number(log.batch_number || 1))
+          .filter((value) => value >= 1),
+      ),
+    ].sort((left, right) => left - right);
   }, [detectionLogs]);
 
   const getLocalDateKey = useCallback((value) => {
@@ -379,7 +389,9 @@ function AdminDashboard({ onLogout }) {
 
     if (filterBatch !== "all") {
       const selectedBatch = Number(filterBatch) || 1;
-      logs = logs.filter((log) => Number(log.batch_number || 1) === selectedBatch);
+      logs = logs.filter(
+        (log) => Number(log.batch_number || 1) === selectedBatch,
+      );
     }
 
     // Operator filter (compare against id or name where available)
@@ -474,10 +486,11 @@ function AdminDashboard({ onLogout }) {
 
   // Paginate filtered logs
   const startIndex = (currentPage - 1) * detectionLogsLimit;
-  const paginatedDetectionLogs = filteredSortedDetectionLogs.slice(
-    startIndex,
-    startIndex + detectionLogsLimit,
-  );
+  // When detectionLogsLimit equals the full length we show everything; otherwise slice by page.
+  const paginatedDetectionLogs =
+    detectionLogsLimit === filteredSortedDetectionLogs.length
+      ? filteredSortedDetectionLogs
+      : filteredSortedDetectionLogs.slice(startIndex, startIndex + detectionLogsLimit);
 
   // Compute shown-from / shown-to for the UI based on actual paginated list
   const shownFrom = paginatedDetectionLogs.length ? startIndex + 1 : 0;
@@ -1546,7 +1559,7 @@ function AdminDashboard({ onLogout }) {
                           }
                         }}
                       >
-                        Batch {" "}
+                        Batch{" "}
                         {logsSortField === "batch_number"
                           ? logsSortOrder === "asc"
                             ? "▲"
@@ -1705,10 +1718,12 @@ function AdminDashboard({ onLogout }) {
                     </tr>
                   </thead>
                   <tbody>
-                    {paginatedDetectionLogs.map((log) => {
+                    {paginatedDetectionLogs.map((log, idx) => {
                       // compute display number within the current filtered view
                       const displayNo =
-                        filteredSortedDetectionLogs.indexOf(log) + 1;
+                        filterBatch === "all"
+                          ? filteredSortedDetectionLogs.indexOf(log) + 1
+                          : idx + 1;
 
                       return (
                         <tr key={log.id}>
@@ -1722,7 +1737,12 @@ function AdminDashboard({ onLogout }) {
                           >
                             {displayNo}
                           </td>
-                          <td style={{ fontFamily: "var(--font-mono)", fontSize: "12px" }}>
+                          <td
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: "12px",
+                            }}
+                          >
                             {Number(log.batch_number || 1)}
                           </td>
                           <td
