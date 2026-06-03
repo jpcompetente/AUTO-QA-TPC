@@ -65,24 +65,25 @@ export default defineConfig(({ mode }) => {
       https: useHttps ? httpsOptions : undefined,
       host: true,
       proxy: {
-        // Forward API calls
         "/api": {
           target: "http://127.0.0.1:8000",
           changeOrigin: true,
         },
-        // Forward Admin panel
         "/admin": {
           target: "http://127.0.0.1:8000",
           changeOrigin: true,
         },
-        // Forward Django's static files (important for Admin CSS!)
         "/static": {
           target: "http://127.0.0.1:8000",
           changeOrigin: true,
         },
-        // Forward uploaded media so inference snapshots render in the UI
         "/media": {
           target: "http://127.0.0.1:8000",
+          changeOrigin: true,
+        },
+        "/ws": {
+          target: "ws://127.0.0.1:8000",
+          ws: true,
           changeOrigin: true,
         },
       },

@@ -33,6 +33,7 @@ DATABASES = {
 
 # Installed Apps
 INSTALLED_APPS = [
+    'sslserver',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',

@@ -82,14 +82,13 @@ export const autoApproveInferenceLog = (id) =>
 
 export const buildWebSocketUrl = (path) => {
   const configuredBase = import.meta.env.VITE_WS_BASE_URL;
-  
+
   if (configuredBase) {
-    // Convert HTTP/HTTPS to WS/WSS as needed
     let wsUrl = configuredBase;
-    if (wsUrl.startsWith("http://")) {
-      wsUrl = wsUrl.replace("http://", "ws://");
-    } else if (wsUrl.startsWith("https://")) {
-      wsUrl = wsUrl.replace("https://", "wss://");
+    if (window.location.protocol === "https:") {
+      wsUrl = wsUrl.replace(/^ws:\/\//i, "wss://").replace(/^http:\/\//i, "wss://");
+    } else {
+      wsUrl = wsUrl.replace(/^wss:\/\//i, "ws://").replace(/^https:\/\//i, "ws://");
     }
     const wsBase = wsUrl.replace(/\/$/, "");
     const normalizedPath = String(path || "").startsWith("/")
@@ -97,17 +96,14 @@ export const buildWebSocketUrl = (path) => {
       : `/${String(path || "")}`;
     return `${wsBase}${normalizedPath}`;
   }
-  
-  // Fallback
+
+  // ← No base URL set: use same host/port as the page (goes through Vite proxy)
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
-  const hostname = window.location.hostname;
-  const port = import.meta.env.VITE_BACKEND_PORT || "8000";
-  const baseUrl = `${protocol}://${hostname}:${port}`;
-  
+  const host = window.location.host; // includes port, e.g. 10.0.2.132:5173
   const normalizedPath = String(path || "").startsWith("/")
     ? String(path)
     : `/${String(path || "")}`;
-  return `${baseUrl}${normalizedPath}`;
+  return `${protocol}://${host}${normalizedPath}`;
 };
 
 export const buildInferenceStreamUrl = (token) => {

@@ -132,7 +132,10 @@ function OperatorPanel({
   // a synchronous setState inside an effect (avoids cascading renders).
   /* ── Helpers ─────────────────────────────────────────────────── */
   const normalizeList = useCallback(
-    (payload) => payload?.results || payload || [],
+    (payload) => {
+      const results = payload?.results || payload || [];
+      return Array.isArray(results) ? results : [];
+    },
     [],
   );
 
@@ -372,10 +375,15 @@ function OperatorPanel({
   /* ── Canvas overlay ─────────────────────────────────────────── */
   const drawOverlay = useCallback(
     (result) => {
+      console.debug('[LiveAnnotations] drawOverlay called with detections:', result?.detections?.length || 0);
       const canvas = overlayRef.current;
       // For live feed: use video, for captured frame: use image
       const media = capturedFrame ? frameRef.current : webcamRef.current?.video;
-      if (!canvas || !media) return;
+      if (!canvas || !media) {
+        console.debug('[LiveAnnotations] drawOverlay skipped - canvas:', !!canvas, 'media:', !!media);
+        return;
+      }
+      console.debug('[LiveAnnotations] Canvas and media ready');
 
       // Get wrapper dimensions for more reliable sizing
       const wrapper = canvas.parentElement;
@@ -427,10 +435,14 @@ function OperatorPanel({
 
       const drawDetections = (detections) => {
         if (!detections || detections.length === 0) {
+          console.debug('[LiveAnnotations] No detections to draw');
           return;
         }
+        
+        console.debug('[LiveAnnotations] Drawing', detections.length, 'detections');
 
-        (detections || []).forEach((detection) => {
+        (detections || []).forEach((detection, idx) => {
+          console.debug('[LiveAnnotations] Drawing detection', idx, ':', {bbox: detection.bbox, label: detection.label, confidence: detection.confidence});
           const [x1, y1, x2, y2] = detection.bbox || [];
           const label = detection.label || detection.class_name || "DETECTION";
           const confidence = Number(detection.confidence || 0);
@@ -498,6 +510,7 @@ function OperatorPanel({
       };
 
       drawDetections(result?.detections || []);
+      console.debug('[LiveAnnotations] drawDetections completed');
     },
     [capturedFrame],
   );
@@ -583,7 +596,10 @@ function OperatorPanel({
       if (!capturedFrame && video && video.readyState === 4) {
         // Clear canvas if server-side overlay is available (will show as img tag)
         if (detectionResult?.annotated_image_b64) {
-          if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+          if (ctx) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            console.debug('[LiveAnnotations] Server image present, cleared canvas');
+          }
           animationFrameId = requestAnimationFrame(drawFrame);
           return;
         }
@@ -594,10 +610,14 @@ function OperatorPanel({
           detectionResult.detections &&
           detectionResult.detections.length > 0
         ) {
+          console.debug('[LiveAnnotations] Drawing overlay with', detectionResult.detections.length, 'detections on canvas', canvas.width, 'x', canvas.height);
           drawOverlay(detectionResult);
         } else {
           // Clear canvas if no detections
-          if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+          if (ctx) {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            console.debug('[LiveAnnotations] Cleared canvas - detectionResult:', !!detectionResult, 'detections:', detectionResult?.detections?.length || 0);
+          }
         }
       } else {
         // Clear canvas when showing captured frame or no video
@@ -738,6 +758,11 @@ function OperatorPanel({
             console.debug(
               `[InferenceStream] Result received: detections=${detectionCount}, has_annotation=${hasAnnotation}, annotation_kb=${(annotationSize / 1024).toFixed(1)}`
             );
+            
+            // DEBUG: Log detection structure
+            if (message.data.detections && message.data.detections.length > 0) {
+              console.debug('[LiveAnnotations] First detection:', JSON.stringify(message.data.detections[0]));
+            }
             
             if (message.data.annotated_image_b64) {
               const dataUrl = `data:image/png;base64,${message.data.annotated_image_b64}`;
@@ -1427,7 +1452,7 @@ function OperatorPanel({
                     left: 0,
                     width: "100%",
                     height: "100%",
-                    objectFit: "cover",
+                    objectFit: "contain",
                     zIndex: 11,
                     pointerEvents: "none",
                   }}

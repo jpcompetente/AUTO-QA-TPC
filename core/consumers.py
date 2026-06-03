@@ -8,6 +8,7 @@ import json
 import logging
 import threading
 import time
+from unittest import result
 from urllib.parse import parse_qs
 
 from channels.generic.websocket import AsyncWebsocketConsumer
@@ -407,11 +408,13 @@ class InferenceStreamConsumer(AsyncWebsocketConsumer):
                 iou=iou,
             )
 
-            if not result.annotated_image_b64:
+            # Only generate server-side annotation if there are actual detections
+            # For live stream, let frontend draw on canvas instead for better responsiveness
+            if result.detections and len(result.detections) > 0:
                 result.annotated_image_b64 = _render_annotated_png_b64(
-                    image_bytes,
-                    result.detections,
-                )
+                image_bytes,
+                result.detections,
+            )
 
             if not result.success:
                 return {
