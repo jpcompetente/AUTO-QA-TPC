@@ -197,10 +197,15 @@ function AdminDashboard({ onLogout }) {
       if (opRes.status === "fulfilled") setOperators(opRes.value.data);
       else console.error("Failed to fetch operators", opRes.reason);
 
-      if (settingsRes.status === "fulfilled") setSettings(settingsRes.value.data);
+      if (settingsRes.status === "fulfilled")
+        setSettings(settingsRes.value.data);
       else console.error("Failed to fetch settings", settingsRes.reason);
 
-      if (compRes.status === "fulfilled" && modelRes.status === "fulfilled" && opRes.status === "fulfilled") {
+      if (
+        compRes.status === "fulfilled" &&
+        modelRes.status === "fulfilled" &&
+        opRes.status === "fulfilled"
+      ) {
         const compData = compRes.value.data;
         const modelData = modelRes.value.data;
         const opData = opRes.value.data;
@@ -367,8 +372,8 @@ function AdminDashboard({ onLogout }) {
           bVal = (b.status || "").toLowerCase();
           break;
         case "batch_number":
-          aVal = Number(a.batch_number || 0);
-          bVal = Number(b.batch_number || 0);
+          aVal = Number(a.batch_number || 1);
+          bVal = Number(b.batch_number || 1);
           break;
         case "timestamp":
         default:
@@ -408,8 +413,10 @@ function AdminDashboard({ onLogout }) {
     let logs = [...sortedDetectionLogs];
 
     if (filterBatch !== "all") {
-      const selectedBatch = Number(filterBatch);
-      logs = logs.filter((log) => Number(log.batch_number ?? 0) === selectedBatch);
+      const selectedBatch = Number(filterBatch) || 1;
+      logs = logs.filter(
+        (log) => Number(log.batch_number || 1) === selectedBatch,
+      );
     }
 
     // Operator filter (compare against id or name where available)
@@ -625,10 +632,12 @@ function AdminDashboard({ onLogout }) {
   };
 
   const getBatchKey = (log) => {
+    if (log.batch_number != null) {
+      return Number(log.batch_number || 1);
+    }
     return (
       log.batch ??
       log.batch_id ??
-      log.batch_number ??
       log.batch_no ??
       log.batchName ??
       log.batch_name ??
@@ -1493,7 +1502,7 @@ function AdminDashboard({ onLogout }) {
                           }
                         }}
                       >
-                        Batch {" "}
+                        Batch{" "}
                         {logsSortField === "batch_number"
                           ? logsSortOrder === "asc"
                             ? "▲"
@@ -1653,7 +1662,7 @@ function AdminDashboard({ onLogout }) {
                   </thead>
                   <tbody>
                     {paginatedDetectionLogs.map((log, idx) => {
-                      // compute display number: global when showing all, otherwise per-batch starting at 1
+                      // compute display number within the current filtered view
                       const displayNo =
                         filterBatch === "all"
                           ? filteredSortedDetectionLogs.indexOf(log) + 1
@@ -1682,8 +1691,13 @@ function AdminDashboard({ onLogout }) {
                           >
                             {displayNo}
                           </td>
-                          <td style={{ fontFamily: "var(--font-mono)", fontSize: "12px" }}>
-                            {batchLabel}
+                          <td
+                            style={{
+                              fontFamily: "var(--font-mono)",
+                              fontSize: "12px",
+                            }}
+                          >
+                            {Number(log.batch_number || 1)}
                           </td>
                           <td
                             style={{
