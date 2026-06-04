@@ -9,6 +9,9 @@ import {
   getModels,
   getOperators,
   updateAdminSettings,
+  getRetrainingQueue,
+  getTrainingJobs,
+  deployTrainingJob,
 } from "../api/backend";
 
 const Icon = {
@@ -96,7 +99,7 @@ const Icon = {
 const pages = [
   { id: "home", label: "Overview", IconC: Icon.Grid },
   { id: "detection-logs", label: "Detection Logs", IconC: Icon.List },
-  { id: "batches", label: "Batches", IconC: Icon.Box },
+  { id: "batches", label: "Retraining", IconC: Icon.Box },
   { id: "settings", label: "Settings", IconC: Icon.Settings },
 ];
 
@@ -132,6 +135,7 @@ function AdminDashboard({ onLogout }) {
   const [operators, setOperators] = useState([]);
   const [settings, setSettings] = useState([]);
   const [detectionLogs, setDetectionLogs] = useState([]);
+  const [allDetectionLogs, setAllDetectionLogs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [formError, setFormError] = useState("");
   const [activePage, setActivePage] = useState("home");
@@ -154,6 +158,8 @@ function AdminDashboard({ onLogout }) {
   const [filterDateOnly, setFilterDateOnly] = useState("");
   const [filterSearch, setFilterSearch] = useState("");
   const [selectedLogPreview, setSelectedLogPreview] = useState(null);
+  const [retrainingQueue, setRetrainingQueue] = useState([]);
+  const [trainingJobs, setTrainingJobs] = useState([]);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -172,6 +178,7 @@ function AdminDashboard({ onLogout }) {
           ? logsRes.value.data
           : logsRes.value.data?.results || [];
         setDetectionLogs(logs);
+        setAllDetectionLogs(logs);
 
         // If the user hasn't changed the page size (default 20), default to showing all logs
         if (logs.length > 0) {
@@ -223,12 +230,12 @@ function AdminDashboard({ onLogout }) {
     })();
   }, [fetchData]);
 
-  // Fetch logs from server using server-side filters.
-  // NOTE: We intentionally do NOT send `batch_number` here; otherwise the API would
-  // return only the selected batch and the Batch dropdown would lose the other
-  // existing batches. Batch selection is handled client-side.
+  // Fetch logs from server using current server-side filters
   const fetchLogs = useCallback(async (overrides = {}) => {
     const params = { ...(overrides || {}) };
+    if (!('batch_number' in params) && filterBatch && filterBatch !== 'all') {
+      params.batch_number = filterBatch;
+    }
     if (filterDateMode === 'single' && filterDateOnly) {
       params.date = filterDateOnly;
     }
@@ -247,13 +254,36 @@ function AdminDashboard({ onLogout }) {
     } finally {
       setIsLoading(false);
     }
-  }, [filterDateMode, filterDateOnly, filterDateFrom, filterDateTo, filterOperator]);
+  }, [filterBatch, filterDateMode, filterDateOnly, filterDateFrom, filterDateTo, filterOperator]);
 
   useEffect(() => {
     void (async () => {
       await fetchLogs();
     })();
   }, [fetchLogs]);
+
+  // fetch retraining queue and jobs when viewing batches
+  useEffect(() => {
+    if (activePage !== "batches") return;
+    let mounted = true;
+    (async () => {
+      try {
+        const [qRes, jRes] = await Promise.allSettled([
+          getRetrainingQueue(),
+          getTrainingJobs(),
+        ]);
+        if (mounted) {
+          if (qRes.status === "fulfilled") setRetrainingQueue(qRes.value.data || []);
+          if (jRes.status === "fulfilled") setTrainingJobs(jRes.value.data || []);
+        }
+      } catch (e) {
+        console.error("Failed to load retraining data", e);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [activePage]);
 
   const compatibleModels = useMemo(() => {
     return getCompatibleModelsForProduct(models, form.product);
@@ -359,10 +389,11 @@ function AdminDashboard({ onLogout }) {
   }, [detectionLogs, logsSortField, logsSortOrder]);
 
   const availableBatchNumbers = useMemo(() => {
-    return [...new Set(detectionLogs.map((log) => Number(log.batch_number ?? 0)).filter((value) => value >= 0))].sort(
+    const sourceLogs = allDetectionLogs.length > 0 ? allDetectionLogs : detectionLogs;
+    return [...new Set(sourceLogs.map((log) => Number(log.batch_number ?? 0)).filter((value) => value >= 0))].sort(
       (left, right) => left - right,
     );
-  }, [detectionLogs]);
+  }, [allDetectionLogs, detectionLogs]);
 
   const getLocalDateKey = useCallback((value) => {
     if (!value) return "";
@@ -593,7 +624,6 @@ function AdminDashboard({ onLogout }) {
     return `${n.toFixed(1)}%`;
   };
 
-  // Batch grouping for Batches page
   const getBatchKey = (log) => {
     return (
       log.batch ??
@@ -604,92 +634,6 @@ function AdminDashboard({ onLogout }) {
       log.batch_name ??
       null
     );
-  };
-
-  const batches = useMemo(() => {
-    const logs = [...sortedDetectionLogs];
-    // detect if logs contain explicit batch keys
-    const explicitKeys = new Set();
-    logs.forEach((l) => {
-      const k = getBatchKey(l);
-      if (k != null) explicitKeys.add(String(k));
-    });
-
-    if (explicitKeys.size > 0) {
-      const map = {};
-      logs.forEach((l) => {
-        const k = String(getBatchKey(l) ?? "unknown");
-        if (!map[k]) map[k] = [];
-        map[k].push(l);
-      });
-      const keys = Object.keys(map);
-      const extractNum = (s) => {
-        const m = String(s).match(/(\d+)/);
-        return m ? Number(m[1]) : null;
-      };
-      keys.sort((a, b) => {
-        const na = extractNum(a);
-        const nb = extractNum(b);
-        if (na != null && nb != null) return na - nb; // numeric order
-        if (na != null) return -1;
-        if (nb != null) return 1;
-        return String(a).localeCompare(String(b));
-      });
-      return keys.map((k) => ({ key: k, logs: map[k] }));
-    }
-
-    // fallback: chunk into pages sized by detectionLogsLimit
-    const chunks = [];
-    for (let i = 0; i < logs.length; i += detectionLogsLimit) {
-      const chunk = logs.slice(i, i + detectionLogsLimit);
-      const idx = chunks.length + 1;
-      chunks.push({ key: `Batch ${idx}`, logs: chunk });
-    }
-    return chunks.length > 0 ? chunks : [{ key: "Batch 1", logs: [] }];
-  }, [sortedDetectionLogs, detectionLogsLimit]);
-
-  const [activeBatchKey, setActiveBatchKey] = useState(null);
-
-  const getFailLogsForBatch = (batch) => {
-    return (batch.logs || []).filter((l) => {
-      const d = (l.final_decision || l.system_decision || "")
-        .toString()
-        .toLowerCase();
-      return (
-        d.includes("fail") ||
-        d.includes("reject") ||
-        (l.status || "").toString().toLowerCase() === "fail"
-      );
-    });
-  };
-
-  // Export failed images as individual PNG downloads (one file per failed item)
-  const exportImagesForLogs = async (logsToExport, filenamePrefix = "fail") => {
-    const items = logsToExport.map((l) => ({
-      id: l.id,
-      url: getDetectionLogImageSrc(l),
-    }));
-    if (items.length === 0) return;
-    for (const it of items) {
-      if (!it.url) continue;
-      try {
-        const res = await fetch(it.url, { cache: "no-cache" });
-        if (!res.ok) continue;
-        const blob = await res.blob();
-        const ext = blob.type?.split("/")?.pop() || "png";
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `${filenamePrefix}_${it.id}.${ext}`;
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-      } catch (e) {
-        // ignore single failures
-        console.warn("Failed to export image", it.url, e);
-      }
-    }
   };
 
   // derived metrics for Model Health + Alerts
@@ -761,7 +705,7 @@ function AdminDashboard({ onLogout }) {
   const pageTitles = {
     home: ["Overview", "Admin portal"],
     "detection-logs": ["Detection logs", "Audit trail"],
-    batches: ["Batches", "Export fails"],
+    batches: ["Retraining", "Queue / Jobs"],
     settings: ["Settings", "Configuration"],
   };
 
@@ -1106,14 +1050,13 @@ function AdminDashboard({ onLogout }) {
             </>
           )}
 
-          {/* ── Detection Logs ── */}
-          {/* ── Batches ── */}
+          {/* ── Retraining ── */}
           {activePage === "batches" && (
             <>
               <div className="adash__section-header">
-                <h3>Batches</h3>
+                <h3>Retraining</h3>
                 <span className="adash__section-badge">
-                  {batches.length} batches
+                  {retrainingQueue.length} queued
                 </span>
                 <div style={{ marginLeft: "auto" }} />
               </div>
@@ -1125,123 +1068,134 @@ function AdminDashboard({ onLogout }) {
                   gap: 12,
                 }}
               >
-                {batches.map((b) => {
-                  const failCount = getFailLogsForBatch(b).length;
-                  return (
-                    <div
-                      key={b.key}
-                      className="adash__card"
-                      style={{ padding: 12 }}
-                    >
-                      <div
-                        style={{
-                          display: "flex",
-                          justifyContent: "space-between",
-                          alignItems: "center",
+                {/* Retraining queue + jobs — admin controls */}
+                <div className="adash__card" style={{ padding: 12, gridColumn: "1 / -1" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div className="adash__card-label">Retraining Queue</div>
+                      <div style={{ fontWeight: 700, marginTop: 6 }}>{retrainingQueue.length} samples</div>
+                    </div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        className="adash__btn adash__btn--ghost"
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const res = await getRetrainingQueue();
+                            setRetrainingQueue(res.data || []);
+                          } catch (e) {
+                            console.error(e);
+                          }
                         }}
                       >
-                        <div>
-                          <div style={{ fontSize: 13, color: "#666" }}>
-                            {b.key}
-                          </div>
-                          <div style={{ fontWeight: 700, marginTop: 6 }}>
-                            {b.logs.length} items
-                          </div>
-                        </div>
-                        <div style={{ textAlign: "right" }}>
-                          <div style={{ fontSize: 12, color: "#666" }}>
-                            Fails
-                          </div>
-                          <div style={{ fontWeight: 700, marginTop: 6 }}>
-                            {failCount}
-                          </div>
-                        </div>
-                      </div>
-                      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-                        <button
-                          className="adash__btn adash__btn--ghost"
-                          type="button"
-                          onClick={() =>
-                            setActiveBatchKey(
-                              activeBatchKey === b.key ? null : b.key,
-                            )
-                          }
-                        >
-                          {activeBatchKey === b.key ? "Hide" : "View fails"}
-                        </button>
-                        <button
-                          className="adash__btn adash__btn--primary"
-                          type="button"
-                          onClick={() =>
-                            exportImagesForLogs(
-                              getFailLogsForBatch(b),
-                              `${b.key.replace(/\s+/g, "_")}_fail`,
-                            )
-                          }
-                          disabled={failCount === 0}
-                        >
-                          Export Images
-                        </button>
-                      </div>
-                      {activeBatchKey === b.key && (
-                        <div style={{ marginTop: 12 }}>
-                          <div style={{ fontSize: 13, marginBottom: 8 }}>
-                            Failed items in {b.key}
-                          </div>
-                          <div
-                            style={{
-                              display: "flex",
-                              gap: 8,
-                              flexWrap: "wrap",
-                            }}
-                          >
-                            {getFailLogsForBatch(b).map((l) => (
-                              <div
-                                key={l.id}
-                                style={{ width: 120, textAlign: "center" }}
-                              >
-                                {getDetectionLogImageSrc(l) ? (
-                                  <img
-                                    src={getDetectionLogImageSrc(l)}
-                                    alt={`#${l.id}`}
-                                    style={{
-                                      width: 120,
-                                      height: 80,
-                                      objectFit: "cover",
-                                      borderRadius: 6,
-                                    }}
-                                  />
-                                ) : (
-                                  <div
-                                    style={{
-                                      width: 120,
-                                      height: 80,
-                                      background: "#f3f3f3",
-                                      borderRadius: 6,
-                                      display: "flex",
-                                      alignItems: "center",
-                                      justifyContent: "center",
-                                    }}
-                                  >
-                                    No image
-                                  </div>
-                                )}
-                                <div
-                                  style={{ fontSize: 12, marginTop: 6 }}
-                                >{`#${l.id}`}</div>
-                              </div>
-                            ))}
-                            {getFailLogsForBatch(b).length === 0 && (
-                              <div style={{ color: "#666" }}>
-                                No failed items in this batch.
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
+                        Refresh queue
+                      </button>
                     </div>
-                  );
-                })}
+                  </div>
+
+                  <div style={{ marginTop: 12 }}>
+                    {retrainingQueue.length === 0 ? (
+                      <div style={{ color: "#666" }}>No retraining samples queued.</div>
+                    ) : (
+                      <div style={{ maxHeight: 220, overflow: "auto", marginTop: 8 }}>
+                        <table className="adash__table" style={{ width: "100%" }}>
+                          <thead>
+                            <tr>
+                              <th>ID</th>
+                              <th>Source</th>
+                              <th>Decision</th>
+                              <th>Created</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {retrainingQueue.map((it) => (
+                              <tr key={it.id}>
+                                <td style={{ fontFamily: "var(--font-mono)" }}>#{it.id}</td>
+                                <td>{it.source || it.component_name || it.model_name || "-"}</td>
+                                <td>{it.label || it.final_decision || it.system_decision || "-"}</td>
+                                <td style={{ fontFamily: "var(--font-mono)" }}>{new Date(it.created_at || it.timestamp || it.created).toLocaleString()}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="adash__card" style={{ padding: 12, gridColumn: "1 / -1" }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                    <div>
+                      <div className="adash__card-label">Training Jobs</div>
+                      <div style={{ fontWeight: 700, marginTop: 6 }}>{trainingJobs.length} jobs</div>
+                    </div>
+                    <div />
+                  </div>
+                  <div style={{ marginTop: 12 }}>
+                    {trainingJobs.length === 0 ? (
+                      <div style={{ color: "#666" }}>No training jobs yet.</div>
+                    ) : (
+                      <div style={{ maxHeight: 220, overflow: "auto", marginTop: 8 }}>
+                        <table className="adash__table" style={{ width: "100%" }}>
+                          <thead>
+                            <tr>
+                              <th>ID</th>
+                              <th>State</th>
+                              <th>Model</th>
+                              <th>Created</th>
+                              <th>Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {trainingJobs.map((job) => (
+                              <tr key={job.id}>
+                                <td style={{ fontFamily: "var(--font-mono)" }}>#{job.id}</td>
+                                <td>{job.state || job.status || "-"}</td>
+                                <td>{job.model_name || job.model || "-"}</td>
+                                <td style={{ fontFamily: "var(--font-mono)" }}>{new Date(job.created_at || job.created || job.timestamp).toLocaleString()}</td>
+                                <td>
+                                  <div style={{ display: "flex", gap: 8 }}>
+                                    <button
+                                      className="adash__btn adash__btn--ghost"
+                                      type="button"
+                                      onClick={async () => {
+                                        try {
+                                          const res = await getTrainingJobs();
+                                          setTrainingJobs(res.data || []);
+                                        } catch (e) {
+                                          console.error(e);
+                                        }
+                                      }}
+                                    >
+                                      Refresh
+                                    </button>
+                                    <button
+                                      className="adash__btn adash__btn--primary"
+                                      type="button"
+                                      disabled={!(job.state === "completed" || job.status === "completed" || job.is_completed)}
+                                      onClick={async () => {
+                                        try {
+                                          await deployTrainingJob(job.id, job.model_name || job.model);
+                                          const res = await getTrainingJobs();
+                                          setTrainingJobs(res.data || []);
+                                        } catch (e) {
+                                          console.error("Failed to deploy job", e);
+                                        }
+                                      }}
+                                    >
+                                      Deploy
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
               </div>
             </>
           )}

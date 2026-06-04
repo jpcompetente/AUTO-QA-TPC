@@ -59,6 +59,7 @@ export default defineConfig(({ mode }) => {
     plugins: [react()],
     server: {
       port: 5173,
+      strictPort: true,
       https: useHttps ? httpsOptions : undefined,
       host: true,
       proxy: {
@@ -81,6 +82,13 @@ export default defineConfig(({ mode }) => {
         "/media": {
           target: "http://127.0.0.1:8000",
           changeOrigin: true,
+        },
+        "/ws": {
+          target: "ws://127.0.0.1:8000",
+          ws: true,
+          changeOrigin: true,
+          secure: false,
+          rewrite: (path) => path,
         },
       },
     },
