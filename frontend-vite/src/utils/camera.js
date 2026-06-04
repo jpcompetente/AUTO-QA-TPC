@@ -23,16 +23,25 @@ export function buildCameraConstraints({
   preferRearCamera = true,
   width = { ideal: 1280 },
   height = { ideal: 720 },
+  deviceId,
 } = {}) {
   const useRearCamera = preferRearCamera && isMobileOrTabletDevice();
 
+  const video = {
+    width,
+    height,
+  };
+
+  if (deviceId) {
+    // Prefer an explicit deviceId when provided
+    video.deviceId = { exact: deviceId };
+  } else {
+    video.facingMode = useRearCamera ? { ideal: 'environment' } : { ideal: 'user' };
+  }
+
   return {
     audio: false,
-    video: {
-      facingMode: useRearCamera ? { ideal: 'environment' } : { ideal: 'user' },
-      width,
-      height,
-    },
+    video,
   };
 }
 
