@@ -631,19 +631,6 @@ function AdminDashboard({ onLogout }) {
     return `${n.toFixed(1)}%`;
   };
 
-  const getBatchKey = (log) => {
-    if (log.batch_number != null) {
-      return Number(log.batch_number || 1);
-    }
-    return (
-      log.batch ??
-      log.batch_id ??
-      log.batch_no ??
-      log.batchName ??
-      log.batch_name ??
-      null
-    );
-  };
 
   // derived metrics for Model Health + Alerts
   const currentModelObj = models.find(
@@ -1667,17 +1654,6 @@ function AdminDashboard({ onLogout }) {
                         filterBatch === "all"
                           ? filteredSortedDetectionLogs.indexOf(log) + 1
                           : idx + 1;
-                      // determine batch label: prefer explicit batch key, otherwise compute chunked batch number
-                      const explicitBatch = getBatchKey(log);
-                      let batchLabel = "-";
-                      if (explicitBatch != null) batchLabel = String(explicitBatch);
-                      else {
-                        const globalIndex = filteredSortedDetectionLogs.indexOf(log);
-                        if (globalIndex >= 0) {
-                          const num = Math.floor(globalIndex / detectionLogsLimit) + 1;
-                          batchLabel = `Batch ${num}`;
-                        }
-                      }
 
                       return (
                         <tr key={log.id}>
