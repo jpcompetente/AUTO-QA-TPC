@@ -1,4 +1,5 @@
 import os
+from datetime import timedelta
 from importlib.util import find_spec
 from dotenv import load_dotenv
 from pathlib import Path
@@ -62,6 +63,11 @@ REST_FRAMEWORK = {
     )
 }
 
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=8),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+}
+
 # Middleware Configuration
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',   # ✅ must be at the very top
@@ -87,6 +93,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://172.21.16.1:5173",
     "http://10.0.2.132:8000",      # ✅ Backend HTTP (for mixed HTTPS frontend)
     "https://10.0.2.132:8000",     # ✅ Backend HTTPS (future production)
+    "https://localhost:5173",
+    "https://127.0.0.1:5173",    
 ]
 
 # For testing only (disable in production)

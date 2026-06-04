@@ -1,0 +1,24 @@
+const StrictMode = __vite__cjsImport0_react["StrictMode"];const createRoot = __vite__cjsImport1_reactDom_client["createRoot"];const _jsxDEV = __vite__cjsImport4_react_jsxDevRuntime["jsxDEV"];import __vite__cjsImport0_react from "/node_modules/.vite/deps/react.js?v=26363500";
+import __vite__cjsImport1_reactDom_client from "/node_modules/.vite/deps/react-dom_client.js?v=26363500";
+import "/src/index.css";
+import App from "/src/App.jsx";
+var _jsxFileName = "C:/Users/TPC-USER/Desktop/AUTO-QA-TPC/frontend-vite/src/main.jsx";
+import __vite__cjsImport4_react_jsxDevRuntime from "/node_modules/.vite/deps/react_jsx-dev-runtime.js?v=26363500";
+if ("serviceWorker" in navigator) {
+	window.addEventListener("load", () => {
+		navigator.serviceWorker.register("/sw.js").catch(() => {
+			// Ignore service worker registration failures in development.
+		});
+	});
+}
+createRoot(document.getElementById("root")).render(/* @__PURE__ */ _jsxDEV(StrictMode, { children: /* @__PURE__ */ _jsxDEV(App, {}, void 0, false, {
+	fileName: _jsxFileName,
+	lineNumber: 16,
+	columnNumber: 5
+}, this) }, void 0, false, {
+	fileName: _jsxFileName,
+	lineNumber: 15,
+	columnNumber: 3
+}, this));
+
+//# sourceMappingURL=data:application/json;base64,eyJtYXBwaW5ncyI6IkFBQUEsU0FBUyxrQkFBa0I7QUFDM0IsU0FBUyxrQkFBa0I7QUFDM0IsT0FBTztBQUNQLE9BQU8sU0FBUzs7O0FBRWhCLElBQUksbUJBQW1CLFdBQVc7QUFDaEMsUUFBTyxpQkFBaUIsY0FBYztBQUNwQyxZQUFVLGNBQWMsU0FBUyxTQUFTLENBQUMsWUFBWTs7SUFFckQ7R0FDRjs7QUFHSixXQUFXLFNBQVMsZUFBZSxPQUFPLENBQUMsQ0FBQyxPQUMxQyx3QkFBQyxZQUFELFlBQ0Usd0JBQUMsS0FBRCxFQUFPOzs7O1VBQ0k7Ozs7U0FDZCIsIm5hbWVzIjpbXSwic291cmNlcyI6WyJtYWluLmpzeCJdLCJ2ZXJzaW9uIjozLCJzb3VyY2VzQ29udGVudCI6WyJpbXBvcnQgeyBTdHJpY3RNb2RlIH0gZnJvbSAncmVhY3QnXHJcbmltcG9ydCB7IGNyZWF0ZVJvb3QgfSBmcm9tICdyZWFjdC1kb20vY2xpZW50J1xyXG5pbXBvcnQgJy4vaW5kZXguY3NzJ1xyXG5pbXBvcnQgQXBwIGZyb20gJy4vQXBwLmpzeCdcclxuXHJcbmlmICgnc2VydmljZVdvcmtlcicgaW4gbmF2aWdhdG9yKSB7XHJcbiAgd2luZG93LmFkZEV2ZW50TGlzdGVuZXIoJ2xvYWQnLCAoKSA9PiB7XHJcbiAgICBuYXZpZ2F0b3Iuc2VydmljZVdvcmtlci5yZWdpc3RlcignL3N3LmpzJykuY2F0Y2goKCkgPT4ge1xyXG4gICAgICAvLyBJZ25vcmUgc2VydmljZSB3b3JrZXIgcmVnaXN0cmF0aW9uIGZhaWx1cmVzIGluIGRldmVsb3BtZW50LlxyXG4gICAgfSlcclxuICB9KVxyXG59XHJcblxyXG5jcmVhdGVSb290KGRvY3VtZW50LmdldEVsZW1lbnRCeUlkKCdyb290JykpLnJlbmRlcihcclxuICA8U3RyaWN0TW9kZT5cclxuICAgIDxBcHAgLz5cclxuICA8L1N0cmljdE1vZGU+LFxyXG4pXHJcbiJdfQ==

@@ -19,7 +19,7 @@ const STABLE_CAPTURE_DELAY_MS = 2000;
 const MOTION_SAMPLE_INTERVAL_MS = 250;
 const MOTION_THRESHOLD = 9; // For auto-capture (stable frame detection)
 const LIVE_INFERENCE_INTERVAL_MS = 1500;
-const LIVE_MOTION_THRESHOLD = 8; // Lower threshold for live feed (more responsive, less filtering)
+const LIVE_MOTION_THRESHOLD = 0; // Always send frames for inference
 
 const REJECTION_REASONS = [
   ["MISSED_DEFECT", "Missed a defect"],
@@ -36,7 +36,33 @@ function OperatorPanel({
   username = "Operator",
   cameraOnly = false,
 }) {
-  const cameraConstraints = useMemo(() => buildCameraConstraints(), []);
+  const enablePreSessionLive =
+    String(import.meta.env.VITE_ENABLE_PRE_SESSION_LIVE || "true")
+      .toLowerCase()
+      .trim() === "true";
+
+  const [selectedDeviceId, setSelectedDeviceId] = useState(
+    () => window.localStorage.getItem("selectedDeviceId") || "",
+  );
+  const [videoDevices, setVideoDevices] = useState([]);
+  const [cameraRetryToken, setCameraRetryToken] = useState(0);
+
+  const [sessionStarted, setSessionStarted] = useState(
+    () => window.localStorage.getItem("operatorSessionActive") === "true",
+  );
+  const [sessionId, setSessionId] = useState(
+    () => window.localStorage.getItem("operatorSessionId") || "",
+  );
+  const [batchNumber, setBatchNumber] = useState(() => {
+    const stored = window.localStorage.getItem("operatorBatchNumber");
+    const parsed = Number.parseInt(stored, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  });
+
+  const cameraConstraints = useMemo(
+    () => buildCameraConstraints({ deviceId: selectedDeviceId }),
+    [selectedDeviceId],
+  );
   /* refs */
   const cameraCardRef = useRef(null);
   const webcamRef = useRef(null);
@@ -72,8 +98,6 @@ function OperatorPanel({
   const [detectionResult, setDetectionResult] = useState(null);
   const [capturedFrame, setCapturedFrame] = useState("");
   const [autoDetectEnabled, setAutoDetectEnabled] = useState(true);
-  const [sessionStarted, setSessionStarted] = useState(false);
-  const [sessionId, setSessionId] = useState("");
   const [sessionFilter] = useState("");
   const [motionStatus, setMotionStatus] = useState("Waiting for camera");
   const [reviewMode, setReviewMode] = useState("ACKNOWLEDGE");
@@ -85,7 +109,7 @@ function OperatorPanel({
   const [reviewPending, setReviewPending] = useState(false);
   const [zoomedImage, setZoomedImage] = useState(null);
   const [streamStatus, setStreamStatus] = useState("disconnected");
-  const [liveAnnotatedOverlaySrc, setLiveAnnotatedOverlaySrc] = useState("");
+  const annotatedImageRef = useRef(null);
   const [sessionCompletedLogs, setSessionCompletedLogs] = useState([]);
   const [showSessionHistory, setShowSessionHistory] = useState(false);
   const [isCameraFullscreen, setIsCameraFullscreen] = useState(false);
@@ -93,6 +117,36 @@ function OperatorPanel({
   const [manualAnnotations, setManualAnnotations] = useState([]);
   const [currentPath, setCurrentPath] = useState([]);
   const [isDrawing, setIsDrawing] = useState(false);
+  const completedBatchNumber =
+    !sessionStarted && batchNumber > 1 ? batchNumber - 1 : null;
+  const nextBatchNumber = sessionStarted ? batchNumber + 1 : batchNumber;
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(
+        "operatorSessionActive",
+        sessionStarted ? "true" : "false",
+      );
+    } catch {
+      /* ignore */
+    }
+  }, [sessionStarted]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("operatorSessionId", sessionId || "");
+    } catch {
+      /* ignore */
+    }
+  }, [sessionId]);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem("operatorBatchNumber", String(batchNumber));
+    } catch {
+      /* ignore */
+    }
+  }, [batchNumber]);
 
   useEffect(() => {
     // Auto-dismiss notification after 4 seconds
@@ -138,6 +192,67 @@ function OperatorPanel({
     },
     [],
   );
+
+  const isVirtualCameraLabel = useCallback((label) => {
+    const normalized = String(label || "").toLowerCase();
+    return /obs|virtual camera|snap camera|manycam|droidcam|epoccam|cam twist|webcam studio/.test(
+      normalized,
+    );
+  }, []);
+
+  const refreshVideoDevices = useCallback(async () => {
+    if (!navigator?.mediaDevices?.enumerateDevices) return;
+
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = (devices || []).filter(
+        (device) => device.kind === "videoinput",
+      );
+      setVideoDevices(videoDevices);
+      console.debug("[Camera] refreshed video devices", {
+        count: videoDevices.length,
+      });
+    } catch (err) {
+      console.warn("[Camera] failed to refresh video devices", err);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (videoDevices.length === 0) return;
+
+    if (selectedDeviceId) {
+      const selectedStillPresent = videoDevices.some(
+        (device) => device.deviceId === selectedDeviceId,
+      );
+      if (!selectedStillPresent) {
+        try {
+          window.localStorage.removeItem("selectedDeviceId");
+        } catch {
+          /* ignore */
+        }
+        window.setTimeout(() => setSelectedDeviceId(""), 0);
+      }
+      return;
+    }
+
+    const preferredVirtualCamera = videoDevices.find((device) =>
+      isVirtualCameraLabel(device.label),
+    );
+    if (preferredVirtualCamera) {
+      try {
+        window.localStorage.setItem(
+          "selectedDeviceId",
+          preferredVirtualCamera.deviceId,
+        );
+      } catch {
+        /* ignore */
+      }
+      window.setTimeout(
+        () => setSelectedDeviceId(preferredVirtualCamera.deviceId),
+        0,
+      );
+    }
+  }, [videoDevices, selectedDeviceId, isVirtualCameraLabel]);
 
   const toggleCameraFullscreen = useCallback(async () => {
     const target = cameraCardRef.current;
@@ -223,21 +338,10 @@ function OperatorPanel({
       liveIntervalRef.current = null;
     }
     waitForMotionAfterEmptyRef.current = false;
-    setLiveAnnotatedOverlaySrc("");
-    try {
-      const stream = liveMediaStreamRef.current;
-      if (stream?.getTracks) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
-    } catch (error) {
-      console.warn("Error stopping media stream", error);
-    }
-    liveMediaStreamRef.current = null;
-    try {
-      if (webcamRef.current?.video) webcamRef.current.video.srcObject = null;
-    } catch {
-      /* ignore */
-    }
+    annotatedImageRef.current = null;
+
+    // Keep the camera preview active across session restarts.
+    // The stream is managed by ReactWebcam and should not be torn down here.
 
     // Fetch logs for the completed session
     (async () => {
@@ -252,6 +356,9 @@ function OperatorPanel({
     })();
 
     setSessionStarted(false);
+    // Advance to next batch when a session stops so subsequent detections
+    // are grouped under a new batch_number.
+    setBatchNumber((current) => current + 1);
     setSessionId("");
   }, [sessionId, normalizeList]);
 
@@ -279,6 +386,7 @@ function OperatorPanel({
       try {
         await fetchOptions();
         await fetchLogsRef.current();
+        await refreshVideoDevices();
       } catch (err) {
         setError(
           err.response?.data?.error ||
@@ -288,7 +396,7 @@ function OperatorPanel({
       }
     };
     void load();
-  }, [fetchOptions]);
+  }, [fetchOptions, refreshVideoDevices]);
 
   // Refresh logs when session filter changes
   useEffect(() => {
@@ -311,17 +419,20 @@ function OperatorPanel({
     setCurrentPath([{ x, y }]);
   }, []);
 
-  const drawLine = useCallback((e) => {
-    if (!isDrawing || !reviewPendingRef.current) return;
-    const canvas = manualCanvasRef.current;
-    if (!canvas) return;
+  const drawLine = useCallback(
+    (e) => {
+      if (!isDrawing || !reviewPendingRef.current) return;
+      const canvas = manualCanvasRef.current;
+      if (!canvas) return;
 
-    const rect = canvas.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
 
-    setCurrentPath((prev) => [...prev, { x, y }]);
-  }, [isDrawing]);
+      setCurrentPath((prev) => [...prev, { x, y }]);
+    },
+    [isDrawing],
+  );
 
   const stopDrawing = useCallback(() => {
     if (!isDrawing) return;
@@ -377,49 +488,39 @@ function OperatorPanel({
     (result) => {
       console.debug('[LiveAnnotations] drawOverlay called with detections:', result?.detections?.length || 0);
       const canvas = overlayRef.current;
-      // For live feed: use video, for captured frame: use image
-      const media = capturedFrame ? frameRef.current : webcamRef.current?.video;
-      if (!canvas || !media) {
-        console.debug('[LiveAnnotations] drawOverlay skipped - canvas:', !!canvas, 'media:', !!media);
-        return;
-      }
-      console.debug('[LiveAnnotations] Canvas and media ready');
+      const media = webcamRef.current?.video || frameRef.current;
+      if (!canvas || !media) return;
 
-      // Get wrapper dimensions for more reliable sizing
       const wrapper = canvas.parentElement;
-      let displayWidth = wrapper?.offsetWidth || canvas.offsetWidth || media.clientWidth || 640;
-      let displayHeight = wrapper?.offsetHeight || canvas.offsetHeight || media.clientHeight || 480;
+      let displayWidth =
+        wrapper?.offsetWidth || canvas.offsetWidth || media.clientWidth || 640;
+      let displayHeight =
+        wrapper?.offsetHeight || canvas.offsetHeight || media.clientHeight || 480;
 
-      // Fallback: use media element dimensions if available
       if (media.tagName === "VIDEO") {
-        if (!displayWidth || displayWidth < 100) displayWidth = media.clientWidth || 640;
-        if (!displayHeight || displayHeight < 100) displayHeight = media.clientHeight || 480;
+        if (!displayWidth || displayWidth < 100)
+          displayWidth = media.clientWidth || 640;
+        if (!displayHeight || displayHeight < 100)
+          displayHeight = media.clientHeight || 480;
       }
 
-      // Get source dimensions - handle both video and img elements
       let sourceWidth, sourceHeight;
       if (media.tagName === "VIDEO") {
         sourceWidth = media.videoWidth || media.naturalWidth || displayWidth;
-        sourceHeight =
-          media.videoHeight || media.naturalHeight || displayHeight;
+        sourceHeight = media.videoHeight || media.naturalHeight || displayHeight;
       } else {
         sourceWidth = media.naturalWidth || media.width || displayWidth;
         sourceHeight = media.naturalHeight || media.height || displayHeight;
       }
 
-      // Only proceed if we have valid dimensions
       if (!sourceWidth || !sourceHeight) {
         return;
       }
 
-      // Set canvas resolution to match display size
       canvas.width = displayWidth;
       canvas.height = displayHeight;
-
       const ctx = canvas.getContext("2d");
       if (!ctx) return;
-
-      // Clear canvas before drawing
       ctx.clearRect(0, 0, displayWidth, displayHeight);
 
       const sourceRatio = sourceWidth / sourceHeight;
@@ -430,8 +531,6 @@ function OperatorPanel({
         displayRatio > sourceRatio ? displayHeight : displayWidth / sourceRatio;
       const offsetX = (displayWidth - renderedWidth) / 2;
       const offsetY = (displayHeight - renderedHeight) / 2;
-      const scaleX = renderedWidth / sourceWidth;
-      const scaleY = renderedHeight / sourceHeight;
 
       const drawDetections = (detections) => {
         if (!detections || detections.length === 0) {
@@ -447,21 +546,22 @@ function OperatorPanel({
           const label = detection.label || detection.class_name || "DETECTION";
           const confidence = Number(detection.confidence || 0);
 
-          // Color scheme: Red for SCRATCH, Green for INTACT
           const isScratch = label === "SCRATCH";
           const boxColor = isScratch ? "#ef4444" : "#22c55e";
-          // Draw filled polygon mask if available (with alpha blending)
           const polygon = detection.mask?.polygon || [];
+          
+          // Use mask's own dimensions for scaling, not video source dimensions
+          const maskWidth = detection.mask?.width || sourceWidth;
+          const maskHeight = detection.mask?.height || sourceHeight;
+          const maskScaleX = renderedWidth / maskWidth;
+          const maskScaleY = renderedHeight / maskHeight;
+          
           if (polygon.length > 2) {
-            // Semi-transparent fill matching OpenCV approach
-            ctx.fillStyle = isScratch
-              ? "rgba(239, 68, 68, 0.35)" // Red with 35% alpha
-              : "rgba(34, 197, 94, 0.20)"; // Green with 20% alpha
-
+            ctx.save();
             ctx.beginPath();
             polygon.forEach(([x, y], index) => {
-              const px = offsetX + x * scaleX;
-              const py = offsetY + y * scaleY;
+              const px = offsetX + x * maskScaleX;
+              const py = offsetY + y * maskScaleY;
               if (index === 0) {
                 ctx.moveTo(px, py);
               } else {
@@ -469,51 +569,61 @@ function OperatorPanel({
               }
             });
             ctx.closePath();
+
+            ctx.fillStyle = isScratch
+              ? "rgba(239, 68, 68, 0.35)"
+              : "rgba(34, 197, 94, 0.25)";
             ctx.fill();
 
-            // Draw contour around mask
+            ctx.lineWidth = 3;
             ctx.strokeStyle = boxColor;
-            ctx.lineWidth = 2;
+            ctx.setLineDash([8, 4]);
             ctx.stroke();
+            ctx.restore();
           }
 
-          // Draw bounding box
           if ([x1, y1, x2, y2].every((value) => Number.isFinite(value))) {
-            const left = offsetX + x1 * scaleX;
-            const top = offsetY + y1 * scaleY;
-            const width = (x2 - x1) * scaleX;
-            const height = (y2 - y1) * scaleY;
+            const left = offsetX + x1 * maskScaleX;
+            const top = offsetY + y1 * maskScaleY;
+            const width = (x2 - x1) * maskScaleX;
+            const height = (y2 - y1) * maskScaleY;
 
-            // Draw rectangle (2px stroke matching OpenCV)
+            ctx.save();
+            ctx.lineWidth = 4;
             ctx.strokeStyle = boxColor;
-            ctx.lineWidth = 2;
+            ctx.shadowColor = "rgba(0, 0, 0, 0.35)";
+            ctx.shadowBlur = 10;
             ctx.strokeRect(left, top, width, height);
+            ctx.restore();
 
-            // Draw label with background (matching OpenCV style)
             const text = `${label} ${(confidence * 100).toFixed(1)}%`;
-            ctx.font = "600 14px Arial, sans-serif";
+            ctx.font = "700 14px Arial, sans-serif";
             const textMetrics = ctx.measureText(text);
-            const textWidth = textMetrics.width + 8;
-            const textHeight = 18;
+            const textWidth = textMetrics.width + 10;
+            const textHeight = 20;
             const labelX = left;
-            const labelY = Math.max(top - textHeight - 4, 16);
+            const labelY = Math.max(top - textHeight - 6, 10);
 
-            // Label background
-            ctx.fillStyle = boxColor;
-            ctx.fillRect(labelX, labelY, textWidth, textHeight);
-
-            // Label text
+            ctx.fillStyle = "rgba(0, 0, 0, 0.72)";
+            ctx.fillRect(labelX - 2, labelY - 2, textWidth + 4, textHeight + 4);
             ctx.fillStyle = "#ffffff";
-            ctx.fillText(text, labelX + 4, labelY + 14);
+            ctx.fillText(text, labelX + 4, labelY + 15);
           }
         });
       };
 
+      if (result?.annotated_image_b64 && annotatedImageRef.current) {
+        ctx.drawImage(
+          annotatedImageRef.current,
+          offsetX,
+          offsetY,
+          renderedWidth,
+          renderedHeight,
+        );
+      }
+
       drawDetections(result?.detections || []);
-      console.debug('[LiveAnnotations] drawDetections completed');
-    },
-    [capturedFrame],
-  );
+    }, []);
 
   useEffect(() => {
     drawOverlay(detectionResult);
@@ -521,58 +631,29 @@ function OperatorPanel({
 
   // Display server-rendered annotated image when available
   useEffect(() => {
-    if (detectionResult?.annotated_image_b64) {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = overlayRef.current;
-        if (!canvas) return;
-
-        // Use parent wrapper dimensions or video dimensions
-        const wrapper = canvas.parentElement;
-        let displayWidth = wrapper?.offsetWidth || img.width;
-        let displayHeight = wrapper?.offsetHeight || img.height;
-        
-        // If dimensions are still too small, use image dimensions
-        if (displayWidth < 100) displayWidth = img.width;
-        if (displayHeight < 100) displayHeight = img.height;
-
-        canvas.width = displayWidth;
-        canvas.height = displayHeight;
-        const ctx = canvas.getContext("2d");
-        if (ctx) {
-          // Draw with aspect-ratio preservation
-          const imgRatio = img.width / img.height;
-          const displayRatio = displayWidth / displayHeight;
-          let drawWidth, drawHeight, drawX, drawY;
-          
-          if (displayRatio > imgRatio) {
-            drawHeight = displayHeight;
-            drawWidth = displayHeight * imgRatio;
-            drawX = (displayWidth - drawWidth) / 2;
-            drawY = 0;
-          } else {
-            drawWidth = displayWidth;
-            drawHeight = displayWidth / imgRatio;
-            drawX = 0;
-            drawY = (displayHeight - drawHeight) / 2;
-          }
-          
-          ctx.drawImage(img, drawX, drawY, drawWidth, drawHeight);
-          console.debug("[ServerAnnotation] Rendered annotated image:", {
-            width: displayWidth,
-            height: displayHeight,
-          });
-        }
-      };
-      img.onerror = (err) => {
-        console.error("[ServerAnnotation] Image load error:", err);
-      };
-      img.src = `data:image/png;base64,${detectionResult.annotated_image_b64}`;
-      console.debug("[ServerAnnotation] Loading base64 image:", {
-        size: detectionResult.annotated_image_b64?.length || 0,
-      });
+    if (!detectionResult?.annotated_image_b64) {
+      annotatedImageRef.current = null;
+      return;
     }
-  }, [detectionResult?.annotated_image_b64]);
+
+    const img = new Image();
+    img.onload = () => {
+      annotatedImageRef.current = img;
+      drawOverlay(detectionResult);
+    };
+    img.onerror = (err) => {
+      annotatedImageRef.current = null;
+      console.error("[ServerAnnotation] Image load error:", err);
+    };
+    img.src = `data:image/png;base64,${detectionResult.annotated_image_b64}`;
+    console.debug("[ServerAnnotation] Loading base64 image:", {
+      size: detectionResult.annotated_image_b64?.length || 0,
+    });
+
+    return () => {
+      annotatedImageRef.current = null;
+    };
+  }, [detectionResult?.annotated_image_b64, detectionResult, drawOverlay]);
 
   // Live feed annotation loop - draw detections on live webcam
   useEffect(() => {
@@ -592,36 +673,13 @@ function OperatorPanel({
         canvas.height = wrapper.offsetHeight || video?.clientHeight || 480;
       }
 
-      // Only draw on live feed (not when captured frame is showing)
       if (!capturedFrame && video && video.readyState === 4) {
-        // Clear canvas if server-side overlay is available (will show as img tag)
-        if (detectionResult?.annotated_image_b64) {
-          if (ctx) {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            console.debug('[LiveAnnotations] Server image present, cleared canvas');
-          }
-          animationFrameId = requestAnimationFrame(drawFrame);
-          return;
-        }
-
-        // Draw detections if available (no server overlay)
-        if (
-          detectionResult &&
-          detectionResult.detections &&
-          detectionResult.detections.length > 0
-        ) {
-          console.debug('[LiveAnnotations] Drawing overlay with', detectionResult.detections.length, 'detections on canvas', canvas.width, 'x', canvas.height);
-          drawOverlay(detectionResult);
-        } else {
-          // Clear canvas if no detections
-          if (ctx) {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            console.debug('[LiveAnnotations] Cleared canvas - detectionResult:', !!detectionResult, 'detections:', detectionResult?.detections?.length || 0);
-          }
-        }
+        drawOverlay(detectionResult);
+      } else if (capturedFrame) {
+        drawOverlay(detectionResult);
       } else {
-        // Clear canvas when showing captured frame or no video
-        if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const ctx = canvas.getContext("2d");
+        if (ctx && canvas.width > 0) ctx.clearRect(0, 0, canvas.width, canvas.height);
       }
 
       animationFrameId = requestAnimationFrame(drawFrame);
@@ -659,54 +717,46 @@ function OperatorPanel({
       }
       liveRequestInFlightRef.current = false;
       reconnectAttemptsRef.current = 0;
-      setStreamStatus("disconnected");
-      try {
-        const stream = liveMediaStreamRef.current;
-        if (stream?.getTracks) {
-          stream.getTracks().forEach((track) => track.stop());
+
+      const shouldStopCamera = !(sessionStarted || enablePreSessionLive) || !preset;
+      if (shouldStopCamera) {
+        setStreamStatus("disconnected");
+        try {
+          const stream = liveMediaStreamRef.current;
+          if (stream?.getTracks) {
+            stream.getTracks().forEach((track) => track.stop());
+          }
+        } catch (error) {
+          console.warn("Error stopping media stream", error);
         }
-      } catch (error) {
-        console.warn("Error stopping media stream", error);
+        liveMediaStreamRef.current = null;
+        try {
+          const videoEl = webcamRef.current?.video;
+          if (videoEl) videoEl.srcObject = null;
+        } catch {
+          /* ignore */
+        }
       }
-      liveMediaStreamRef.current = null;
-      try {
-        const videoEl = webcamRef.current?.video;
-        if (videoEl) videoEl.srcObject = null;
-      } catch {
-        /* ignore */
-      }
-      setStreamStatus("disconnected");
     };
 
-    if (!sessionStarted || !preset) {
+    if (!(sessionStarted || enablePreSessionLive) || !preset) {
       closeStream();
       return undefined;
     }
 
-    const token = localStorage.getItem("token");
-    if (!token) {
-      window.setTimeout(() => {
-        setError("Missing access token for live stream. Please login again.");
-        setStreamStatus("auth-error");
-      }, 0);
-      return undefined;
-    }
-
-    // Request camera permission and attach MediaStream to react-webcam
+    // Request camera permission before the component tries to open the webcam.
+    // ReactWebcam will attach the actual stream itself via videoConstraints.
     (async () => {
       try {
         const res = await ensureCameraPermission({
           constraints: cameraConstraints,
         });
         if (res.granted && res.stream) {
-          liveMediaStreamRef.current = res.stream;
-          const videoEl = webcamRef.current?.video;
-          if (videoEl) {
-            try {
-              videoEl.srcObject = res.stream;
-            } catch (e) {
-              console.warn("Could not attach MediaStream to video element", e);
-            }
+          // Stop the probe stream, as ReactWebcam manages its own stream internally.
+          try {
+            res.stream.getTracks().forEach((track) => track.stop());
+          } catch (stopErr) {
+            console.warn("Error stopping permission probe stream", stopErr);
           }
         } else if (!res.granted) {
           window.setTimeout(() => {
@@ -718,24 +768,38 @@ function OperatorPanel({
       }
     })();
 
-    const MAX_RECONNECT_ATTEMPTS = 5;
+    const MAX_RECONNECT_ATTEMPTS = 999;
 
     const connectStream = () => {
       if (!streamEffectActiveRef.current) return;
+
+      const token = localStorage.getItem("token");
+      if (!token) {
+        setError("Missing access token. Please login again.");
+        setStreamStatus("auth-error");
+        return;
+      }
 
       // Don't attempt to reconnect beyond max attempts
       if (reconnectAttemptsRef.current >= MAX_RECONNECT_ATTEMPTS) {
         setStreamStatus("failed");
         console.warn(
-          `[InferenceStream] Max reconnection attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Giving up.`
+          `[InferenceStream] Max reconnection attempts (${MAX_RECONNECT_ATTEMPTS}) reached. Giving up.`,
         );
         return;
       }
 
       setStreamStatus("connecting");
-      const socket = new WebSocket(buildInferenceStreamUrl(token), [
-        `jwt.${token}`,
-      ]);
+      if (
+        liveSocketRef.current &&
+        liveSocketRef.current.readyState !== WebSocket.CLOSED &&
+        liveSocketRef.current.readyState !== WebSocket.CLOSING
+      ) {
+        console.debug("[InferenceStream] existing socket still active, skipping reconnect");
+        return;
+      }
+
+      const socket = new WebSocket(buildInferenceStreamUrl(token));
       liveSocketRef.current = socket;
 
       socket.onopen = () => {
@@ -750,26 +814,18 @@ function OperatorPanel({
           const message = JSON.parse(event.data || "{}");
           if (message.type === "inference_result" && message.data) {
             setDetectionResult(message.data);
-            
-            const hasAnnotation = !!message.data.annotated_image_b64;
-            const annotationSize = message.data.annotated_image_b64?.length || 0;
-            const detectionCount = message.data.detections?.length || 0;
-            
-            console.debug(
-              `[InferenceStream] Result received: detections=${detectionCount}, has_annotation=${hasAnnotation}, annotation_kb=${(annotationSize / 1024).toFixed(1)}`
-            );
-            
-            // DEBUG: Log detection structure
-            if (message.data.detections && message.data.detections.length > 0) {
-              console.debug('[LiveAnnotations] First detection:', JSON.stringify(message.data.detections[0]));
-            }
-            
-            if (message.data.annotated_image_b64) {
-              const dataUrl = `data:image/png;base64,${message.data.annotated_image_b64}`;
-              setLiveAnnotatedOverlaySrc(dataUrl);
-            } else {
-              setLiveAnnotatedOverlaySrc("");
-            }
+            console.log("🔍 RAW DATA:", JSON.stringify({
+              detections: message.data.detections?.length,
+              hasImage: !!message.data.annotated_image_b64,
+              firstDetection: message.data.detections?.[0],
+            }));
+            console.debug("[InferenceStream] inference result", {
+              detections: message.data.detections?.length || 0,
+              hasAnnotatedImage: Boolean(message.data.annotated_image_b64),
+              confidence: message.data.confidence,
+              systemDecision: message.data.system_decision,
+              debug: message.data.debug,
+            });
             liveRequestInFlightRef.current = false;
             return;
           }
@@ -780,6 +836,7 @@ function OperatorPanel({
           }
           if (message.type === "inference_throttled") {
             liveRequestInFlightRef.current = false;
+              console.debug("[InferenceStream] throttled", message);
             return;
           }
         } catch (parseError) {
@@ -797,13 +854,19 @@ function OperatorPanel({
         }
       };
 
-      socket.onclose = () => {
+      socket.onclose = (event) => {
+        console.debug(
+          "[InferenceStream] socket closed",
+          event.code,
+          event.reason,
+          event.wasClean,
+        );
         liveRequestInFlightRef.current = false;
         if (liveSocketRef.current === socket) {
           liveSocketRef.current = null;
         }
 
-        if (!streamEffectActiveRef.current || !sessionStarted) {
+        if (!streamEffectActiveRef.current || !(sessionStarted || enablePreSessionLive)) {
           setStreamStatus("disconnected");
           return;
         }
@@ -814,7 +877,7 @@ function OperatorPanel({
         if (attempt >= MAX_RECONNECT_ATTEMPTS) {
           setStreamStatus("failed");
           console.warn(
-            `[InferenceStream] Connection closed. Max reconnection attempts reached.`
+            `[InferenceStream] Connection closed. Max reconnection attempts reached.`,
           );
           return;
         }
@@ -822,7 +885,7 @@ function OperatorPanel({
         const delayMs = Math.min(1000 * 2 ** (attempt - 1), 8000);
         setStreamStatus("reconnecting");
         console.debug(
-          `[InferenceStream] Reconnecting in ${delayMs}ms (attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS})`
+          `[InferenceStream] Reconnecting in ${delayMs}ms (attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS})`,
         );
         reconnectTimerRef.current = window.setTimeout(() => {
           connectStream();
@@ -836,7 +899,7 @@ function OperatorPanel({
       streamEffectActiveRef.current = false;
       closeStream();
     };
-  }, [preset, sessionStarted, cameraConstraints]);
+  }, [preset, sessionStarted, cameraConstraints, enablePreSessionLive]);
 
   /* ── Auto-annotate ───────────────────────────────────────────── */
   const autoAnnotateDetection = useCallback((result) => {
@@ -909,6 +972,7 @@ function OperatorPanel({
         formData.append("trigger", trigger);
         formData.append("session_id", sessionId || "");
         formData.append("session_active", sessionStarted ? "true" : "false");
+        formData.append("batch_number", String(batchNumber || 1));
 
         const detectResponse = await detectImage(formData);
         const result = detectResponse.data;
@@ -953,7 +1017,7 @@ function OperatorPanel({
             setMotionStatus("Ready for next scan");
             previousFrameRef.current = null;
             stableSinceRef.current = null;
-            setLiveAnnotatedOverlaySrc("");
+            annotatedImageRef.current = null;
 
             // Refresh logs
             await fetchLogsRef.current();
@@ -968,16 +1032,13 @@ function OperatorPanel({
               message: autoApproveResponse.data.message,
             });
 
-            // Show manual review modal
             setDetectionResult(result);
             setReviewMode("ACKNOWLEDGE");
             const autoDescription = autoAnnotateDetection(result);
             setReviewDescription(autoDescription);
             setReviewFinalDecision(result.system_decision || "PASS");
             setReviewRejectionReason("MISSED_DEFECT");
-            reviewPendingRef.current = true;
-            setReviewPending(true);
-            setMotionStatus("Manual review required");
+            setMotionStatus("Ready for next scan");
             await fetchLogsRef.current();
           }
         } catch (autoApproveError) {
@@ -989,9 +1050,7 @@ function OperatorPanel({
           setReviewDescription(autoDescription);
           setReviewFinalDecision(result.system_decision || "PASS");
           setReviewRejectionReason("MISSED_DEFECT");
-          reviewPendingRef.current = true;
-          setReviewPending(true);
-          setMotionStatus("Manual review required");
+          setMotionStatus("Ready for next scan");
         }
       } catch (requestError) {
         const errorMsg =
@@ -1009,7 +1068,7 @@ function OperatorPanel({
         captureInFlightRef.current = false;
       }
     },
-    [autoAnnotateDetection, preset, sessionId, sessionStarted],
+    [autoAnnotateDetection, batchNumber, preset, sessionId, sessionStarted],
   );
 
   /* ── Motion detection ────────────────────────────────────────── */
@@ -1188,7 +1247,7 @@ function OperatorPanel({
       
       liveIntervalRef.current = window.setInterval(() => {
         if (
-          !sessionStarted ||
+          !(sessionStarted || enablePreSessionLive) ||
           captureInFlightRef.current ||
           reviewPendingRef.current ||
           !preset
@@ -1209,24 +1268,22 @@ function OperatorPanel({
           return;
         }
 
-        // Only send live inference when motion is detected
-        if (!checkLiveInferenceMotion()) {
-          framesSkipped++;
-          return;
-        }
+        // Skip motion gate in pre-session mode so inference runs continuously
+        if (sessionStarted && !checkLiveInferenceMotion()) return;
 
         const imageSrc = webcamRef.current?.getScreenshot();
         if (!imageSrc) {
           return;
         }
 
-        framesSent++;
-        if (framesSent % 10 === 0) {
-          console.debug(
-            `[LiveInference] Stats: sent=${framesSent}, skipped=${framesSkipped}`
-          );
-        }
-        
+        console.debug("[LiveInference] sending frame", {
+          sessionStarted,
+          enablePreSessionLive,
+          sessionId,
+          batchNumber,
+          hasPreset: Boolean(preset),
+        });
+
         liveRequestInFlightRef.current = true;
         socket.send(
           JSON.stringify({
@@ -1241,7 +1298,8 @@ function OperatorPanel({
             config_hash: preset.config_hash,
             trigger: "live",
             session_id: sessionId || "",
-            session_active: sessionStarted,
+            session_active: sessionStarted ? true : false,
+            batch_number: batchNumber || 1,
           }),
         );
       }, LIVE_INFERENCE_INTERVAL_MS);
@@ -1258,11 +1316,18 @@ function OperatorPanel({
       waitForMotionAfterEmptyRef.current = false;
     };
 
-    if (sessionStarted) startLive();
+    if (sessionStarted || enablePreSessionLive) startLive();
     else stopLive();
 
     return () => stopLive();
-  }, [checkLiveInferenceMotion, preset, sessionId, sessionStarted]);
+  }, [
+    batchNumber,
+    checkLiveInferenceMotion,
+    preset,
+    sessionId,
+    sessionStarted,
+    enablePreSessionLive,
+  ]);
 
   /* ── Submit review ───────────────────────────────────────────── */
   const submitReview = async () => {
@@ -1298,7 +1363,7 @@ function OperatorPanel({
       stableSinceRef.current = null;
       setDetectionResult(null);
       setCapturedFrame("");
-      setLiveAnnotatedOverlaySrc("");
+      annotatedImageRef.current = null;
       setReviewDescription("");
       setMotionStatus(
         autoDetectEnabled ? "Waiting for stable frame" : "Auto-detect paused",
@@ -1411,11 +1476,53 @@ function OperatorPanel({
             {/* Webcam */}
             <div className="webcam-frame-wrap" style={{ position: "relative" }}>
               <Webcam
-                key={`webcam-${sessionStarted}`}
+                key={`webcam-${selectedDeviceId || "default"}-${cameraRetryToken}`}
                 ref={webcamRef}
                 screenshotFormat="image/png"
                 audio={false}
                 videoConstraints={cameraConstraints.video}
+                onUserMedia={() => {
+                  liveMediaStreamRef.current = webcamRef.current?.video?.srcObject;
+                  console.debug("[Camera] user media attached", {
+                    selectedDeviceId: selectedDeviceId || "default",
+                    constraints: cameraConstraints.video,
+                    streamAttached: Boolean(webcamRef.current?.video?.srcObject),
+                  });
+                }}
+                onUserMediaError={(err) => {
+                  console.error("[Camera] user media error", err);
+                  const selectedDeviceFailure =
+                    selectedDeviceId &&
+                    (String(err?.name || "").includes("NotFound") ||
+                      String(err?.name || "").includes("Overconstrained") ||
+                      String(err?.message || "").toLowerCase().includes("device"));
+                  if (selectedDeviceFailure) {
+                    try {
+                      window.localStorage.removeItem("selectedDeviceId");
+                    } catch {
+                      /* ignore */
+                    }
+                    setSelectedDeviceId("");
+                    setCameraRetryToken((current) => current + 1);
+                    console.warn(
+                      "[Camera] selected device failed, retrying with default camera",
+                    );
+                    return;
+                  }
+                  setError(
+                    err?.message ||
+                      "Camera failed to start. Check the selected camera device.",
+                  );
+                }}
+                onPlay={() => {
+                  const video = webcamRef.current?.video;
+                  console.debug("[Camera] play", {
+                    readyState: video?.readyState,
+                    videoWidth: video?.videoWidth,
+                    videoHeight: video?.videoHeight,
+                    selectedDeviceId: selectedDeviceId || "default",
+                  });
+                }}
                 className={
                   capturedFrame
                     ? "webcam-frame webcam-frame--capture-source"
@@ -1429,33 +1536,6 @@ function OperatorPanel({
                   className="webcam-frame"
                   alt=""
                   onLoad={() => drawOverlay(detectionResult)}
-                />
-              )}
-              {!capturedFrame && liveAnnotatedOverlaySrc && (
-                <img
-                  src={liveAnnotatedOverlaySrc}
-                  className="webcam-overlay"
-                  alt="Live server annotation"
-                  onError={(e) => {
-                    console.error(
-                      "[LiveOverlay] Image failed to load:",
-                      e.target.src?.substring(0, 50),
-                    );
-                    setLiveAnnotatedOverlaySrc("");
-                  }}
-                  onLoad={() => {
-                    console.debug("[LiveOverlay] Server annotation image loaded successfully");
-                  }}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    height: "100%",
-                    objectFit: "contain",
-                    zIndex: 11,
-                    pointerEvents: "none",
-                  }}
                 />
               )}
               <canvas
@@ -1496,8 +1576,15 @@ function OperatorPanel({
               <div className="camera-fullscreen-controls">
                 <div className="batch-status">
                   {sessionStarted
-                    ? `Batch 1: ${autoDetectEnabled ? "Running" : "Paused"}`
-                    : "Batch 1: Stopped"}
+                    ? `Active batch ${batchNumber}: ${autoDetectEnabled ? "Running" : "Paused"}`
+                    : completedBatchNumber
+                      ? `Completed batch ${completedBatchNumber}`
+                      : `Ready for batch ${batchNumber}`}
+                </div>
+                <div style={{ fontSize: "11px", color: "var(--text3)" }}>
+                  {sessionStarted
+                    ? `Next batch ${nextBatchNumber}`
+                    : `Next batch ${nextBatchNumber}`}
                 </div>
                 <div className="batch-controls">
                   <button
@@ -1585,6 +1672,8 @@ function OperatorPanel({
                 </div>
               </div>
 
+              {/* Camera selection is intentionally hidden from the UI, but the selectedDeviceId state and refresh logic remain available */}
+
               {/* Auto-detect */}
               <div className="info-group">
                 <div className="info-label">Auto-detect</div>
@@ -1616,8 +1705,15 @@ function OperatorPanel({
                   <div className="info-batch">
                     <div className="batch-status">
                       {sessionStarted
-                        ? `Batch 1: ${autoDetectEnabled ? "Running" : "Paused"}`
-                        : "Batch 1: Stopped"}
+                        ? `Active batch ${batchNumber}: ${autoDetectEnabled ? "Running" : "Paused"}`
+                        : completedBatchNumber
+                          ? `Completed batch ${completedBatchNumber}`
+                          : `Ready for batch ${batchNumber}`}
+                    </div>
+                    <div style={{ fontSize: "11px", color: "var(--text3)" }}>
+                      {sessionStarted
+                        ? `Next batch ${nextBatchNumber}`
+                        : `Next batch ${nextBatchNumber}`}
                     </div>
                     <div className="batch-controls">
                       <button
@@ -1678,7 +1774,7 @@ function OperatorPanel({
         {/* ════════════════════════════════════════════════
             REVIEW MODAL (LOW-CONFIDENCE FALLBACK)
         ════════════════════════════════════════════════ */}
-        {detectionResult && (
+        {reviewPending && detectionResult && (
           <div className="review-modal" role="dialog" aria-modal="true">
             <div className="review-modal__panel">
               <div className="section-heading">

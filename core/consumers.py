@@ -27,6 +27,7 @@ from .models import (
     ActiveConfiguration,
     ComponentType,
     InferenceLog,
+    RetrainingQueue,
     TrainingJob,
     UserProfile,
 )
@@ -185,6 +186,12 @@ class InferenceStreamConsumer(AsyncWebsocketConsumer):
             return
 
         await self.accept()
+        # Add to a dummy group to keep channel layer happy without crashing
+        try:
+            await self.channel_layer.group_add("inference_consumers", self.channel_name)
+        except Exception as e:
+            logger.warning("channel_layer group_add failed: %s", e)
+
         await self.send(
             text_data=json.dumps(
                 {
@@ -197,7 +204,10 @@ class InferenceStreamConsumer(AsyncWebsocketConsumer):
         )
 
     async def disconnect(self, close_code):
-        return
+        try:
+            await self.channel_layer.group_discard("inference_consumers", self.channel_name)
+        except Exception:
+            pass
 
     async def receive(self, text_data):
         try:
@@ -239,19 +249,24 @@ class InferenceStreamConsumer(AsyncWebsocketConsumer):
         )
 
         if session_id:
-            await self.channel_layer.group_send(
-                f"live_view_{session_id}",
-                {
-                    "type": "inference_update",
-                    "bounding_boxes": result_payload.get("detections", []),
-                    "confidence": result_payload.get("confidence", 0.0),
-                    "latency_ms": result_payload.get("latency_ms", 0.0),
-                    "system_decision": result_payload.get("system_decision", ""),
-                    "timestamp": timezone.now().isoformat(),
-                    "operator_id": self.user.id,
-                    "session_id": session_id,
-                },
-            )
+            try:
+                await self.channel_layer.group_send(
+                    f"live_view _{session_id}",
+                    {
+                        "type": "inference_update",
+                        "bounding_boxes": result_payload.get("detections", []),
+                        "confidence": result_payload.get("cofidence", 0.0),
+                        "latency_ms": result_payload.get("latency_ms", 0.0),
+                        "system_decision": result_payload.get("system_decision", ""),
+                        "timestamp": timezone.now().isoformat(),
+                        "operator_id": self.user.id,
+                        "session_id": session_id,
+                    },
+                )
+            except Exception as e:
+                logger.warning("channel_layer group_send failed (Redis?): %s", e)    
+
+        
 
     async def _send_error(self, message, code="stream_error"):
         await self.send(
@@ -496,10 +511,32 @@ class InferenceStreamConsumer(AsyncWebsocketConsumer):
                 manufacturing_order=payload.get("manufacturing_order", ""),
             )
 
+            if log.is_confidence_below_threshold:
+                RetrainingQueue.objects.get_or_create(
+                    log_entry=log,
+                    defaults={"priority": 1, "status": "PENDING"},
+                )
+                logger.info(f"Auto-queued low-confidence log {log.id} for retraining")
+
             response_payload = result.to_dict()
             response_payload["id"] = log.id
             response_payload["log_id"] = log.id
             response_payload["snapshot_url"] = log.image_snapshot.url if log.image_snapshot else ""
+            response_payload["debug"] = {
+                "session_active": session_active,
+                "detections": len(result.detections or []),
+                "has_annotated_image": bool(result.annotated_image_b64),
+                "has_mask_polygons": bool(segmentation_data.get("mask_polygons")),
+                "is_confidence_below_threshold": log.is_confidence_below_threshold,
+                "auto_capture_path": bool(auto_capture_path),
+            }
+            if not result.detections:
+                logger.info(
+                    "InferenceStream frame produced no detections: session_active=%s model=%s confidence=%.3f",
+                    session_active,
+                    model.name,
+                    result.confidence,
+                )
             if auto_capture_path:
                 response_payload["auto_capture_url"] = default_storage.url(auto_capture_path)
 

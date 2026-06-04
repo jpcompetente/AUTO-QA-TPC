@@ -80,6 +80,32 @@ export const reviewInferenceLog = (id, data) =>
 export const autoApproveInferenceLog = (id) =>
   api.post(`/inference-logs/${id}/auto_approve/`);
 
+// Retraining / training (admin-only endpoints)
+export const getRetrainingQueue = (params = {}) =>
+  api.get("/retraining-queue/", { params });
+
+export const labelRetrainingQueueItem = (id, labelData) =>
+  api.post(`/retraining-queue/${id}/label/`, { label_data: labelData });
+
+export const triggerTraining = (
+  sampleIds,
+  { epochs = 50, batchSize = 32, learningRate = 0.001 } = {},
+) =>
+  api.post("/retraining-queue/batch_trigger_training/", {
+    sample_ids: sampleIds,
+    epochs,
+    batch_size: batchSize,
+    learning_rate: learningRate,
+  });
+
+export const getTrainingJobs = (params = {}) =>
+  api.get("/training-jobs/", { params });
+
+export const deployTrainingJob = (jobId, modelName) =>
+  api.post(`/training-jobs/${jobId}/deploy/`, {
+    model_name: modelName,
+  });
+
 export const buildWebSocketUrl = (path) => {
   const configuredBase = import.meta.env.VITE_WS_BASE_URL;
 
@@ -108,7 +134,7 @@ export const buildWebSocketUrl = (path) => {
 
 export const buildInferenceStreamUrl = (token) => {
   const encodedToken = encodeURIComponent(token || "");
-  return `${buildWebSocketUrl("/ws/inference-stream/")}?token=${encodedToken}`;
+  return `ws://127.0.0.1:8000/ws/inference-stream/?token=${encodedToken}`;
 };
 
 export default api;
