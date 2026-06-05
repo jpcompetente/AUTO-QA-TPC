@@ -41,11 +41,19 @@ def normalize_role(role):
     return UserProfile.normalize_role(role)
 
 
-def user_role(user):
+def user_role(  user):
     try:
         return normalize_role(user.profile.role)
     except Exception:
         return ''
+
+
+def _coerce_batch_number(raw_value):
+    try:
+        batch_number = int(raw_value)
+    except (TypeError, ValueError):
+        return 1
+    return max(batch_number, 1)
 
 
 class IsUser(permissions.BasePermission):
@@ -438,6 +446,7 @@ def detect_image(request):
             final_decision=result.system_decision,
             status='PENDING',
             session_id=request.data.get('session_id', ''),
+            batch_number=_coerce_batch_number(request.data.get('batch_number')),
         )
 
         payload = result.to_dict()
@@ -560,11 +569,57 @@ class AdminSettingsViewSet(viewsets.ModelViewSet):
 
 
 class InferenceLogViewSet(viewsets.ModelViewSet):
-    queryset = InferenceLog.objects.all().order_by('-timestamp')
+    queryset = InferenceLog.objects.all().order_by('-batch_number', '-timestamp')
     serializer_class = InferenceLogSerializer
     permission_classes = [permissions.IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ['operator', 'status', 'final_decision', 'component']
+
+    def get_queryset(self):
+        """Allow simple server-side filtering by batch and dates.
+
+        Supported query params:
+        - batch_number: integer
+        - date: YYYY-MM-DD (specific date)
+        - date_from: YYYY-MM-DD
+        - date_to: YYYY-MM-DD
+        """
+        qs = InferenceLog.objects.all().order_by('-batch_number', '-timestamp')
+        params = self.request.query_params
+
+        # Batch filter
+        batch = params.get('batch_number')
+        if batch is not None and batch != '' and batch.lower() != 'all':
+            try:
+                b = _coerce_batch_number(batch)
+                qs = qs.filter(batch_number=b)
+            except Exception:
+                pass
+
+        # Specific date
+        date = params.get('date')
+        if date:
+            try:
+                qs = qs.filter(timestamp__date=date)
+                return qs
+            except Exception:
+                pass
+
+        # Date range
+        date_from = params.get('date_from')
+        date_to = params.get('date_to')
+        if date_from:
+            try:
+                qs = qs.filter(timestamp__date__gte=date_from)
+            except Exception:
+                pass
+        if date_to:
+            try:
+                qs = qs.filter(timestamp__date__lte=date_to)
+            except Exception:
+                pass
+
+        return qs
     
     @action(detail=True, methods=['post'])
     def operator_override(self, request, pk=None):
@@ -706,7 +761,7 @@ class InferenceLogViewSet(viewsets.ModelViewSet):
 class RetrainingQueueViewSet(viewsets.ModelViewSet):
     queryset = RetrainingQueue.objects.filter(status__in=['PENDING', 'LABELED'])
     serializer_class = RetrainingQueueSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminOnly]
     
     @action(detail=True, methods=['post'])
     def label(self, request, pk=None):
@@ -784,7 +839,7 @@ class RetrainingQueueViewSet(viewsets.ModelViewSet):
 class TrainingJobViewSet(viewsets.ModelViewSet):
     queryset = TrainingJob.objects.all()
     serializer_class = TrainingJobSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminOnly]
     
     @action(detail=True, methods=['post'])
     def deploy(self, request, pk=None):
@@ -816,7 +871,7 @@ class TrainingJobViewSet(viewsets.ModelViewSet):
 class DatasetBufferViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = DatasetBuffer.objects.all()
     serializer_class = DatasetBufferSerializer
-    permission_classes = [permissions.IsAuthenticated]
+    permission_classes = [IsAdminOnly]
 
 
 class OperatorViewSet(viewsets.ReadOnlyModelViewSet):

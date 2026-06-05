@@ -106,6 +106,39 @@ class InferenceLogApiTests(TestCase):
         self.assertTrue(log.is_confidence_below_threshold)
         self.assertEqual(log.status, "PENDING")
 
+    def test_batch_number_defaults_to_one_when_zero_is_saved(self):
+        log = InferenceLog.objects.create(
+            operator=self.user,
+            model_used=self.model,
+            component=self.component,
+            image_snapshot=_build_test_image(),
+            detection_results={"detections": []},
+            latency_ms=9.5,
+            confidence_score=0.9,
+            system_decision="PASS",
+            final_decision="PASS",
+            status="PENDING",
+            batch_number=0,
+        )
+
+        self.assertEqual(log.batch_number, 1)
+
+    def test_batch_filter_treats_zero_as_first_batch(self):
+        first_batch = self._create_log()
+        second_batch = self._create_log()
+        second_batch.batch_number = 2
+        second_batch.save()
+
+        request = self.factory.get("/api/inference-logs/", {"batch_number": 0})
+        force_authenticate(request, user=self.user)
+
+        response = InferenceLogViewSet.as_view({"get": "list"})(request)
+
+        self.assertEqual(response.status_code, 200)
+        returned_batches = {item["batch_number"] for item in response.data}
+        self.assertEqual(returned_batches, {1})
+        self.assertIn(first_batch.id, [item["id"] for item in response.data])
+
     def test_review_reject_queues_retraining(self):
         log = self._create_log(confidence=0.41)
         request = self.factory.post(

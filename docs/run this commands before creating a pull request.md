@@ -51,6 +51,8 @@ Before creating the pull request, make sure all of the following pass for the fi
 
 ```powershell
 .\.venv\Scripts\python.exe .\scripts\run_pr_checks.py
+or
+ cd scripts; python run_pr_checks.py   
 ```
 
 If you prefer to run the checks individually, these are the equivalent commands:

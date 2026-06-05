@@ -5,6 +5,7 @@ Requirement 1.2: Model & Version Management - Hot-swap models without restarting
 
 import logging
 import os
+import importlib
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 import torch
@@ -64,11 +65,22 @@ class ModelLoader:
                 # Optimize for inference
                 model = model.to(device)
             elif model_format == 'onnx':
-                import onnxruntime as ort
-                model = ort.InferenceSession(model_path, providers=['CUDAExecutionProvider' if device == 'cuda' else 'CPUExecutionProvider'])
+                try:
+                    ort = importlib.import_module('onnxruntime')
+                except ImportError as exc:
+                    raise RuntimeError(
+                        "ONNX runtime requested but 'onnxruntime' is not installed. "
+                        "Install with: pip install onnxruntime (CPU) or onnxruntime-gpu (CUDA)."
+                    ) from exc
+
+                model = ort.InferenceSession(
+                    model_path,
+                    providers=[
+                        'CUDAExecutionProvider' if device == 'cuda' else 'CPUExecutionProvider'
+                    ],
+                )
             elif model_format == 'engine':
                 # TensorRT engine
-                import tensorrt as trt
                 logger.info("Loading TensorRT engine")
                 # Implementation depends on your TensorRT setup
                 model = self._load_tensorrt_engine(model_path, device)
@@ -149,8 +161,8 @@ class ModelLoader:
     def _load_tensorrt_engine(engine_path: str, device: str):
         """Load TensorRT engine"""
         try:
-            import tensorrt as trt
-            logger.info("Loading TensorRT engine from: {engine_path}")
+            importlib.import_module('tensorrt')
+            logger.info(f"Loading TensorRT engine from: {engine_path}")
             
             with open(engine_path, 'rb') as f:
                 engine_data = f.read()
@@ -159,7 +171,10 @@ class ModelLoader:
             # Implement based on your TensorRT requirements
             
         except ImportError:
-            logger.error("TensorRT not installed. Install with: pip install tensorrt")
+            logger.error(
+                "TensorRT runtime requested but 'tensorrt' is not installed. "
+                "Install it via your NVIDIA/TensorRT distribution for your platform."
+            )
             raise
     
     @staticmethod
