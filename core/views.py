@@ -49,10 +49,12 @@ def user_role(  user):
 
 
 def _coerce_batch_number(raw_value):
+    if raw_value is None or raw_value == '' or str(raw_value).lower() in ('null', 'none'):
+        return None  # No active batch
     try:
         batch_number = int(raw_value)
     except (TypeError, ValueError):
-        return 1
+        return None
     return max(batch_number, 1)
 
 
@@ -394,6 +396,17 @@ def detect_image(request):
                 ContentFile(image_bytes),
             )
 
+        payload = result.to_dict()
+        payload['snapshot_url'] = ''
+        payload['debug'] = {
+            'session_active': session_active,
+            'detections': len(result.detections or []),
+            'has_annotated_image': bool(result.annotated_image_b64),
+            'has_mask_polygons': False,
+            'is_confidence_below_threshold': False,
+            'auto_capture_path': bool(result.auto_capture_path),
+        }
+
         if operator is None:
             operator, _ = User.objects.get_or_create(
                 username='system_operator',
@@ -427,32 +440,49 @@ def detect_image(request):
                         defect_area_percent = max(defect_area_percent, (bbox_area / img_area) * 100)
 
         snapshot_name = f"{timezone.now():%Y%m%d_%H%M%S_%f}_{result.image_hash}.png"
-        log = InferenceLog.objects.create(
-            operator=operator,
-            model_used=model,
-            component=component,
-            image_snapshot=ContentFile(image_bytes, name=snapshot_name),
-            detection_results={
-                'detections': result.detections,
-                'cache_hit': result.cache_hit,
-                'image_hash': result.image_hash,
-                'metrics': result.metrics,
-            },
-            segmentation_data=segmentation_data,
-            defect_area_percent=round(defect_area_percent, 2),
-            latency_ms=result.latency_ms,
-            confidence_score=result.confidence,
-            system_decision=result.system_decision,
-            final_decision=result.system_decision,
-            status='PENDING',
-            session_id=request.data.get('session_id', ''),
-            batch_number=_coerce_batch_number(request.data.get('batch_number')),
-        )
-
         payload = result.to_dict()
-        payload['id'] = log.id
-        payload['log_id'] = log.id
-        payload['snapshot_url'] = log.image_snapshot.url if log.image_snapshot else ''
+        payload['snapshot_url'] = ''
+        payload['debug'].update({
+            'has_mask_polygons': bool(segmentation_data.get('mask_polygons')),
+        })
+
+        if session_active:
+            log = InferenceLog.objects.create(
+                operator=operator,
+                model_used=model,
+                component=component,
+                image_snapshot=ContentFile(image_bytes, name=snapshot_name),
+                detection_results={
+                    'detections': result.detections,
+                    'cache_hit': result.cache_hit,
+                    'image_hash': result.image_hash,
+                    'metrics': result.metrics,
+                },
+                segmentation_data=segmentation_data,
+                defect_area_percent=round(defect_area_percent, 2),
+                latency_ms=result.latency_ms,
+                confidence_score=result.confidence,
+                system_decision=result.system_decision,
+                final_decision=result.system_decision,
+                status='PENDING',
+                session_id=request.data.get('session_id', ''),
+                batch_number=_coerce_batch_number(request.data.get('batch_number')),
+            )
+
+            payload['id'] = log.id
+            payload['log_id'] = log.id
+            payload['snapshot_url'] = log.image_snapshot.url if log.image_snapshot else ''
+            payload['debug']['is_confidence_below_threshold'] = log.is_confidence_below_threshold
+
+            if log.is_confidence_below_threshold:
+                RetrainingQueue.objects.get_or_create(
+                    log_entry=log,
+                    defaults={'priority': 1, 'status': 'PENDING'},
+                )
+                logger.info(f"Auto-queued low-confidence log {log.id} for retraining")
+        else:
+            payload['debug']['is_confidence_below_threshold'] = False
+
         if result.auto_capture_path:
             payload['auto_capture_url'] = default_storage.url(result.auto_capture_path)
         return Response(payload)

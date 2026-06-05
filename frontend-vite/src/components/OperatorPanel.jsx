@@ -37,7 +37,7 @@ function OperatorPanel({
   cameraOnly = false,
 }) {
   const enablePreSessionLive =
-    String(import.meta.env.VITE_ENABLE_PRE_SESSION_LIVE || "true")
+    String(import.meta.env.VITE_ENABLE_PRE_SESSION_LIVE || "false")
       .toLowerCase()
       .trim() === "true";
 
@@ -107,6 +107,7 @@ function OperatorPanel({
     useState("MISSED_DEFECT");
   const [submittingReview, setSubmittingReview] = useState(false);
   const [reviewPending, setReviewPending] = useState(false);
+  const [submittingRetrain, setSubmittingRetrain] = useState(false);
   const [zoomedImage, setZoomedImage] = useState(null);
   const [streamStatus, setStreamStatus] = useState("disconnected");
   const annotatedImageRef = useRef(null);
@@ -117,6 +118,21 @@ function OperatorPanel({
   const [manualAnnotations, setManualAnnotations] = useState([]);
   const [currentPath, setCurrentPath] = useState([]);
   const [isDrawing, setIsDrawing] = useState(false);
+
+  const normalizeErrorMessage = (value) => {
+    if (typeof value !== "string") return value;
+    const trimmed = value.trim();
+    const unquoted = trimmed.replace(/^['"]+|['"]+$/g, "").trim();
+    return unquoted.toLowerCase() === "debug" ? "" : value;
+  };
+
+  const isVisibleError = (value) => {
+    if (!value) return false;
+    if (typeof value !== "string") return true;
+    const trimmed = value.trim();
+    const unquoted = trimmed.replace(/^['"]+|['"]+$/g, "").trim();
+    return unquoted.toLowerCase() !== "debug";
+  };
   const completedBatchNumber =
     !sessionStarted && batchNumber > 1 ? batchNumber - 1 : null;
   const nextBatchNumber = sessionStarted ? batchNumber + 1 : batchNumber;
@@ -364,6 +380,7 @@ function OperatorPanel({
       stopSession();
       return;
     }
+    setError("");
     const sid = `session_${Date.now()}`;
     setSessionId(sid);
     setSessionStarted(true);
@@ -386,9 +403,11 @@ function OperatorPanel({
         await refreshVideoDevices();
       } catch (err) {
         setError(
-          err.response?.data?.error ||
-            err.response?.data?.detail ||
-            "No active inspection preset is assigned to this operator.",
+          normalizeErrorMessage(
+            err.response?.data?.error ||
+              err.response?.data?.detail ||
+              "No active inspection preset is assigned to this operator.",
+          ),
         );
       }
     };
@@ -536,10 +555,12 @@ function OperatorPanel({
         (detections || []).forEach((detection) => {
           const [x1, y1, x2, y2] = detection.bbox || [];
           const label = detection.label || detection.class_name || "DETECTION";
-          const confidence = Number(detection.confidence || 0);
+          const confidence = Number(detection.confidence || detection.confidence_score || 0);
 
           const isScratch = label === "SCRATCH";
-          const boxColor = isScratch ? "#ef4444" : "#22c55e";
+          const threshold = preset?.confidence_threshold;
+          const isLowConfidence = typeof threshold === 'number' && confidence < threshold;
+          const boxColor = isLowConfidence ? "#f59e0b" : isScratch ? "#ef4444" : "#22c55e";
           const polygon = detection.mask?.polygon || [];
           
           // Use mask's own dimensions for scaling, not video source dimensions
@@ -600,6 +621,19 @@ function OperatorPanel({
             ctx.fillRect(labelX - 2, labelY - 2, textWidth + 4, textHeight + 4);
             ctx.fillStyle = "#ffffff";
             ctx.fillText(text, labelX + 4, labelY + 15);
+            // Low-confidence badge
+            if (isLowConfidence) {
+              const badgeText = "LOW";
+              const badgeWidth = 44;
+              const badgeHeight = 18;
+              const bx = left + width - badgeWidth - 6;
+              const by = top + 6;
+              ctx.fillStyle = "#f59e0b";
+              ctx.fillRect(bx, by, badgeWidth, badgeHeight);
+              ctx.fillStyle = "#000";
+              ctx.font = "700 12px Arial, sans-serif";
+              ctx.fillText(badgeText, bx + 8, by + 13);
+            }
           }
         });
       };
@@ -615,7 +649,7 @@ function OperatorPanel({
       }
 
       drawDetections(result?.detections || []);
-    }, []);
+    }, [preset]);
 
   useEffect(() => {
     drawOverlay(detectionResult);
@@ -983,8 +1017,15 @@ function OperatorPanel({
         // If confidence < threshold, backend returns indication for manual review
         try {
           const logId = result.log_id || result.id;
-          const autoApproveResponse = await autoApproveInferenceLog(logId);
 
+          if (!logId) {
+            setDetectionResult(result);
+            setCapturedFrame(imageSrc);
+            setMotionStatus("Ready for next scan");
+            return;
+          }
+
+          const autoApproveResponse = await autoApproveInferenceLog(logId);
           const approvalStatus = autoApproveResponse.data.status;
 
           if (approvalStatus === "auto_approved") {
@@ -1046,7 +1087,7 @@ function OperatorPanel({
           response: requestError.response?.data,
           err: requestError,
         });
-        setError(errorMsg);
+        setError(normalizeErrorMessage(errorMsg));
       } finally {
         setLoading(false);
         captureInFlightRef.current = false;
@@ -1341,7 +1382,9 @@ function OperatorPanel({
       await fetchLogsRef.current();
     } catch (requestError) {
       setError(
-        requestError.response?.data?.error || "Unable to submit review.",
+        normalizeErrorMessage(
+          requestError.response?.data?.error || "Unable to submit review.",
+        ),
       );
     } finally {
       setSubmittingReview(false);
@@ -1349,6 +1392,60 @@ function OperatorPanel({
   };
 
   /* ── Derived ─────────────────────────────────────────────────── */
+  const getLogConfidence = useCallback((log) => {
+    return (
+      log?.confidence_score ?? log?.confidence ?? log?.score ?? log?.model_confidence ?? null
+    );
+  }, []);
+
+  const liveConfidenceValue = detectionResult
+    ? Number(
+        detectionResult.confidence ?? detectionResult?.detections?.[0]?.confidence ?? NaN,
+      )
+    : null;
+
+  const lowConfidenceSessionLogs = useMemo(() => {
+    try {
+      if (!preset?.confidence_threshold) return [];
+      return (sessionCompletedLogs || []).filter((l) => {
+        const c = getLogConfidence(l);
+        if (c == null) return false;
+        return Number(c) < Number(preset.confidence_threshold);
+      });
+    } catch  {
+      return [];
+    }
+  }, [sessionCompletedLogs, preset, getLogConfidence]);
+
+  const submitBatchForRetraining = useCallback(async () => {
+    if (!lowConfidenceSessionLogs || lowConfidenceSessionLogs.length === 0) {
+      setNotification({ type: 'info', message: 'No low-confidence items to submit.' });
+      return;
+    }
+    setSubmittingRetrain(true);
+    try {
+      await Promise.all(
+        lowConfidenceSessionLogs.map((log) => {
+          const id = log.id || log.log_id || log.pk;
+          return reviewInferenceLog(id, {
+            action: 'REJECT',
+            description: 'Submitted for retraining by operator',
+            rejection_reason: 'LOW_CONFIDENCE',
+            final_decision: log.final_decision || log.system_decision || 'FAIL',
+          });
+        }),
+      );
+      setNotification({ type: 'success', message: 'Submitted low-confidence items for retraining.' });
+      // Refresh logs
+      await fetchLogsRef.current();
+      setShowSessionHistory(false);
+    } catch (err) {
+      console.error('Failed to submit retraining batch', err);
+      setNotification({ type: 'error', message: 'Failed to submit retraining batch.' });
+    } finally {
+      setSubmittingRetrain(false);
+    }
+  }, [lowConfidenceSessionLogs]);
 
   /* ── Render ──────────────────────────────────────────────────── */
   return (
@@ -1473,6 +1570,18 @@ function OperatorPanel({
                       /* ignore */
                     }
                     setSelectedDeviceId("");
+                {lowConfidenceSessionLogs.length > 0 && (
+                  <div style={{ marginTop: 12 }}>
+                    <button
+                      className="primary-button"
+                      onClick={submitBatchForRetraining}
+                      disabled={submittingRetrain}
+                      type="button"
+                    >
+                      {submittingRetrain ? 'Submitting...' : `Submit ${lowConfidenceSessionLogs.length} for Retraining`}
+                    </button>
+                  </div>
+                )}
                     setCameraRetryToken((current) => current + 1);
                     console.warn(
                       "[Camera] selected device failed, retrying with default camera",
@@ -1619,7 +1728,7 @@ function OperatorPanel({
             )}
 
             {/* Error notice */}
-            {!isCameraFullscreen && error && (
+            {!isCameraFullscreen && isVisibleError(error) && (
               <div className="notice notice--error">{error}</div>
             )}
           </div>
@@ -1732,7 +1841,9 @@ function OperatorPanel({
               <div className="info-group">
                 <div className="info-label">Confidence</div>
                 <div className="info-value">
-                  {preset?.confidence_threshold !== undefined
+                  {Number.isFinite(liveConfidenceValue)
+                    ? `${(liveConfidenceValue * 100).toFixed(1)}%`
+                    : preset?.confidence_threshold !== undefined
                     ? `${Number(preset.confidence_threshold * 100).toFixed(0)}%`
                     : "—"}
                 </div>
@@ -1825,7 +1936,7 @@ function OperatorPanel({
                 </>
               ) : null}
 
-              {error && <div className="notice notice--error">{error}</div>}
+              {isVisibleError(error) && <div className="notice notice--error">{error}</div>}
 
               <button
                 className="primary-button"
