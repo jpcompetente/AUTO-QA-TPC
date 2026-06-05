@@ -31,6 +31,15 @@ from .models import (
     UserProfile,
 )
 
+def _coerce_batch_number(raw_value):
+    if raw_value is None or raw_value == '' or str(raw_value).lower() in ('null', 'none'):
+        return None
+    try:
+        return max(int(raw_value), 1)
+    except (TypeError, ValueError):
+        return None
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -485,48 +494,54 @@ class InferenceStreamConsumer(AsyncWebsocketConsumer):
                 except Exception:
                     snapshot_bytes = image_bytes
 
-            log = InferenceLog.objects.create(
-                operator=self.user,
-                model_used=model,
-                component=component,
-                image_snapshot=ContentFile(snapshot_bytes, name=snapshot_name),
-                detection_results={
-                    "detections": result.detections,
-                    "cache_hit": result.cache_hit,
-                    "image_hash": result.image_hash,
-                    "metrics": result.metrics,
-                },
-                segmentation_data=segmentation_data,
-                defect_area_percent=round(defect_area_percent, 2),
-                latency_ms=result.latency_ms,
-                confidence_score=result.confidence,
-                system_decision=result.system_decision,
-                final_decision=result.system_decision,
-                is_confidence_below_threshold=result.confidence < confidence,
-                status="PENDING",
-                session_id=payload.get("session_id", ""),
-                manufacturing_order=payload.get("manufacturing_order", ""),
-            )
-
-            if log.is_confidence_below_threshold:
-                RetrainingQueue.objects.get_or_create(
-                    log_entry=log,
-                    defaults={"priority": 1, "status": "PENDING"},
-                )
-                logger.info(f"Auto-queued low-confidence log {log.id} for retraining")
-
             response_payload = result.to_dict()
-            response_payload["id"] = log.id
-            response_payload["log_id"] = log.id
-            response_payload["snapshot_url"] = log.image_snapshot.url if log.image_snapshot else ""
+            response_payload["snapshot_url"] = ""
             response_payload["debug"] = {
                 "session_active": session_active,
                 "detections": len(result.detections or []),
                 "has_annotated_image": bool(result.annotated_image_b64),
                 "has_mask_polygons": bool(segmentation_data.get("mask_polygons")),
-                "is_confidence_below_threshold": log.is_confidence_below_threshold,
+                "is_confidence_below_threshold": False,
                 "auto_capture_path": bool(auto_capture_path),
             }
+
+            if session_active:
+                log = InferenceLog.objects.create(
+                    operator=self.user,
+                    model_used=model,
+                    component=component,
+                    image_snapshot=ContentFile(snapshot_bytes, name=snapshot_name),
+                    detection_results={
+                        "detections": result.detections,
+                        "cache_hit": result.cache_hit,
+                        "image_hash": result.image_hash,
+                        "metrics": result.metrics,
+                    },
+                    segmentation_data=segmentation_data,
+                    defect_area_percent=round(defect_area_percent, 2),
+                    latency_ms=result.latency_ms,
+                    confidence_score=result.confidence,
+                    system_decision=result.system_decision,
+                    final_decision=result.system_decision,
+                    is_confidence_below_threshold=result.confidence < confidence,
+                    status="PENDING",
+                    session_id=payload.get("session_id", ""),
+                    batch_number=_coerce_batch_number(payload.get("batch_number")),
+                    manufacturing_order=payload.get("manufacturing_order", ""),
+                )
+
+                response_payload["id"] = log.id
+                response_payload["log_id"] = log.id
+                response_payload["snapshot_url"] = log.image_snapshot.url if log.image_snapshot else ""
+                response_payload["debug"]["is_confidence_below_threshold"] = log.is_confidence_below_threshold
+
+                if log.is_confidence_below_threshold:
+                    RetrainingQueue.objects.get_or_create(
+                        log_entry=log,
+                        defaults={"priority": 1, "status": "PENDING"},
+                    )
+                    logger.info(f"Auto-queued low-confidence log {log.id} for retraining")
+
             if not result.detections:
                 logger.info(
                     "InferenceStream frame produced no detections: session_active=%s model=%s confidence=%.3f",
