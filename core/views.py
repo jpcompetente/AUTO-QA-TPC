@@ -2,7 +2,7 @@ import base64
 import io
 import logging
 import os
-from datetime import timedelta
+from datetime import timedelta, date
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
@@ -56,6 +56,15 @@ def _coerce_batch_number(raw_value):
     except (TypeError, ValueError):
         return None
     return max(batch_number, 1)
+
+
+def _coerce_batch_date(raw_value):
+    if raw_value is None or raw_value == '' or str(raw_value).lower() in ('null', 'none'):
+        return None
+    try:
+        return date.fromisoformat(str(raw_value))
+    except (TypeError, ValueError):
+        return None
 
 
 class IsUser(permissions.BasePermission):
@@ -383,13 +392,13 @@ def detect_image(request):
         # Only perform automatic auto-capture when the operator session is active.
         # Frontend will send `session_active` flag (true/false) to indicate whether
         # the operator has started a session (ready to allow auto-capture).
-        session_active_raw = request.data.get('session_active', True)
+        session_active_raw = request.data.get('session_active', False)
         try:
             session_active = str(session_active_raw).lower() in ('1', 'true', 'yes', 'on')
         except Exception:
             session_active = bool(session_active_raw)
 
-        if result.system_decision == 'FAIL' and session_active:
+        if result.system_decision in ('FAIL', 'UNCERTAIN', 'LOW_CONFIDENCE') and session_active:
             capture_name = f"captures/pending/{timezone.now():%Y%m%d_%H%M%S_%f}_{result.image_hash}.png"
             result.auto_capture_path = default_storage.save(
                 capture_name,
@@ -446,7 +455,11 @@ def detect_image(request):
             'has_mask_polygons': bool(segmentation_data.get('mask_polygons')),
         })
 
-        if session_active:
+        batch_number = _coerce_batch_number(request.data.get('batch_number'))
+        batch_date = _coerce_batch_date(request.data.get('batch_date'))
+        if session_active and batch_number is not None:
+            if batch_date is None:
+                batch_date = timezone.localtime(timezone.now()).date()
             log = InferenceLog.objects.create(
                 operator=operator,
                 model_used=model,
@@ -464,9 +477,12 @@ def detect_image(request):
                 confidence_score=result.confidence,
                 system_decision=result.system_decision,
                 final_decision=result.system_decision,
-                status='PENDING',
+                status='PENDING' if result.system_decision in (
+                    'FAIL', 'UNCERTAIN', 'LOW_CONFIDENCE'
+                ) else 'APPROVED',
                 session_id=request.data.get('session_id', ''),
-                batch_number=_coerce_batch_number(request.data.get('batch_number')),
+                batch_number=batch_number,
+                batch_date=batch_date,
             )
 
             payload['id'] = log.id
@@ -614,17 +630,23 @@ class InferenceLogViewSet(viewsets.ModelViewSet):
         - date_from: YYYY-MM-DD
         - date_to: YYYY-MM-DD
         """
-        qs = InferenceLog.objects.all().order_by('-batch_number', '-timestamp')
+        qs = InferenceLog.objects.filter(
+            batch_number__isnull=False
+        ).order_by('-batch_number', '-timestamp')
         params = self.request.query_params
 
         # Batch filter
-        batch = params.get('batch_number')
-        if batch is not None and batch != '' and batch.lower() != 'all':
-            try:
-                b = _coerce_batch_number(batch)
-                qs = qs.filter(batch_number=b)
-            except Exception:
-                pass
+        batch_key = params.get('batch_key')
+        if batch_key:
+            qs = qs.filter(batch_key=batch_key)
+        else:
+            batch = params.get('batch_number')
+            if batch is not None and batch != '' and batch.lower() != 'all':
+                try:
+                    b = _coerce_batch_number(batch)
+                    qs = qs.filter(batch_number=b)
+                except Exception:
+                    pass
 
         # Specific date
         date = params.get('date')
@@ -774,6 +796,15 @@ class InferenceLogViewSet(viewsets.ModelViewSet):
         else:
             # Confidence too low - requires manual review
             log.is_confidence_below_threshold = True
+            if log.system_decision in ('UNCERTAIN', 'LOW_CONFIDENCE'):
+                RetrainingQueue.objects.get_or_create(
+                    log_entry=log,
+                    defaults={'priority': 3, 'status': 'PENDING'}
+                )
+                logger.info(
+                    f"Auto-queued {log.system_decision} inference {log.id} "
+                    f"for retraining"
+                )
             log.save()
             
             logger.info(

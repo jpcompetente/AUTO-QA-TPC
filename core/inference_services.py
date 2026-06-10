@@ -91,18 +91,42 @@ class RemoteInferenceService:
         )
 
         detections = payload.get("detections", [])
-        scratch_detected = any(
-            detection.get("label") == "SCRATCH" for detection in detections
-        )
-        avg_confidence = payload.get("confidence")
+
+        # Calculate average confidence across all detections
+        avg_confidence = payload.get("confidence") 
         if avg_confidence is None:
             scores = [float(item.get("confidence", 0.0)) for item in detections]
             avg_confidence = sum(scores) / len(scores) if scores else 0.0
 
+        avg_confidence = round(float(avg_confidence), 4)
+
+        # ─── Decision Logic ──────────────────────────────────────────────────
+        # Case 1: No detections at all → AI saw nothing → UNCERTAIN
+        #         Cannot be PASS because we don't know if item is clean.
+        #         Needs retraining so AI learns to detect or confirm INTACT.
+        if not detections:
+            system_decision = "UNCERTAIN"
+
+        # Case 2: SCRATCH detected → always FAIL regardless of confidence
+        elif any(d.get("label") == "SCRATCH" for d in detections):
+            system_decision = "FAIL"
+
+        # Case 3: Detections exist but no SCRATCH (only INTACT)
+        # Check confidence against threshold — low confidence INTACT
+        # means the AI is not sure it's clean either.
+        else:
+            low_confidence_threshold = getattr(
+                settings, "INFERENCE_CONFIDENCE_THRESHOLD", 0.5
+            )
+            if avg_confidence < low_confidence_threshold:
+                system_decision = "LOW_CONFIDENCE"
+            else:
+                system_decision = "PASS"
+
         return InferenceResult(
             success=True,
-            system_decision="FAIL" if scratch_detected else "PASS",
-            confidence=round(float(avg_confidence), 4),
+            system_decision=system_decision,
+            confidence=avg_confidence,
             detections=detections,
             annotated_image_b64=str(payload.get("annotated_image_b64") or ""),
             latency_ms=round(float(payload.get("latency_ms", 0.0)), 2),
@@ -192,7 +216,7 @@ class InferenceOrchestrator:
             logger.error("Inference service unavailable: %s", exc)
             return InferenceResult(
                 success=False,
-                system_decision="PASS",
+                system_decision="UNCERTAIN",
                 latency_ms=round(latency_ms, 2),
                 model_name=model_name,
                 image_hash=image_hash,

@@ -1,4 +1,5 @@
 from io import BytesIO
+from datetime import date
 
 from django.contrib.auth.models import User
 from django.core.files.uploadedfile import SimpleUploadedFile
@@ -122,6 +123,25 @@ class InferenceLogApiTests(TestCase):
         )
 
         self.assertEqual(log.batch_number, 1)
+
+    def test_batch_key_is_generated_from_date_and_number(self):
+        today = date.today()
+        log = InferenceLog.objects.create(
+            operator=self.user,
+            model_used=self.model,
+            component=self.component,
+            image_snapshot=_build_test_image(),
+            detection_results={"detections": []},
+            latency_ms=9.5,
+            confidence_score=0.9,
+            system_decision="PASS",
+            final_decision="PASS",
+            status="PENDING",
+            batch_number=2,
+            batch_date=today,
+        )
+
+        self.assertEqual(log.batch_key, f"{today.isoformat()}-2")
 
     def test_batch_filter_treats_zero_as_first_batch(self):
         first_batch = self._create_log()
