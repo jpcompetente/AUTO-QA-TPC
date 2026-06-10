@@ -3,6 +3,7 @@ import hashlib
 from django.db import models
 from django.db.models import Q
 from django.contrib.auth.models import User
+from django.utils import timezone
 
 # 🛡️ User Profile for RBAC
 class UserProfile(models.Model):
@@ -178,6 +179,8 @@ class InferenceLog(models.Model):
     # Real-time Streaming Metadata
     session_id = models.CharField(max_length=100, blank=True, db_index=True)  # WebSocket session identifier
     batch_number = models.PositiveIntegerField(default=1, db_index=True)
+    batch_date = models.DateField(null=True, blank=True, db_index=True)
+    batch_key = models.CharField(max_length=32, blank=True, db_index=True)
     stream_timestamp = models.DateTimeField(null=True, blank=True)  # When streamed to Super Admin
     manufacturing_order = models.CharField(max_length=100, blank=True, db_index=True)
     is_confidence_below_threshold = models.BooleanField(
@@ -193,10 +196,11 @@ class InferenceLog(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
-        ordering = ['-batch_number', '-timestamp']
+        ordering = ['-batch_date', '-batch_number', '-timestamp']
         indexes = [
             models.Index(fields=['operator', '-timestamp']),
-            models.Index(fields=['batch_number', '-timestamp']),
+            models.Index(fields=['batch_date', '-batch_number', '-timestamp']),
+            models.Index(fields=['batch_key']),
             models.Index(fields=['session_id', '-timestamp']),
             models.Index(fields=['component', '-timestamp']),  # For product-based filtering
         ]
@@ -207,7 +211,17 @@ class InferenceLog(models.Model):
     def save(self, *args, **kwargs):
         if not self.batch_number or self.batch_number < 1:
             self.batch_number = 1
+        if self.batch_date is None:
+            self.batch_date = timezone.localtime(timezone.now()).date()
+        if self.batch_date and not self.batch_key:
+            self.batch_key = f"{self.batch_date.isoformat()}-{self.batch_number}"
         super().save(*args, **kwargs)
+
+    @property
+    def batch_label(self):
+        if self.batch_date:
+            return f"Batch {self.batch_number} • {self.batch_date.isoformat()}"
+        return f"Batch {self.batch_number}"
 
     def check_and_flag_low_confidence(self, threshold=0.5):
         """Flag low-confidence results for manual review."""

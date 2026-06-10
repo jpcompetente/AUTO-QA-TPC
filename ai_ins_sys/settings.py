@@ -101,6 +101,7 @@ CORS_ALLOWED_ORIGINS = [
 
 # ✅ CSRF Trusted Origins for Form Submissions
 CSRF_TRUSTED_ORIGINS = [
+    "http://10.0.2.134:5173",
     "http://10.0.2.132",
     "https://10.0.2.132:5173",
     "https://172.21.16.1",

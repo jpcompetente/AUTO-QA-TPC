@@ -107,7 +107,7 @@ function OperatorPanel({
     useState("MISSED_DEFECT");
   const [submittingReview, setSubmittingReview] = useState(false);
   const [reviewPending, setReviewPending] = useState(false);
-  const [submittingRetrain, setSubmittingRetrain] = useState(false);
+  
   const [zoomedImage, setZoomedImage] = useState(null);
   const [streamStatus, setStreamStatus] = useState("disconnected");
   const annotatedImageRef = useRef(null);
@@ -164,6 +164,79 @@ function OperatorPanel({
     }
   }, [batchNumber]);
 
+  // Reset batch number daily at local midnight (or once per day when app loads).
+  useEffect(() => {
+    const storageKey = "operatorBatchLastResetDate";
+
+    const getLocalDateKey = (d = new Date()) => {
+      const date = new Date(d);
+      const offsetMs = date.getTimezoneOffset() * 60000;
+      return new Date(date.getTime() - offsetMs).toISOString().slice(0, 10);
+    };
+
+    const trySetLastReset = (dateKey) => {
+      try {
+        window.localStorage.setItem(storageKey, dateKey);
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const doReset = () => {
+      try {
+        setBatchNumber(1);
+      } catch {
+        /* ignore */
+      }
+    };
+
+    // On mount: if last reset wasn't today, reset once now.
+    const todayKey = getLocalDateKey();
+    try {
+      const last = window.localStorage.getItem(storageKey);
+      if (last !== todayKey) {
+        doReset();
+        trySetLastReset(todayKey);
+      }
+    } catch {
+      // ignore localStorage errors
+    }
+
+    // Schedule a timer to run at the next local midnight, then every 24h.
+    const now = new Date();
+    const next = new Date(now);
+    next.setHours(24, 0, 0, 0);
+    const msUntilNext = next.getTime() - now.getTime();
+
+    const midnightTimer = window.setTimeout(() => {
+      const key = getLocalDateKey(new Date());
+      doReset();
+      trySetLastReset(key);
+
+      // subsequent resets every 24 hours
+      const intervalId = window.setInterval(() => {
+        const k = getLocalDateKey(new Date());
+        doReset();
+        trySetLastReset(k);
+      }, 24 * 60 * 60 * 1000);
+
+      // store interval id on the timer so cleanup can clear it
+      // (we attach to the timeout id as a property)
+      // @ts-ignore
+      midnightTimer._intervalId = intervalId;
+    }, msUntilNext);
+
+    return () => {
+      try {
+        window.clearTimeout(midnightTimer);
+        // @ts-ignore
+        if (midnightTimer._intervalId) window.clearInterval(midnightTimer._intervalId);
+      } catch {
+        /* ignore */
+      }
+    };
+  }, []);
+
   useEffect(() => {
     // Auto-dismiss notification after 4 seconds
     if (notification) {
@@ -205,6 +278,12 @@ function OperatorPanel({
     (payload) => payload?.results || payload || [],
     [],
   );
+
+  const getLocalDateKey = useCallback(() => {
+    const date = new Date();
+    const offsetMs = date.getTimezoneOffset() * 60000;
+    return new Date(date.getTime() - offsetMs).toISOString().slice(0, 10);
+  }, []);
 
   const isVirtualCameraLabel = useCallback((label) => {
     const normalized = String(label || "").toLowerCase();
@@ -991,6 +1070,7 @@ function OperatorPanel({
         formData.append("session_id", sessionId || "");
         formData.append("session_active", sessionStarted ? "true" : "false");
         formData.append("batch_number", String(batchNumber || 1));
+        formData.append("batch_date", getLocalDateKey());
 
         const detectResponse = await detectImage(formData);
         const result = detectResponse.data;
@@ -1391,12 +1471,7 @@ function OperatorPanel({
     }
   };
 
-  /* ── Derived ─────────────────────────────────────────────────── */
-  const getLogConfidence = useCallback((log) => {
-    return (
-      log?.confidence_score ?? log?.confidence ?? log?.score ?? log?.model_confidence ?? null
-    );
-  }, []);
+
 
   const liveConfidenceValue = detectionResult
     ? Number(
@@ -1404,48 +1479,9 @@ function OperatorPanel({
       )
     : null;
 
-  const lowConfidenceSessionLogs = useMemo(() => {
-    try {
-      if (!preset?.confidence_threshold) return [];
-      return (sessionCompletedLogs || []).filter((l) => {
-        const c = getLogConfidence(l);
-        if (c == null) return false;
-        return Number(c) < Number(preset.confidence_threshold);
-      });
-    } catch  {
-      return [];
-    }
-  }, [sessionCompletedLogs, preset, getLogConfidence]);
 
-  const submitBatchForRetraining = useCallback(async () => {
-    if (!lowConfidenceSessionLogs || lowConfidenceSessionLogs.length === 0) {
-      setNotification({ type: 'info', message: 'No low-confidence items to submit.' });
-      return;
-    }
-    setSubmittingRetrain(true);
-    try {
-      await Promise.all(
-        lowConfidenceSessionLogs.map((log) => {
-          const id = log.id || log.log_id || log.pk;
-          return reviewInferenceLog(id, {
-            action: 'REJECT',
-            description: 'Submitted for retraining by operator',
-            rejection_reason: 'LOW_CONFIDENCE',
-            final_decision: log.final_decision || log.system_decision || 'FAIL',
-          });
-        }),
-      );
-      setNotification({ type: 'success', message: 'Submitted low-confidence items for retraining.' });
-      // Refresh logs
-      await fetchLogsRef.current();
-      setShowSessionHistory(false);
-    } catch (err) {
-      console.error('Failed to submit retraining batch', err);
-      setNotification({ type: 'error', message: 'Failed to submit retraining batch.' });
-    } finally {
-      setSubmittingRetrain(false);
-    }
-  }, [lowConfidenceSessionLogs]);
+
+
 
   /* ── Render ──────────────────────────────────────────────────── */
   return (
@@ -1533,6 +1569,68 @@ function OperatorPanel({
               </div>
             )}
 
+            {/* ── Detection Status Indicator ── */}
+            {sessionStarted && (
+              <div
+                style={{
+                  padding: "10px 14px",
+                  marginBottom: "10px",
+                  borderRadius: "6px",
+                  fontSize: "13px",
+                  fontWeight: "600",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "8px",
+                  transition: "background-color 0.3s, color 0.3s",
+                  backgroundColor:
+                    !detectionResult
+                      ? "#f3f4f6"
+                      : detectionResult.system_decision === "PASS"
+                      ? "#d4edda"
+                      : detectionResult.system_decision === "FAIL"
+                      ? "#f8d7da"
+                      : "#fff3cd",
+                  color:
+                    !detectionResult
+                      ? "#6b7280"
+                      : detectionResult.system_decision === "PASS"
+                      ? "#155724"
+                      : detectionResult.system_decision === "FAIL"
+                      ? "#721c24"
+                      : "#856404",
+                  border: `1px solid ${
+                    !detectionResult
+                      ? "#e5e7eb"
+                      : detectionResult.system_decision === "PASS"
+                      ? "#c3e6cb"
+                      : detectionResult.system_decision === "FAIL"
+                      ? "#f5c6cb"
+                      : "#ffeeba"
+                  }`,
+                }}
+              >
+                <span style={{ fontSize: "16px" }}>
+                  {!detectionResult
+                    ? "○"
+                    : detectionResult.system_decision === "PASS"
+                    ? "✓"
+                    : detectionResult.system_decision === "FAIL"
+                    ? "✕"
+                    : "⚠"}
+                </span>
+                <span>
+                  {!detectionResult
+                    ? "Waiting for detection..."
+                    : detectionResult.system_decision === "PASS"
+                    ? `PASS — ${detectionResult.detections?.[0]?.label || "INTACT"} ${((detectionResult.confidence || 0) * 100).toFixed(1)}%`
+                    : detectionResult.system_decision === "FAIL"
+                    ? `FAIL — ${detectionResult.detections?.[0]?.label || "DEFECT"} ${((detectionResult.confidence || 0) * 100).toFixed(1)}%`
+                    : `UNCERTAIN — ${detectionResult.detections?.length ? detectionResult.detections[0].label : "No detection"} ${((detectionResult.confidence || 0) * 100).toFixed(1)}%`}
+                </span>
+              </div>
+            )}
+
+
             {!isCameraFullscreen && cameraOnly && (
               <p className="camera-mode-note">
                 Phone camera mode is active. Keep this device pointed at the
@@ -1570,18 +1668,7 @@ function OperatorPanel({
                       /* ignore */
                     }
                     setSelectedDeviceId("");
-                {lowConfidenceSessionLogs.length > 0 && (
-                  <div style={{ marginTop: 12 }}>
-                    <button
-                      className="primary-button"
-                      onClick={submitBatchForRetraining}
-                      disabled={submittingRetrain}
-                      type="button"
-                    >
-                      {submittingRetrain ? 'Submitting...' : `Submit ${lowConfidenceSessionLogs.length} for Retraining`}
-                    </button>
-                  </div>
-                )}
+                
                     setCameraRetryToken((current) => current + 1);
                     console.warn(
                       "[Camera] selected device failed, retrying with default camera",
@@ -1988,14 +2075,25 @@ function OperatorPanel({
                   </strong>
                 </p>
                 <p style={{ marginTop: "8px" }}>
-                  Operator reviewed:{" "}
+                  Uncertain detections:{" "}
                   <strong>
                     {
                       sessionCompletedLogs.filter(
-                        (log) => log.operator_override,
+                        (log) => 
+                          log.system_decision === 'UNCERTAIN' ||
+                          log.system_decision === 'LOW_CONFIDENCE'
                       ).length
                     }
                   </strong>
+                  {sessionCompletedLogs.filter(
+                    (log) =>
+                      log.system_decision === 'UNCERTAIN' ||
+                      log.system_decision === 'LOW_CONFIDENCE'
+                  ).length > 0 && (
+                    <span style={{ marginLeft: 8, fontSize: '0.8rem', color: '#d97706' }}>
+                      ⚠ Auto-submitted for retraining
+                    </span>
+                  )}
                 </p>
               </div>
 
@@ -2036,14 +2134,16 @@ function OperatorPanel({
                           fontSize: "0.75rem",
                           fontWeight: "bold",
                           backgroundColor:
-                            (log.final_decision || log.system_decision) ===
-                            "PASS"
+                            (log.final_decision || log.system_decision) === "PASS"
                               ? "#d4edda"
+                              : (log.system_decision === "UNCERTAIN" || log.system_decision === "LOW_CONFIDENCE")
+                              ? "#fff3cd"
                               : "#f8d7da",
                           color:
-                            (log.final_decision || log.system_decision) ===
-                            "PASS"
+                            (log.final_decision || log.system_decision) === "PASS"
                               ? "#155724"
+                              : (log.system_decision === "UNCERTAIN" || log.system_decision === "LOW_CONFIDENCE")
+                              ? "#856404"
                               : "#721c24",
                         }}
                       >

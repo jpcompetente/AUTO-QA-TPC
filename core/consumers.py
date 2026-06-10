@@ -8,6 +8,7 @@ import json
 import logging
 import threading
 import time
+from datetime import date
 from urllib.parse import parse_qs
 
 from channels.generic.websocket import AsyncWebsocketConsumer
@@ -37,6 +38,15 @@ def _coerce_batch_number(raw_value):
     try:
         return max(int(raw_value), 1)
     except (TypeError, ValueError):
+        return None
+
+
+def _coerce_batch_date(raw_value):
+    if raw_value is None or raw_value == '' or str(raw_value).lower() in ('null', 'none'):
+        return None
+    try:
+        return date.fromisoformat(str(raw_value))
+    except (TypeError, ValueError, AttributeError):
         return None
 
 
@@ -506,6 +516,10 @@ class InferenceStreamConsumer(AsyncWebsocketConsumer):
             }
 
             if session_active:
+                batch_number = _coerce_batch_number(payload.get("batch_number"))
+                batch_date = _coerce_batch_date(payload.get("batch_date"))
+                if batch_date is None:
+                    batch_date = timezone.localtime(timezone.now()).date()
                 log = InferenceLog.objects.create(
                     operator=self.user,
                     model_used=model,
@@ -526,7 +540,8 @@ class InferenceStreamConsumer(AsyncWebsocketConsumer):
                     is_confidence_below_threshold=result.confidence < confidence,
                     status="PENDING",
                     session_id=payload.get("session_id", ""),
-                    batch_number=_coerce_batch_number(payload.get("batch_number")),
+                    batch_number=batch_number,
+                    batch_date=batch_date,
                     manufacturing_order=payload.get("manufacturing_order", ""),
                 )
 
