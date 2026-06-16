@@ -233,3 +233,9 @@ if crontab is not None:
         },
     }
 
+# ===== Label Studio Configuration =====
+LABEL_STUDIO_URL = "http://192.168.1.226:8080"
+LABEL_STUDIO_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6ODA4ODI3MzE2MCwiaWF0IjoxNzgxMDczMTYwLCJqdGkiOiJkZDI5OGRiMTIxNjk0ZDNlOTUyNzI1YjBlMjM3MWZkMSIsInVzZXJfaWQiOiI1In0"  # Replace with actual token
+LABEL_STUDIO_PROJECT_ID = 5  # Replace with your project ID
+
+SITE_URL = "http://192.168.1.226:8000"

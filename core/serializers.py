@@ -141,6 +141,13 @@ class InferenceLogSerializer(serializers.ModelSerializer):
 # 📈 Retraining Queue Serializer (Requirement 1.5)
 class RetrainingQueueSerializer(serializers.ModelSerializer):
     image_url = serializers.ImageField(source='log_entry.image_snapshot', read_only=True)
+    operator_name = serializers.CharField(source='log_entry.operator.username', read_only=True)
+    batch_number = serializers.IntegerField(source='log_entry.batch_number', read_only=True)
+    batch_key = serializers.CharField(source='log_entry.batch_key', read_only=True)
+    component_name = serializers.CharField(source='log_entry.component.name', read_only=True)
+    model_name = serializers.CharField(source='log_entry.model_used.name', read_only=True)
+    confidence_score = serializers.FloatField(source='log_entry.confidence_score', read_only=True)
+    created_at = serializers.DateTimeField(source='log_entry.timestamp', read_only=True)
 
     class Meta:
         model = RetrainingQueue

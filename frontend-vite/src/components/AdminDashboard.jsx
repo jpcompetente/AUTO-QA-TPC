@@ -12,6 +12,8 @@ import {
   getRetrainingQueue,
   getTrainingJobs,
   deployTrainingJob,
+  exportToLabelStudio,
+  importFromLabelStudio,
 } from "../api/backend";
 
 const Icon = {
@@ -1085,6 +1087,38 @@ function AdminDashboard({ onLogout }) {
                         }}
                       >
                         Refresh queue
+                      </button>
+
+                      <button
+                        className="adash__btn adash__btn--ghost"
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await exportToLabelStudio();
+                            const res = await getRetrainingQueue();
+                            setRetrainingQueue(res.data || []);
+                          } catch (e) {
+                            console.error("Export failed", e);
+                          }
+                        }}
+                      >
+                        Export to Label Studio
+                      </button>
+
+                      <button
+                        className="adash__btn adash__btn--primary"
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await importFromLabelStudio();
+                            const res = await getRetrainingQueue();
+                            setRetrainingQueue(res.data || []);
+                          } catch (e) {
+                            console.error("Import failed", e);
+                          }
+                        }}
+                      >
+                        Import from Label Studio
                       </button>
                     </div>
                   </div>

@@ -30,6 +30,10 @@ from .serializers import (
     OperatorSerializer
 )
 from .tasks import train_model, deploy_model_version
+from .label_studio_connector import (
+    export_to_label_studio as export_tasks_to_label_studio,
+    import_from_label_studio as import_tasks_from_label_studio,
+)
 from .inference_services import InferenceFactory, orchestrator
 
 logger = logging.getLogger(__name__)
@@ -894,6 +898,38 @@ class RetrainingQueueViewSet(viewsets.ModelViewSet):
             
         except Exception as e:
             logger.error(f"Error triggering training: {str(e)}")
+            return Response({'error': str(e)}, status=500)
+
+    @action(detail=False, methods=['post'])
+    def export_to_label_studio(self, request):
+        """Export pending retraining queue samples to Label Studio."""
+        try:
+            sample_ids = request.data.get('sample_ids')
+            if sample_ids:
+                queue_items = RetrainingQueue.objects.filter(id__in=sample_ids, status='PENDING')
+            else:
+                queue_items = RetrainingQueue.objects.filter(status='PENDING')
+
+            results = export_tasks_to_label_studio(queue_items)
+            return Response({'results': results})
+        except Exception as e:
+            logger.error(f"Error exporting to Label Studio: {str(e)}")
+            return Response({'error': str(e)}, status=500)
+
+    @action(detail=False, methods=['post'])
+    def import_from_label_studio(self, request):
+        """Import completed annotation results from Label Studio."""
+        try:
+            sample_ids = request.data.get('sample_ids')
+            if sample_ids:
+                queue_items = RetrainingQueue.objects.filter(id__in=sample_ids, label_studio_task_id__isnull=False)
+            else:
+                queue_items = RetrainingQueue.objects.filter(label_studio_task_id__isnull=False)
+
+            results = import_tasks_from_label_studio(queue_items)
+            return Response({'results': results})
+        except Exception as e:
+            logger.error(f"Error importing from Label Studio: {str(e)}")
             return Response({'error': str(e)}, status=500)
 
 
