@@ -17,6 +17,7 @@ from core.views import (
     InferenceLogViewSet,
     OperatorViewSet,
     RetrainingQueueViewSet,
+    TrainingJobViewSet,
     dashboard_stats,
     detect_image,
     inference_health,
@@ -31,6 +32,7 @@ legacy_router.register(r'operators', OperatorViewSet, basename='legacy-operator'
 legacy_router.register(r'ai-models', AIModelViewSet, basename='legacy-ai-model')
 legacy_router.register(r'inference-logs', InferenceLogViewSet, basename='legacy-inference-log')
 legacy_router.register(r'retraining-queue', RetrainingQueueViewSet, basename='legacy-retraining-queue')
+legacy_router.register(r'training-jobs', TrainingJobViewSet, basename='legacy-training-job')
 
 urlpatterns = [
     # Admin panel

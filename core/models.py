@@ -251,6 +251,9 @@ class RetrainingQueue(models.Model):
     log_entry = models.OneToOneField(InferenceLog, on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     label_data = models.JSONField(null=True, blank=True) # New YOLO coordinates
+
+    label_studio_task_id = models.IntegerField(null=True, blank=True)
+    label_studio_exported = models.BooleanField(default=False)
     
     priority = models.IntegerField(choices=PRIORITY_CHOICES, default=0)
     labeled_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name='labeled_samples')

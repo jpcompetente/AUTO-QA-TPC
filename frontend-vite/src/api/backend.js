@@ -106,6 +106,16 @@ export const deployTrainingJob = (jobId, modelName) =>
     model_name: modelName,
   });
 
+export const exportToLabelStudio = (sampleIds = []) =>
+  api.post("/retraining-queue/export_to_label_studio/", {
+    sample_ids: sampleIds,
+  });
+
+export const importFromLabelStudio = (sampleIds = []) =>
+  api.post("/retraining-queue/import_from_label_studio/", {
+    sample_ids: sampleIds,
+  });
+
 export const buildWebSocketUrl = (path) => {
   const configuredBase = import.meta.env.VITE_WS_BASE_URL;
   const protocol = window.location.protocol === "https:" ? "wss" : "ws";
