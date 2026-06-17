@@ -824,7 +824,7 @@ class InferenceLogViewSet(viewsets.ModelViewSet):
 
 
 class RetrainingQueueViewSet(viewsets.ModelViewSet):
-    queryset = RetrainingQueue.objects.filter(status__in=['PENDING', 'LABELED'])
+    queryset = RetrainingQueue.objects.filter(status__in=['PENDING', 'LABELED', 'TRAINED']).exclude(status='TRAINED')
     serializer_class = RetrainingQueueSerializer
     permission_classes = [IsAdminOnly]
     
@@ -849,6 +849,32 @@ class RetrainingQueueViewSet(viewsets.ModelViewSet):
         except Exception as e:
             return Response({'error': str(e)}, status=500)
     
+    @action(detail=True, methods=['post'])
+    def mark_invalid(self, request, pk=None):
+        """
+        Mark a retraining queue sample as invalid (e.g. wrong component detected,
+        not actually a relevant defect). Removes it from the active queue and
+        deletes its associated Label Studio task if one exists.
+        """
+        from .label_studio_connector import delete_label_studio_task
+        try:
+            sample = self.get_object()
+
+            if sample.label_studio_task_id:
+                try:
+                    delete_label_studio_task(sample.label_studio_task_id)
+                except Exception as exc:
+                    logger.warning(f"Could not delete Label Studio task {sample.label_studio_task_id}: {exc}")
+
+            sample.status = 'INVALID'
+            sample.save(update_fields=['status'])
+
+            logger.info(f"Marked retraining sample {sample.id} as INVALID")
+            return Response(RetrainingQueueSerializer(sample).data)
+        except Exception as e:
+            logger.error(f"Error marking sample invalid: {str(e)}")
+            return Response({'error': str(e)}, status=500)
+
     @action(detail=False, methods=['post'])
     def batch_trigger_training(self, request):
         """
@@ -870,7 +896,7 @@ class RetrainingQueueViewSet(viewsets.ModelViewSet):
             job = TrainingJob.objects.create(
                 base_model=base_model,
                 status='QUEUED',
-                epochs=request.data.get('epochs', 50),
+                epochs=request.data.get('epochs', 10),
                 batch_size=request.data.get('batch_size', 32),
                 learning_rate=request.data.get('learning_rate', 0.001),
                 created_by=request.user
@@ -886,7 +912,7 @@ class RetrainingQueueViewSet(viewsets.ModelViewSet):
                 )
             
             # Trigger async training
-            train_model.delay(job.id)
+            train_model.delay(job.id, epochs=job.epochs, batch_size=job.batch_size)
             
             logger.info(f"Training job {job.id} created with {len(sample_ids)} samples by {request.user}")
             
@@ -906,9 +932,9 @@ class RetrainingQueueViewSet(viewsets.ModelViewSet):
         try:
             sample_ids = request.data.get('sample_ids')
             if sample_ids:
-                queue_items = RetrainingQueue.objects.filter(id__in=sample_ids, status='PENDING')
+                queue_items = RetrainingQueue.objects.filter(id__in=sample_ids, status__in =['PENDING', 'LABELED'])
             else:
-                queue_items = RetrainingQueue.objects.filter(status='PENDING')
+                queue_items = RetrainingQueue.objects.filter(status__in=['PENDING', 'LABELED'])
 
             results = export_tasks_to_label_studio(queue_items)
             return Response({'results': results})
@@ -953,6 +979,8 @@ class TrainingJobViewSet(viewsets.ModelViewSet):
             model_name = request.data.get('model_name', f"{job.base_model.name}_retrained")
             
             # Trigger deployment task
+            job.is_deployed = True
+            job.save()
             deploy_model_version.delay(job.id, model_name)
             
             return Response({

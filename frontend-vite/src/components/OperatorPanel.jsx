@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useRef, useState, useMemo } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import Webcam from "react-webcam";
 import {
@@ -14,7 +14,7 @@ import {
   ensureCameraPermission,
 } from "../utils/camera";
 
-/* ── Constants ───────────────────────────────────────────────── */
+/* -- Constants ------------------------------------------------- */
 const STABLE_CAPTURE_DELAY_MS = 2000;
 const MOTION_SAMPLE_INTERVAL_MS = 250;
 const MOTION_THRESHOLD = 9; // For auto-capture (stable frame detection)
@@ -30,7 +30,7 @@ const REJECTION_REASONS = [
   ["OTHER", "Other"],
 ];
 
-/* ── Component ───────────────────────────────────────────────── */
+/* -- Component ------------------------------------------------- */
 function OperatorPanel({
   onLogout,
   username = "Operator",
@@ -273,7 +273,7 @@ function OperatorPanel({
 
   // Ensure camera-only mode shows the camera panel without causing
   // a synchronous setState inside an effect (avoids cascading renders).
-  /* ── Helpers ─────────────────────────────────────────────────── */
+  /* -- Helpers --------------------------------------------------- */
   const normalizeList = useCallback(
     (payload) => payload?.results || payload || [],
     [],
@@ -423,7 +423,7 @@ function OperatorPanel({
     };
   }, [normalizeList]);
 
-  /* ── Session ─────────────────────────────────────────────────── */
+  /* -- Session --------------------------------------------------- */
   const stopSession = useCallback(() => {
     if (liveIntervalRef.current) {
       window.clearInterval(liveIntervalRef.current);
@@ -473,7 +473,7 @@ function OperatorPanel({
     [],
   );
 
-  /* ── Boot ────────────────────────────────────────────────────── */
+  /* -- Boot ------------------------------------------------------ */
   useEffect(() => {
     const load = async () => {
       try {
@@ -500,7 +500,7 @@ function OperatorPanel({
     })();
   }, [sessionFilter, sessionStarted]);
 
-  /* ── Drawing handlers for manual annotations ──────────────── */
+  /* -- Drawing handlers for manual annotations ---------------- */
   const startDrawing = useCallback((e) => {
     if (!reviewPendingRef.current) return;
     const canvas = manualCanvasRef.current;
@@ -538,7 +538,7 @@ function OperatorPanel({
     setCurrentPath([]);
   }, [isDrawing, currentPath]);
 
-  /* ── Canvas rendering: Manual annotations on top canvas ──── */
+  /* -- Canvas rendering: Manual annotations on top canvas ---- */
   useEffect(() => {
     const canvas = manualCanvasRef.current;
     if (!canvas) return;
@@ -578,7 +578,7 @@ function OperatorPanel({
     }
   }, [manualAnnotations, currentPath]);
 
-  /* ── Canvas overlay ─────────────────────────────────────────── */
+  /* -- Canvas overlay ------------------------------------------- */
   const drawOverlay = useCallback(
     (result) => {
       const canvas = overlayRef.current;
@@ -911,7 +911,7 @@ function OperatorPanel({
           const message = JSON.parse(event.data || "{}");
           if (message.type === "inference_result" && message.data) {
             setDetectionResult(message.data);
-            console.log("🔍 RAW DATA:", JSON.stringify({
+            console.log("?? RAW DATA:", JSON.stringify({
               detections: message.data.detections?.length,
               hasImage: !!message.data.annotated_image_b64,
               firstDetection: message.data.detections?.[0],
@@ -998,7 +998,7 @@ function OperatorPanel({
     };
   }, [preset, sessionStarted, cameraConstraints, enablePreSessionLive]);
 
-  /* ── Auto-annotate ───────────────────────────────────────────── */
+  /* -- Auto-annotate --------------------------------------------- */
   const autoAnnotateDetection = useCallback((result) => {
     if (!result || !result.detections || result.detections.length === 0) {
       return "No defects detected. Product appears intact.";
@@ -1035,7 +1035,7 @@ function OperatorPanel({
     return detectionSummary.join(". ");
   }, []);
 
-  /* ── Detect ──────────────────────────────────────────────────── */
+  /* -- Detect ---------------------------------------------------- */
   const handleDetect = useCallback(
     async (trigger = "manual") => {
       const imageSrc = webcamRef.current?.getScreenshot();
@@ -1173,10 +1173,10 @@ function OperatorPanel({
         captureInFlightRef.current = false;
       }
     },
-    [autoAnnotateDetection, batchNumber, preset, sessionId, sessionStarted],
+    [autoAnnotateDetection, batchNumber, getLocalDateKey, preset, sessionId, sessionStarted],
   );
 
-  /* ── Motion detection ────────────────────────────────────────── */
+  /* -- Motion detection ------------------------------------------ */
   // Monitor camera status and provide feedback
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -1296,7 +1296,7 @@ function OperatorPanel({
     return () => window.clearInterval(interval);
   }, [sampleMotion]);
 
-  /* ── Live inference motion detection ────────────────────────────── */
+  /* -- Live inference motion detection ------------------------------ */
   const checkLiveInferenceMotion = useCallback(() => {
     const video = webcamRef.current?.video;
     if (!video || video.readyState < 2) return false;
@@ -1337,12 +1337,12 @@ function OperatorPanel({
     const motionScore = diff / pixels;
     const hasMotion = motionScore > LIVE_MOTION_THRESHOLD;
     console.debug(
-      `[LiveMotion] Score: ${motionScore.toFixed(1)} vs threshold ${LIVE_MOTION_THRESHOLD} → ${hasMotion ? "SEND" : "SKIP"}`,
+      `[LiveMotion] Score: ${motionScore.toFixed(1)} vs threshold ${LIVE_MOTION_THRESHOLD} ? ${hasMotion ? "SEND" : "SKIP"}`,
     );
     return hasMotion;
   }, []);
 
-  /* ── Live inference loop ─────────────────────────────────────── */
+  /* -- Live inference loop --------------------------------------- */
   useEffect(() => {
     const startLive = () => {
       if (liveIntervalRef.current) return;
@@ -1420,7 +1420,7 @@ function OperatorPanel({
     enablePreSessionLive,
   ]);
 
-  /* ── Submit review ───────────────────────────────────────────── */
+  /* -- Submit review --------------------------------------------- */
   const submitReview = async () => {
     const logId = detectionResult?.log_id || detectionResult?.id;
 
@@ -1483,7 +1483,7 @@ function OperatorPanel({
 
 
 
-  /* ── Render ──────────────────────────────────────────────────── */
+  /* -- Render ---------------------------------------------------- */
   return (
     <motion.div
       className="panel-page"
@@ -1497,7 +1497,7 @@ function OperatorPanel({
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6, delay: 0.1 }}
       >
-        {/* ── Header / nav ── */}
+        {/* -- Header / nav -- */}
         <motion.header
           className="panel-header"
           initial={{ opacity: 0, y: -20 }}
@@ -1521,13 +1521,13 @@ function OperatorPanel({
           </div>
         </motion.header>
 
-        {/* ── Tab switcher ── */}
+        {/* -- Tab switcher -- */}
 
-        {/* ════════════════════════════════════════════════
+        {/* ------------------------------------------------
             CAMERA PANEL
-        ════════════════════════════════════════════════ */}
+        ------------------------------------------------ */}
         <section className="content-grid content-grid--operator">
-          {/* ── Left: camera card ── */}
+          {/* -- Left: camera card -- */}
           <div
             className="section-card section-card--camera"
             ref={cameraCardRef}
@@ -1569,7 +1569,7 @@ function OperatorPanel({
               </div>
             )}
 
-            {/* ── Detection Status Indicator ── */}
+            {/* -- Detection Status Indicator -- */}
             {sessionStarted && (
               <div
                 style={{
@@ -1611,22 +1611,48 @@ function OperatorPanel({
               >
                 <span style={{ fontSize: "16px" }}>
                   {!detectionResult
-                    ? "○"
+                    ? "?"
                     : detectionResult.system_decision === "PASS"
-                    ? "✓"
+                    ? "?"
                     : detectionResult.system_decision === "FAIL"
-                    ? "✕"
-                    : "⚠"}
+                    ? "?"
+                    : "?"}
                 </span>
                 <span>
                   {!detectionResult
                     ? "Waiting for detection..."
                     : detectionResult.system_decision === "PASS"
-                    ? `PASS — ${detectionResult.detections?.[0]?.label || "INTACT"} ${((detectionResult.confidence || 0) * 100).toFixed(1)}%`
+                    ? `PASS � ${detectionResult.detections?.[0]?.label || "INTACT"} ${((detectionResult.confidence || 0) * 100).toFixed(1)}%`
                     : detectionResult.system_decision === "FAIL"
-                    ? `FAIL — ${detectionResult.detections?.[0]?.label || "DEFECT"} ${((detectionResult.confidence || 0) * 100).toFixed(1)}%`
-                    : `UNCERTAIN — ${detectionResult.detections?.length ? detectionResult.detections[0].label : "No detection"} ${((detectionResult.confidence || 0) * 100).toFixed(1)}%`}
+                    ? `FAIL � ${detectionResult.detections?.[0]?.label || "DEFECT"} ${((detectionResult.confidence || 0) * 100).toFixed(1)}%`
+                    : `UNCERTAIN � ${detectionResult.detections?.length ? detectionResult.detections[0].label : "No detection"} ${((detectionResult.confidence || 0) * 100).toFixed(1)}%`}
                 </span>
+                {detectionResult && detectionResult.system_decision === "PASS" && !reviewPending && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setReviewMode("REJECT");
+                      setReviewFinalDecision("FAIL");
+                      setReviewRejectionReason("MISSED_DEFECT");
+                      setReviewDescription("Operator flagged a missed defect not caught by the AI.");
+                      reviewPendingRef.current = true;
+                      setReviewPending(true);
+                    }}
+                    style={{
+                      marginLeft: "auto",
+                      padding: "4px 10px",
+                      fontSize: "12px",
+                      fontWeight: 600,
+                      borderRadius: "4px",
+                      border: "1px solid #c0392b",
+                      background: "#fff",
+                      color: "#c0392b",
+                      cursor: "pointer",
+                    }}
+                  >
+                    Flag as defective
+                  </button>
+                )}
               </div>
             )}
 
@@ -1820,7 +1846,7 @@ function OperatorPanel({
             )}
           </div>
 
-          {/* ── Right: inspection info ── */}
+          {/* -- Right: inspection info -- */}
           <div className="section-card section-card--inspection">
             <div className="section-heading">
               <p className="eyebrow">Inspection info</p>
@@ -1914,14 +1940,14 @@ function OperatorPanel({
               <div className="info-group">
                 <div className="info-label">Product</div>
                 <div className="info-value">
-                  {preset?.product_name || preset?.component_name || "—"}
+                  {preset?.product_name || preset?.component_name || "�"}
                 </div>
               </div>
 
               {/* Model */}
               <div className="info-group">
                 <div className="info-label">Model</div>
-                <div className="info-value">{preset?.model_name || "—"}</div>
+                <div className="info-value">{preset?.model_name || "�"}</div>
               </div>
 
               {/* Confidence */}
@@ -1932,16 +1958,16 @@ function OperatorPanel({
                     ? `${(liveConfidenceValue * 100).toFixed(1)}%`
                     : preset?.confidence_threshold !== undefined
                     ? `${Number(preset.confidence_threshold * 100).toFixed(0)}%`
-                    : "—"}
+                    : "�"}
                 </div>
               </div>
             </div>
           </div>
         </section>
 
-        {/* ════════════════════════════════════════════════
+        {/* ------------------------------------------------
             REVIEW MODAL (LOW-CONFIDENCE FALLBACK)
-        ════════════════════════════════════════════════ */}
+        ------------------------------------------------ */}
         {reviewPending && detectionResult && (
           <div className="review-modal" role="dialog" aria-modal="true">
             <div className="review-modal__panel">
@@ -2037,9 +2063,9 @@ function OperatorPanel({
           </div>
         )}
 
-        {/* ════════════════════════════════════════════════
+        {/* ------------------------------------------------
             SESSION HISTORY MODAL
-        ════════════════════════════════════════════════ */}
+        ------------------------------------------------ */}
         {showSessionHistory && sessionCompletedLogs.length > 0 && (
           <div className="review-modal" role="dialog" aria-modal="true">
             <div
@@ -2091,7 +2117,7 @@ function OperatorPanel({
                       log.system_decision === 'LOW_CONFIDENCE'
                   ).length > 0 && (
                     <span style={{ marginLeft: 8, fontSize: '0.8rem', color: '#d97706' }}>
-                      ⚠ Auto-submitted for retraining
+                      ? Auto-submitted for retraining
                     </span>
                   )}
                 </p>
@@ -2147,7 +2173,7 @@ function OperatorPanel({
                               : "#721c24",
                         }}
                       >
-                        {log.final_decision || log.system_decision || "—"}
+                        {log.final_decision || log.system_decision || "�"}
                       </span>
                     </div>
                     <div style={{ fontSize: "0.9rem", marginBottom: "6px" }}>
@@ -2162,7 +2188,7 @@ function OperatorPanel({
                           marginBottom: "6px",
                         }}
                       >
-                        <strong>✎ Operator override</strong>
+                        <strong>? Operator override</strong>
                       </div>
                     )}
                     {log.operator_comment && (
@@ -2242,7 +2268,7 @@ function OperatorPanel({
                   fontWeight: "bold",
                 }}
               >
-                ✕
+                ?
               </button>
               <div
                 style={{

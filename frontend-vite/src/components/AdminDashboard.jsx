@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
   createAdminSettings,
@@ -12,8 +12,11 @@ import {
   getRetrainingQueue,
   getTrainingJobs,
   deployTrainingJob,
+  deleteTrainingJob,
   exportToLabelStudio,
   importFromLabelStudio,
+  triggerTraining,
+  markRetrainingInvalid,
 } from "../api/backend";
 
 const Icon = {
@@ -132,6 +135,7 @@ function getDetectionLogImageSrc(log) {
 }
 
 function AdminDashboard({ onLogout }) {
+  const topbarRef = useRef(null);
   const [components, setComponents] = useState([]);
   const [models, setModels] = useState([]);
   const [operators, setOperators] = useState([]);
@@ -162,6 +166,42 @@ function AdminDashboard({ onLogout }) {
   const [selectedLogPreview, setSelectedLogPreview] = useState(null);
   const [retrainingQueue, setRetrainingQueue] = useState([]);
   const [trainingJobs, setTrainingJobs] = useState([]);
+  const [toast, setToast] = useState(null);
+
+  const showToast = useCallback((message, type = "success") => {
+    setToast({ message, type, id: Date.now() });
+  }, []);
+
+  useEffect(() => {
+    if (!toast) return;
+    const timer = setTimeout(() => setToast(null), 4000);
+    return () => clearTimeout(timer);
+  }, [toast]);
+
+  useEffect(() => {
+    const el = topbarRef.current;
+    if (!el) return;
+
+    const updateHeight = () => {
+      const height = el.getBoundingClientRect().height;
+      document.documentElement.style.setProperty(
+        "--topbar-height",
+        `${height}px`
+      );
+    };
+
+    updateHeight();
+
+    const resizeObserver = new ResizeObserver(updateHeight);
+    resizeObserver.observe(el);
+
+    window.addEventListener("resize", updateHeight);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateHeight);
+    };
+  }, []);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -603,6 +643,7 @@ function AdminDashboard({ onLogout }) {
 
   const getConfidence = (log) => {
     return (
+      log.confidence_score ??
       log.confidence ??
       log.score ??
       log.probability ??
@@ -905,7 +946,7 @@ function AdminDashboard({ onLogout }) {
                       </div>
                       <div style={{ fontWeight: 700, marginTop: 6 }}>
                         {performanceDelta == null
-                          ? "—"
+                          ? "-"
                           : `${(performanceDelta * 100).toFixed(1)}%`}
                       </div>
                     </div>
@@ -1066,7 +1107,7 @@ function AdminDashboard({ onLogout }) {
                   gap: 12,
                 }}
               >
-                {/* Retraining queue + jobs — admin controls */}
+                {/* Retraining queue + jobs - admin controls */}
                 <div className="adash__card" style={{ padding: 12, gridColumn: "1 / -1" }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                     <div>
@@ -1094,11 +1135,18 @@ function AdminDashboard({ onLogout }) {
                         type="button"
                         onClick={async () => {
                           try {
-                            await exportToLabelStudio();
+                            const unexported = retrainingQueue.filter(it => !it.label_studio_exported);
+                            if (unexported.length === 0) {
+                              showToast("No new samples to export — all items have already been exported to Label Studio.", "warning");
+                              return;
+                            }
+                            await exportToLabelStudio(unexported.map(it => it.id));
                             const res = await getRetrainingQueue();
                             setRetrainingQueue(res.data || []);
+                            showToast("Exported " + unexported.length + " sample(s) to Label Studio successfully!", "success");
                           } catch (e) {
                             console.error("Export failed", e);
+                            showToast("Export failed: " + (e.message || "Check console logs"), "error");
                           }
                         }}
                       >
@@ -1110,16 +1158,52 @@ function AdminDashboard({ onLogout }) {
                         type="button"
                         onClick={async () => {
                           try {
-                            await importFromLabelStudio();
+                            const importable = retrainingQueue.filter(it => it.label_studio_exported && it.status === "PENDING");
+                            if (importable.length === 0) {
+                              showToast("No new annotations to import. Items must be exported and not already labeled.", "warning");
+                              return;
+                            }
+                            const res2 = await importFromLabelStudio(importable.map(it => it.id));
+                            const imported = (res2.data?.results || []).filter(r => r.imported);
+                            const notImported = (res2.data?.results || []).filter(r => !r.imported);
                             const res = await getRetrainingQueue();
                             setRetrainingQueue(res.data || []);
+                            if (imported.length > 0 && notImported.length === 0) {
+                              showToast("Successfully imported " + imported.length + " annotation(s) from Label Studio!", "success");
+                            } else if (imported.length > 0) {
+                              showToast("Imported " + imported.length + " annotation(s). " + notImported.length + " item(s) are not yet annotated in Label Studio.", "warning");
+                            } else {
+                              showToast("No annotations found yet — please annotate the images in Label Studio first.", "warning");
+                            }
                           } catch (e) {
                             console.error("Import failed", e);
+                            showToast("Import failed: " + (e.message || "Check console logs"), "error");
                           }
                         }}
                       >
                         Import from Label Studio
                       </button>
+                      {retrainingQueue.filter(it => it.status === "LABELED").length > 0 && (
+                        <button
+                          className="adash__btn adash__btn--primary"
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const labeled = retrainingQueue.filter(it => it.status === "LABELED");
+                              await triggerTraining(labeled.map(it => it.id));
+                              const [qRes, jRes] = await Promise.all([getRetrainingQueue(), getTrainingJobs()]);
+                              setRetrainingQueue(qRes.data || []);
+                              setTrainingJobs(jRes.data || []);
+                              showToast("Training started with " + labeled.length + " labeled sample(s)!", "success");
+                            } catch (e) {
+                              console.error("Training failed", e);
+                              showToast("Failed to start training: " + (e.message || "Check console logs"), "error");
+                            }
+                          }}
+                        >
+                          Start Training ({retrainingQueue.filter(it => it.status === "LABELED").length} labeled)
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -1131,19 +1215,62 @@ function AdminDashboard({ onLogout }) {
                         <table className="adash__table" style={{ width: "100%" }}>
                           <thead>
                             <tr>
+                              <th>Thumbnail</th>
                               <th>ID</th>
-                              <th>Source</th>
-                              <th>Decision</th>
+                              <th>Source Log</th>
+                              <th>Operator</th>
+                              <th>Batch #</th>
+                              <th>Confidence</th>
+                              <th>Component</th>
+                              <th>Model</th>
+                              <th>Status</th>
+                              <th>Label Studio</th>
                               <th>Created</th>
+                              <th>Actions</th>
                             </tr>
                           </thead>
                           <tbody>
                             {retrainingQueue.map((it) => (
                               <tr key={it.id}>
+                                <td style={{ textAlign: "center" }}>
+                                  {it.image_url ? (
+                                    <img src={it.image_url} alt="thumb" style={{ width: 48, height: 48, objectFit: "cover", borderRadius: 4 }} />
+                                  ) : (
+                                    <div style={{ width: 48, height: 48, background: "#f0f0f0", borderRadius: 4 }} />
+                                  )}
+                                </td>
                                 <td style={{ fontFamily: "var(--font-mono)" }}>#{it.id}</td>
-                                <td>{it.source || it.component_name || it.model_name || "-"}</td>
-                                <td>{it.label || it.final_decision || it.system_decision || "-"}</td>
-                                <td style={{ fontFamily: "var(--font-mono)" }}>{new Date(it.created_at || it.timestamp || it.created).toLocaleString()}</td>
+                                <td style={{ fontFamily: "var(--font-mono)", color: "var(--text-3)" }}>#{it.log_entry || "-"}</td>
+                                <td>{it.operator_name || "-"}</td>
+                                <td>{it.batch_number ?? "-"}</td>
+                                <td>{it.confidence_score != null ? (it.confidence_score * 100).toFixed(1) + "%" : "-"}</td>
+                                <td>{it.component_name || "-"}</td>
+                                <td>{it.model_name || "-"}</td>
+                                <td><span style={{ padding: "2px 8px", borderRadius: "4px", fontSize: "11px", fontWeight: 600, background: it.status === "LABELED" ? "#e6f4ea" : "#fff4e5", color: it.status === "LABELED" ? "#1e7e34" : "#a86400" }}>{it.status || "PENDING"}</span></td>
+                                <td>{it.label_studio_exported ? "Exported #" + it.label_studio_task_id : "Not exported"}</td>
+                                <td style={{ fontFamily: "var(--font-mono)", whiteSpace: "nowrap" }}>{new Date(it.created_at || it.timestamp || it.created).toLocaleString()}</td>
+                                <td>
+                                  {it.status !== "INVALID" && (
+                                    <button
+                                      className="adash__btn adash__btn--danger"
+                                      type="button"
+                                      style={{ height: "26px", padding: "0 10px", fontSize: "11px" }}
+                                      onClick={async () => {
+                                        if (!window.confirm("Mark this sample as invalid? It will be removed from the active queue.")) return;
+                                        try {
+                                          await markRetrainingInvalid(it.id);
+                                          const res = await getRetrainingQueue();
+                                          setRetrainingQueue(res.data || []);
+                                        } catch (e) {
+                                          console.error("Failed to mark invalid", e);
+                                          alert("Failed to mark invalid: " + (e.message || "Check console logs"));
+                                        }
+                                      }}
+                                    >
+                                      Mark Invalid
+                                    </button>
+                                  )}
+                                </td>
                               </tr>
                             ))}
                           </tbody>
@@ -1172,6 +1299,9 @@ function AdminDashboard({ onLogout }) {
                               <th>ID</th>
                               <th>State</th>
                               <th>Model</th>
+                              <th>mAP50</th>
+                              <th>vs Current</th>
+                              <th>Samples Used</th>
                               <th>Created</th>
                               <th>Actions</th>
                             </tr>
@@ -1182,6 +1312,27 @@ function AdminDashboard({ onLogout }) {
                                 <td style={{ fontFamily: "var(--font-mono)" }}>#{job.id}</td>
                                 <td>{job.state || job.status || "-"}</td>
                                 <td>{job.model_name || job.model || "-"}</td>
+                                <td style={{ fontFamily: "var(--font-mono)" }}>
+                                  {job.metrics?.mAP50 != null ? Number(job.metrics.mAP50).toFixed(4) : "-"}
+                                </td>
+                                <td>
+                                  {job.metrics?.mAP50 != null && job.current_active_map != null ? (
+                                    Number(job.metrics.mAP50) === Number(job.current_active_map) ? (
+                                      <span style={{ color: "#666", fontWeight: 600 }}>
+                                        Same (0.0000)
+                                      </span>
+                                    ) : Number(job.metrics.mAP50) > Number(job.current_active_map) ? (
+                                      <span style={{ color: "#1e7e34", fontWeight: 600 }}>
+                                        UP Better (+{(Number(job.metrics.mAP50) - Number(job.current_active_map)).toFixed(4)})
+                                      </span>
+                                    ) : (
+                                      <span style={{ color: "#c0392b", fontWeight: 600 }}>
+                                        DOWN Worse ({(Number(job.metrics.mAP50) - Number(job.current_active_map)).toFixed(4)})
+                                      </span>
+                                    )
+                                  ) : "-"}
+                                </td>
+                                <td style={{ fontFamily: "var(--font-mono)", fontSize: "12px" }}>{job.sample_log_ids && job.sample_log_ids.length > 0 ? (job.sample_log_ids.length + " logs (#" + job.sample_log_ids.join(", #") + ")") : "-"}</td>
                                 <td style={{ fontFamily: "var(--font-mono)" }}>{new Date(job.created_at || job.created || job.timestamp).toLocaleString()}</td>
                                 <td>
                                   <div style={{ display: "flex", gap: 8 }}>
@@ -1202,7 +1353,16 @@ function AdminDashboard({ onLogout }) {
                                     <button
                                       className="adash__btn adash__btn--primary"
                                       type="button"
-                                      disabled={!(job.state === "completed" || job.status === "completed" || job.is_completed)}
+                                      disabled={
+                                        job.is_deployed ||
+                                        !(job.state === "COMPLETED" || job.status === "COMPLETED" || job.state === "completed" || job.status === "completed" || job.is_completed) ||
+                                        (job.current_active_map != null && (job.metrics?.mAP50 ?? 0) <= job.current_active_map)
+                                      }
+                                      title={
+                                        job.current_active_map != null && (job.metrics?.mAP50 ?? 0) <= job.current_active_map
+                                          ? "New model mAP (" + (((job.metrics?.mAP50 ?? 0) * 100).toFixed(1)) + "%) is not better than current active model (" + ((job.current_active_map * 100).toFixed(1)) + "%)"
+                                          : "Deploy this model"
+                                      }
                                       onClick={async () => {
                                         try {
                                           await deployTrainingJob(job.id, job.model_name || job.model);
@@ -1214,6 +1374,38 @@ function AdminDashboard({ onLogout }) {
                                       }}
                                     >
                                       Deploy
+                                    </button>
+                                    {job.is_deployed && (
+                                      <span style={{
+                                        background: "#16a34a",
+                                        color: "#fff",
+                                        borderRadius: 6,
+                                        padding: "2px 10px",
+                                        fontSize: 12,
+                                        fontWeight: 700,
+                                        display: "inline-flex",
+                                        alignItems: "center",
+                                        gap: 4,
+                                      }}>
+                                        Deployed
+                                      </span>
+                                    )}
+                                    <button
+                                      className="adash__btn adash__btn--danger"
+                                      type="button"
+                                      onClick={async () => {
+                                        if (!window.confirm("Delete this training job?")) return;
+                                        try {
+                                          await deleteTrainingJob(job.id);
+                                          const res = await getTrainingJobs();
+                                          setTrainingJobs(res.data || []);
+                                        } catch (e) {
+                                          console.error("Failed to delete job", e);
+                                          showToast("Failed to delete job: " + (e.message || "Check console logs"), "error");
+                                        }
+                                      }}
+                                    >
+                                      Delete
                                     </button>
                                   </div>
                                 </td>
@@ -1230,7 +1422,7 @@ function AdminDashboard({ onLogout }) {
             </>
           )}
           {activePage === "detection-logs" && (
-            <>
+            <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}>
               <div className="adash__section-header">
                 <h3>Detection records</h3>
                 <span className="adash__section-badge">
@@ -1504,7 +1696,7 @@ function AdminDashboard({ onLogout }) {
                 </div>
               </div>
 
-              <div className="adash__table-wrap">
+              <div className="adash__table-wrap adash__table-wrap--sticky">
                 <table className="adash__table">
                   <thead>
                     <tr>
@@ -1841,7 +2033,7 @@ function AdminDashboard({ onLogout }) {
                     </motion.div>
                   </motion.div>
                 )}
-            </>
+            </div>
           )}
 
           {/* ── Settings ── */}
@@ -2102,8 +2294,61 @@ function AdminDashboard({ onLogout }) {
           )}
         </div>
       </motion.main>
+
+      {toast && (
+        <motion.div
+          initial={{ opacity: 0, y: 20, scale: 0.95 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 20, scale: 0.95 }}
+          style={{
+            position: "fixed",
+            top: 24,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 9999,
+            background: toast.type === "error" ? "#fef2f2" : toast.type === "warning" ? "#fff7ed" : "#f0fdf4",
+            border: (toast.type === "error" ? "1px solid #fecaca" : toast.type === "warning" ? "1px solid #fed7aa" : "1px solid #bbf7d0"),
+            color: toast.type === "error" ? "#991b1b" : toast.type === "warning" ? "#9a3412" : "#166534",
+            padding: "14px 18px",
+            borderRadius: 10,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+            maxWidth: 360,
+            fontSize: 14,
+            fontWeight: 500,
+            display: "flex",
+            alignItems: "flex-start",
+            gap: 10,
+          }}
+        >
+          <span style={{ fontSize: 16, lineHeight: 1 }}>
+            {toast.type === "error" ? "x" : toast.type === "warning" ? "!" : "check"}
+          </span>
+          <span style={{ flex: 1 }}>{toast.message}</span>
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "inherit",
+              opacity: 0.6,
+              fontSize: 16,
+              lineHeight: 1,
+              padding: 0,
+            }}
+          >
+            x
+          </button>
+        </motion.div>
+      )}
     </motion.div>
   );
 }
 
 export default AdminDashboard;
+
+
+
+
+

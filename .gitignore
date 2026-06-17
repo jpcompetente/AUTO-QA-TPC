@@ -22,3 +22,5 @@ build/
 media/inference/
 media/captures/
 X FROM THE OTHER APP/
+media/training_dataset/
+media/training_outputs/

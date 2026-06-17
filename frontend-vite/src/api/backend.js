@@ -89,7 +89,7 @@ export const labelRetrainingQueueItem = (id, labelData) =>
 
 export const triggerTraining = (
   sampleIds,
-  { epochs = 50, batchSize = 32, learningRate = 0.001 } = {},
+  { epochs = 10, batchSize = 32, learningRate = 0.001 } = {},
 ) =>
   api.post("/retraining-queue/batch_trigger_training/", {
     sample_ids: sampleIds,
@@ -100,6 +100,12 @@ export const triggerTraining = (
 
 export const getTrainingJobs = (params = {}) =>
   api.get("/training-jobs/", { params });
+
+export const deleteTrainingJob = (jobId) =>
+  api.delete(`/training-jobs/${jobId}/`);
+
+export const markRetrainingInvalid = (sampleId) =>
+  api.post(`/retraining-queue/${sampleId}/mark_invalid/`);
 
 export const deployTrainingJob = (jobId, modelName) =>
   api.post(`/training-jobs/${jobId}/deploy/`, {
@@ -133,3 +139,4 @@ export const buildInferenceStreamUrl = (token) => {
 };
 
 export default api;
+
