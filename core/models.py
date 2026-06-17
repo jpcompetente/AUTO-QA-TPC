@@ -246,6 +246,8 @@ class RetrainingQueue(models.Model):
         ('LABELED', 'Labeled'),
         ('REJECTED', 'Rejected'),
         ('ADDED_TO_DATASET', 'Added to Training Dataset'),
+        ('TRAINED', 'Used in Training'),
+        ('INVALID', 'Invalid Sample'),
     )
     
     log_entry = models.OneToOneField(InferenceLog, on_delete=models.CASCADE)
@@ -293,6 +295,7 @@ class TrainingJob(models.Model):
     current_epoch = models.IntegerField(default=0)
     logs = models.TextField(blank=True)  # Training logs
     
+    is_deployed = models.BooleanField(default=False)
     created_by = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='training_jobs')
     
     def __str__(self):

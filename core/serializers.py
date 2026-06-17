@@ -157,15 +157,27 @@ class RetrainingQueueSerializer(serializers.ModelSerializer):
 class TrainingJobSerializer(serializers.ModelSerializer):
     base_model_name = serializers.CharField(source='base_model.name', read_only=True)
     created_by_name = serializers.CharField(source='created_by.username', read_only=True)
+    current_active_map = serializers.SerializerMethodField()
+    sample_log_ids = serializers.SerializerMethodField()
+
+    def get_current_active_map(self, obj):
+        from .models import AIModel
+        active_model = AIModel.objects.filter(is_active=True).first()
+        return active_model.mAP if active_model else None
+
+    def get_sample_log_ids(self, obj):
+        from .models import DatasetBuffer
+        buffers = DatasetBuffer.objects.filter(training_job=obj, is_included=True).select_related('retraining_queue__log_entry')
+        return [b.retraining_queue.log_entry.id for b in buffers if b.retraining_queue and b.retraining_queue.log_entry]
     
     class Meta:
         model = TrainingJob
         fields = [
-            'id', 'base_model', 'base_model_name', 'status', 
+            'id', 'base_model', 'base_model_name', 'status', 'is_deployed',
             'epochs', 'batch_size', 'learning_rate',
             'new_weights_path', 'metrics', 'current_epoch',
             'created_at', 'started_at', 'completed_at', 
-            'logs', 'created_by', 'created_by_name'
+            'logs', 'created_by', 'created_by_name', 'current_active_map', 'sample_log_ids'
         ]
         read_only_fields = ['id', 'created_at', 'started_at', 'completed_at', 'new_weights_path', 'metrics']
 

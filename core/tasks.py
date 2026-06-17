@@ -6,6 +6,7 @@ Requirement 1.5: Continuous Learning Pipeline - Background training jobs
 import logging
 import os
 import json
+import shutil
 import subprocess
 from datetime import datetime
 from importlib.util import find_spec
@@ -13,6 +14,75 @@ from django.conf import settings
 from celery import shared_task
 from asgiref.sync import async_to_sync
 import asyncio
+
+
+LABEL_MAP = {"SCRATCH": 0, "defect": 0}
+
+
+def prepare_yolo_dataset(job, dataset_path):
+    """Copy images and convert Label Studio polygon annotations to YOLO segment format."""
+    from .models import DatasetBuffer
+
+    images_dir = os.path.join(dataset_path, "images", "train")
+    labels_dir = os.path.join(dataset_path, "labels", "train")
+    val_images_dir = os.path.join(dataset_path, "images", "val")
+    val_labels_dir = os.path.join(dataset_path, "labels", "val")
+    os.makedirs(images_dir, exist_ok=True)
+    os.makedirs(labels_dir, exist_ok=True)
+    os.makedirs(val_images_dir, exist_ok=True)
+    os.makedirs(val_labels_dir, exist_ok=True)
+
+    buffers = DatasetBuffer.objects.filter(training_job=job, is_included=True).select_related(
+        "retraining_queue", "retraining_queue__log_entry"
+    )
+
+    count = 0
+    for buf in buffers:
+        sample = buf.retraining_queue
+        log = sample.log_entry
+        if not log or not log.image_snapshot:
+            continue
+        if not sample.label_data:
+            continue
+
+        src_path = log.image_snapshot.path
+        if not os.path.exists(src_path):
+            continue
+
+        filename = f"sample_{sample.id}.png"
+        dst_path = os.path.join(images_dir, filename)
+        shutil.copyfile(src_path, dst_path)
+
+        label_lines = []
+        for annotation in sample.label_data:
+            value = annotation.get("value", {})
+            points = value.get("points", [])
+            labels = value.get("polygonlabels", [])
+            if not points or not labels:
+                continue
+            class_id = LABEL_MAP.get(labels[0], 0)
+            coords = []
+            for px, py in points:
+                coords.append(f"{px / 100:.6f}")
+                coords.append(f"{py / 100:.6f}")
+            label_lines.append(f"{class_id} " + " ".join(coords))
+
+        if label_lines:
+            label_filename = f"sample_{sample.id}.txt"
+            with open(os.path.join(labels_dir, label_filename), "w") as lf:
+                lf.write("\n".join(label_lines))
+            count += 1
+
+    # Copy a couple of training samples into val as well so YOLO has something to validate against
+    train_images = os.listdir(images_dir)
+    for fname in train_images[:max(1, len(train_images) // 5)]:
+        shutil.copyfile(os.path.join(images_dir, fname), os.path.join(val_images_dir, fname))
+        label_fname = fname.rsplit(".", 1)[0] + ".txt"
+        label_src = os.path.join(labels_dir, label_fname)
+        if os.path.exists(label_src):
+            shutil.copyfile(label_src, os.path.join(val_labels_dir, label_fname))
+
+    return count
 
 from .models import (
     TrainingJob, RetrainingQueue, DatasetBuffer, 
@@ -63,20 +133,33 @@ def train_model(self, training_job_id: int, epochs: int = 50, batch_size: int = 
         output_dir = os.path.join(settings.MEDIA_ROOT, 'training_outputs', f'run_{training_job_id}')
         os.makedirs(output_dir, exist_ok=True)
         
+        # Prepare dataset � copy images and convert annotations
+        logger.info(f"Preparing training dataset for job {training_job_id}...")
+        prepared_count = prepare_training_dataset(job, dataset_path)
+        if prepared_count == 0:
+            raise ValueError("No valid training samples found. Dataset preparation failed.")
+        logger.info(f"Dataset ready: {prepared_count} samples prepared")
+
         # Prepare data.yaml for YOLO training
         data_yaml_path = os.path.join(dataset_path, 'data.yaml')
         if not os.path.exists(data_yaml_path):
             create_dataset_yaml(dataset_path, data_yaml_path)
+
+        # Copy images and convert annotations to YOLO format
+        prepared_count = prepare_yolo_dataset(job, dataset_path)
+        logger.info(f"Prepared {prepared_count} labeled samples for training job {training_job_id}")
+        if prepared_count == 0:
+            raise ValueError("No labeled samples with valid annotations were found for this training job")
         
         # Run YOLO training
         train_cmd = [
-            'yolo', 'detect', 'train',
+            'yolo', 'segment', 'train',
             f'model={model_path}',
             f'data={data_yaml_path}',
             f'epochs={epochs}',
             f'batch={batch_size}',
             f'imgsz=640',
-            f'device=0',  # GPU device
+            f'device=cpu',
             f'project={output_dir}',
             f'name=weights',
             'patience=20',  # Early stopping
@@ -90,6 +173,8 @@ def train_model(self, training_job_id: int, epochs: int = 50, batch_size: int = 
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
+            encoding='utf-8',
+            errors='replace',
             universal_newlines=True
         )
         
@@ -115,21 +200,48 @@ def train_model(self, training_job_id: int, epochs: int = 50, batch_size: int = 
         
         if returncode == 0:
             # Training successful
-            new_weights_path = os.path.join(output_dir, 'weights', 'best.pt')
+            # Find the actual weights folder (YOLO may append -2, -3, -4 if folder exists)
+            import glob
+            weights_candidates = glob.glob(os.path.join(output_dir, 'weights*', 'weights', 'best.pt'))
+            if weights_candidates:
+                new_weights_path = sorted(weights_candidates)[-1]  # latest one
+            else:
+                new_weights_path = os.path.join(output_dir, 'weights', 'best.pt')
             
             if os.path.exists(new_weights_path):
                 # Save new weights
-                job.new_weights_path.name = f'training_outputs/run_{training_job_id}/weights/best.pt'
+                job.new_weights_path.name = os.path.relpath(new_weights_path, settings.MEDIA_ROOT).replace(os.sep, '/')
                 job.status = 'COMPLETED'
                 job.completed_at = datetime.now()
                 
-                # Extract metrics (placeholder - parse from YOLO output)
+                # Parse actual metrics from YOLO results.csv
+                import glob as _glob, csv as _csv
+                csv_candidates = _glob.glob(os.path.join(output_dir, 'weights*', 'results.csv'))
+                actual_map50 = 0.0
+                if csv_candidates:
+                    try:
+                        with open(sorted(csv_candidates)[-1], 'r') as _f:
+                            rows = list(_csv.DictReader(_f))
+                            if rows:
+                                key = next((k for k in rows[-1] if 'mAP50(B)' in k), None)
+                                if key:
+                                    actual_map50 = float(rows[-1][key].strip())
+                        logger.info(f"Parsed mAP50: {actual_map50}")
+                    except Exception as _e:
+                        logger.warning(f"Could not parse results.csv: {_e}")
                 job.metrics = {
-                    'mAP50': 0.95,  # TODO: Parse from YOLO results.csv
+                    'mAP50': actual_map50,
                     'completed_at': datetime.now().isoformat(),
                 }
                 
                 logger.info(f"Training job {training_job_id} completed successfully")
+                
+                # Mark all used samples as TRAINED so they won't be retrained
+                used_sample_ids = DatasetBuffer.objects.filter(
+                    training_job=job, is_included=True
+                ).values_list('retraining_queue_id', flat=True)
+                RetrainingQueue.objects.filter(id__in=used_sample_ids).update(status='TRAINED')
+                logger.info(f"Marked {len(used_sample_ids)} samples as TRAINED")
                 
                 # Notify Super Admin
                 notify_training_complete(training_job_id, new_weights_path)
@@ -250,19 +362,27 @@ def deploy_model_version(training_job_id: int, new_model_name: str):
         if job.status != 'COMPLETED':
             logger.warning(f"Cannot deploy incomplete job {training_job_id}")
             return
-        
-        # Create new model version
-        new_model = AIModel.objects.create(
-            name=new_model_name,
-            version=f"v{AIModel.objects.filter(name=new_model_name).count() + 1}",
-            file_path_pt=job.new_weights_path,
-            model_format='PT',
-            mAP=job.metrics.get('mAP50', 0) if job.metrics else 0,
-            is_deployment_ready=True,
-            created_by=job.created_by,
-        )
-        
-        logger.info(f"New model version created: {new_model.id} - {new_model}")
+
+        # Prevent duplicate deployment of the same training job's weights
+        existing_model = AIModel.objects.filter(file_path_pt=job.new_weights_path.name).first()
+        if existing_model:
+            logger.info(
+                f"Model for training job {training_job_id} already deployed as "
+                f"AIModel {existing_model.id} ({existing_model.name} {existing_model.version}). Skipping duplicate creation."
+            )
+            new_model = existing_model
+        else:
+            # Create new model version
+            new_model = AIModel.objects.create(
+                name=new_model_name,
+                version=f"v{AIModel.objects.filter(name=new_model_name).count() + 1}",
+                file_path_pt=job.new_weights_path,
+                model_format='PT',
+                mAP=job.metrics.get('mAP50', 0) if job.metrics else 0,
+                is_deployment_ready=True,
+                created_by=job.created_by,
+            )
+            logger.info(f"New model version created: {new_model.id} - {new_model}")
         
         # Optionally activate if metrics are better than current
         current_active = AIModel.objects.filter(is_active=True).first()
@@ -283,6 +403,104 @@ def deploy_model_version(training_job_id: int, new_model_name: str):
 
 # Helper Functions
 
+
+def prepare_training_dataset(job, dataset_path: str):
+    """
+    Prepare YOLO training dataset from labeled RetrainingQueue items.
+    - Copies images to images/train/ or images/val/
+    - Converts Label Studio polygon (%) to YOLO bbox txt files in labels/train/ or labels/val/
+    80/20 train/val split.
+    """
+    import shutil
+    import random
+
+    CLASS_MAP = {
+        'SCRATCH': 0,
+        'DEFECT': 0,
+        'defect': 0,
+        'scratch': 0,
+    }
+
+    buffer_items = DatasetBuffer.objects.filter(
+        training_job=job, is_included=True
+    ).select_related('retraining_queue__log_entry')
+
+    items = list(buffer_items)
+    if not items:
+        logger.warning("No items in DatasetBuffer for this training job")
+        return 0
+
+    random.shuffle(items)
+    split_idx = max(1, int(len(items) * 0.8))
+    train_items = items[:split_idx]
+    val_items = items[split_idx:]
+
+    prepared = 0
+
+    for split_name, split_items in [('train', train_items), ('val', val_items)]:
+        img_dir = os.path.join(dataset_path, 'images', split_name)
+        lbl_dir = os.path.join(dataset_path, 'labels', split_name)
+        os.makedirs(img_dir, exist_ok=True)
+        os.makedirs(lbl_dir, exist_ok=True)
+
+        for buf in split_items:
+            try:
+                queue_item = buf.retraining_queue
+                log = queue_item.log_entry
+                label_data = queue_item.label_data
+
+                if not label_data:
+                    logger.warning(f"No label_data for RetrainingQueue {queue_item.id}, skipping")
+                    continue
+
+                src_image = os.path.join(settings.MEDIA_ROOT, str(log.image_snapshot))
+                if not os.path.exists(src_image):
+                    logger.warning(f"Image not found: {src_image}, skipping")
+                    continue
+
+                img_filename = f"rq_{queue_item.id}_{os.path.basename(src_image)}"
+                dst_image = os.path.join(img_dir, img_filename)
+                shutil.copy2(src_image, dst_image)
+
+                label_lines = []
+                for annotation in label_data:
+                    if annotation.get('type') != 'polygonlabels':
+                        continue
+
+                    value = annotation.get('value', {})
+                    points = value.get('points', [])
+                    poly_labels = value.get('polygonlabels', [])
+
+                    if not points or not poly_labels:
+                        continue
+
+                    label_name = poly_labels[0].upper()
+                    class_id = CLASS_MAP.get(label_name, CLASS_MAP.get(poly_labels[0], 0))
+
+                    # YOLO segmentation format: class x1 y1 x2 y2 ... (normalized 0-1)
+                    coords = []
+                    for p in points:
+                        coords.append(f"{p[0]/100.0:.6f} {p[1]/100.0:.6f}")
+                    label_lines.append(f"{class_id} " + " ".join(coords))
+
+                if not label_lines:
+                    logger.warning(f"No valid annotations for RetrainingQueue {queue_item.id}, skipping")
+                    continue
+
+                lbl_filename = os.path.splitext(img_filename)[0] + '.txt'
+                dst_label = os.path.join(lbl_dir, lbl_filename)
+                with open(dst_label, 'w') as f:
+                    f.write('\n'.join(label_lines))
+
+                prepared += 1
+                logger.info(f"Prepared [{split_name}] {img_filename} with {len(label_lines)} annotation(s)")
+
+            except Exception as e:
+                logger.error(f"Error preparing item {buf.id}: {str(e)}")
+                continue
+
+    logger.info(f"Dataset preparation complete: {prepared} items prepared")
+    return prepared
 def create_dataset_yaml(dataset_path: str, yaml_path: str):
     """Create data.yaml for YOLO training"""
     yaml_content = f"""
@@ -357,3 +575,6 @@ def notify_deployment_ready(training_job_id: int, model_id: int):
         )
     except Exception as e:
         logger.error(f"Error notifying deployment ready: {str(e)}")
+
+
+

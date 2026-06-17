@@ -93,7 +93,8 @@ CORS_ALLOWED_ORIGINS = [
     "http://10.0.2.132:8000",      # ✅ Backend HTTP (for mixed HTTPS frontend)
     "https://10.0.2.132:8000",     # ✅ Backend HTTPS (future production)
     "https://localhost:5173",
-    "https://127.0.0.1:5173",    
+    "https://127.0.0.1:5173",
+    "http://192.168.1.226:8080",    
 ]
 
 # For testing only (disable in production)
@@ -235,7 +236,10 @@ if crontab is not None:
 
 # ===== Label Studio Configuration =====
 LABEL_STUDIO_URL = "http://192.168.1.226:8080"
-LABEL_STUDIO_API_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ0b2tlbl90eXBlIjoicmVmcmVzaCIsImV4cCI6ODA4ODI3MzE2MCwiaWF0IjoxNzgxMDczMTYwLCJqdGkiOiJkZDI5OGRiMTIxNjk0ZDNlOTUyNzI1YjBlMjM3MWZkMSIsInVzZXJfaWQiOiI1In0"  # Replace with actual token
+LABEL_STUDIO_API_KEY = "6012ccd72686b62b318f8f24a782d13f5e55f2c3"  # Replace with actual token
 LABEL_STUDIO_PROJECT_ID = 5  # Replace with your project ID
 
-SITE_URL = "http://192.168.1.226:8000"
+SITE_URL = "http://10.0.2.134:8000"
+
+LABEL_STUDIO_EMAIL = "mis.tech@teamglac.com"
+LABEL_STUDIO_PASSWORD = "misteklock"

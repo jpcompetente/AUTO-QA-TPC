@@ -2,6 +2,11 @@ import requests
 from django.conf import settings
 from .models import RetrainingQueue
 
+def _get_session():
+    session = requests.Session()
+    session.trust_env = False  # ← ito ang key — ignore proxy settings
+    return session
+
 def _label_studio_headers():
     return {
         "Authorization": f"Token {settings.LABEL_STUDIO_API_KEY}",
@@ -13,7 +18,6 @@ def _build_image_url(log_entry):
         raise ValueError("InferenceLog has no image_snapshot")
     if not log_entry.image_snapshot:
         raise ValueError("InferenceLog image_snapshot is empty")
-    
     return settings.SITE_URL.rstrip("/") + log_entry.image_snapshot.url
 
 def create_label_studio_task(queue_item):
@@ -23,7 +27,8 @@ def create_label_studio_task(queue_item):
             "image": _build_image_url(queue_item.log_entry),
         }
     }
-    resp = requests.post(
+    session = _get_session()
+    resp = session.post(
         f"{settings.LABEL_STUDIO_URL.rstrip('/')}/api/tasks",
         json=data,
         headers=_label_studio_headers(),
@@ -42,10 +47,22 @@ def create_label_studio_task(queue_item):
 
     return task_id
 
-def get_label_studio_task(task_id):
-    resp = requests.get(
+def delete_label_studio_task(task_id):
+    session = _get_session()
+    resp = session.delete(
         f"{settings.LABEL_STUDIO_URL.rstrip('/')}/api/tasks/{task_id}",
-        headers= _label_studio_headers(),
+        headers=_label_studio_headers(),
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return True
+
+
+def get_label_studio_task(task_id):
+    session = _get_session()
+    resp = session.get(
+        f"{settings.LABEL_STUDIO_URL.rstrip('/')}/api/tasks/{task_id}",
+        headers=_label_studio_headers(),
         timeout=30,
     )
     resp.raise_for_status()
@@ -85,13 +102,11 @@ def import_from_label_studio(queue_items):
     for item in queue_items:
         try:
             annotation = import_label_studio_annotations(item)
-            results.append(
-                {
-                    "queue_id": item.id,
-                    "task_id": item.label_studio_task_id,
-                    "imported": bool(annotation),
-                }
-            )
+            results.append({
+                "queue_id": item.id,
+                "task_id": item.label_studio_task_id,
+                "imported": bool(annotation),
+            })
         except Exception as exc:
             results.append({"queue_id": item.id, "error": str(exc), "success": False})
     return results

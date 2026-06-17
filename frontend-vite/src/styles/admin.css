@@ -276,6 +276,10 @@
 .adash__content {
   padding: 24px;
   flex: 1;
+  overflow-x: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .adash__stats {
@@ -449,7 +453,7 @@
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  overflow: visible;
   box-shadow: var(--shadow-sm);
 }
 
@@ -471,6 +475,11 @@
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
 }
+.adash__table-wrap--sticky {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
 
 .adash__table th {
   padding: 11px 16px;
@@ -481,6 +490,10 @@
   text-transform: uppercase;
   letter-spacing: 0.07em;
   white-space: nowrap;
+  position: sticky;
+  top: var(--topbar-height, 0px);
+  background: var(--surface-2);
+  z-index: 5;
 }
 
 .adash__table td {
