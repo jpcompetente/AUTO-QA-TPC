@@ -175,7 +175,7 @@ if find_spec('channels') is not None and find_spec('channels_redis') is not None
         "default": {
             "BACKEND": "channels_redis.core.RedisChannelLayer",
             "CONFIG": {
-                "hosts": [("127.0.0.1", 6379)],
+                "hosts": [(os.getenv('REDIS_HOST', '127.0.0.1'), int(os.getenv('REDIS_PORT', '6379')))],
                 "capacity": 1500,
                 "expiry": 10,
             },

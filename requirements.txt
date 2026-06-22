@@ -21,7 +21,7 @@ redis==6.4.0
 
 numpy==2.4.4
 opencv-python==4.13.0.92
-ultralytics==8.3.228
+ultralytics==8.4.47
 torch==2.9.0
 
 asgiref==3.11.1
