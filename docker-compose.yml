@@ -1,0 +1,68 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    command: daphne -b 0.0.0.0 -p 8000 ai_ins_sys.asgi:application
+    env_file: .env.docker
+    volumes:
+      - ./media:/app/media
+      - ./staticfiles:/app/staticfiles
+    depends_on:
+      - redis
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  celery:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    command: celery -A ai_ins_sys worker --loglevel=info
+    env_file: .env.docker
+    volumes:
+      - ./media:/app/media
+    depends_on:
+      - redis
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  inference:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    command: python -m inference_server.run_server
+    env_file: .env.docker
+    volumes:
+      - ./media:/app/media
+    depends_on:
+      - redis
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  frontend:
+    build:
+      context: ./frontend-vite
+      dockerfile: Dockerfile
+    restart: unless-stopped
+
+  gateway:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./nginx/selfsigned.crt:/etc/nginx/certs/selfsigned.crt
+      - ./nginx/selfsigned.key:/etc/nginx/certs/selfsigned.key
+    depends_on:
+      - backend
+      - inference
+      - frontend
+    restart: unless-stopped

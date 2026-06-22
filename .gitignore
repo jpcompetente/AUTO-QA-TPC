@@ -1,6 +1,8 @@
 # Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 db.sqlite3
 .venv/
 .idea/
@@ -11,16 +13,31 @@ staticfiles/
 # React
 node_modules/
 build/
+frontend-vite/dist/
 
-# Environment
+# Environment - NEVER commit these
 .env
+.env.docker
+.env.*
+!.env.example
 
 # IDE
 .idea/
 .vscode/
 
+# Media
 media/inference/
 media/captures/
-X FROM THE OTHER APP/
 media/training_dataset/
 media/training_outputs/
+
+# Docker - certificates (contain private keys)
+nginx/selfsigned.crt
+nginx/selfsigned.key
+
+# Logs
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
