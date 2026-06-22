@@ -135,7 +135,7 @@ export const buildWebSocketUrl = (path) => {
 
 export const buildInferenceStreamUrl = (token) => {
   const encodedToken = encodeURIComponent(token || "");
-  return `ws://127.0.0.1:8000/ws/inference-stream/?token=${encodedToken}`;
+  return `wss://10.0.2.134/ws/inference-stream/?token=${encodedToken}`;
 };
 
 export default api;
