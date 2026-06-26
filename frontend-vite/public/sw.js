@@ -48,13 +48,15 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') {
     return;
   }
-
   const requestUrl = new URL(event.request.url);
-
   if (requestUrl.origin !== self.location.origin) {
     return;
   }
-
+  // Never cache API calls
+  if (requestUrl.pathname.startsWith('/api/')) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
   if (event.request.mode === 'navigate') {
     event.respondWith(
       (async () => {
@@ -68,7 +70,6 @@ self.addEventListener('fetch', (event) => {
     );
     return;
   }
-
   event.respondWith(
     (async () => {
       const cached = await caches.match(event.request);

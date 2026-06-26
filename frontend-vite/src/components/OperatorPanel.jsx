@@ -1,12 +1,12 @@
-import { useCallback, useEffect, useRef, useState, useMemo } from "react";
+﻿import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { motion } from "framer-motion";
 import Webcam from "react-webcam";
 import {
   buildInferenceStreamUrl,
-  autoApproveInferenceLog,
   detectImage,
   getDetectionLogs,
   getOperatorPreset,
+  getOperatorCurrentBatch,
   reviewInferenceLog,
 } from "../api/backend";
 import {
@@ -53,11 +53,7 @@ function OperatorPanel({
   const [sessionId, setSessionId] = useState(
     () => window.localStorage.getItem("operatorSessionId") || "",
   );
-  const [batchNumber, setBatchNumber] = useState(() => {
-    const stored = window.localStorage.getItem("operatorBatchNumber");
-    const parsed = Number.parseInt(stored, 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
-  });
+  const [batchNumber, setBatchNumber] = useState(1);
 
   const cameraConstraints = useMemo(
     () => buildCameraConstraints({ deviceId: selectedDeviceId }),
@@ -89,6 +85,11 @@ function OperatorPanel({
   const liveMediaStreamRef = useRef(null);
   const fetchLogsRef = useRef(async () => {});
   const waitForMotionAfterEmptyRef = useRef(false);
+  const previousLogIdRef = useRef(null);
+  const previousLogDecisionRef = useRef(null);
+  const detectionActiveRef = useRef(false);
+  const currentLogIdRef = useRef(null);
+  const countdownTimerRef = useRef(null);
 
   /* state */
   const [preset, setPreset] = useState(null);
@@ -110,6 +111,7 @@ function OperatorPanel({
   
   const [zoomedImage, setZoomedImage] = useState(null);
   const [streamStatus, setStreamStatus] = useState("disconnected");
+  const setCountdown = () => {};
   const annotatedImageRef = useRef(null);
   const [sessionCompletedLogs, setSessionCompletedLogs] = useState([]);
   const [showSessionHistory, setShowSessionHistory] = useState(false);
@@ -136,6 +138,18 @@ function OperatorPanel({
   const completedBatchNumber =
     !sessionStarted && batchNumber > 1 ? batchNumber - 1 : null;
   const nextBatchNumber = sessionStarted ? batchNumber + 1 : batchNumber;
+
+  // Sync batch number from backend on mount (cross-browser sync)
+  useEffect(() => {
+    getOperatorCurrentBatch()
+      .then((res) => {
+        const serverBatch = res?.data?.batch_number;
+        if (Number.isFinite(serverBatch) && serverBatch > 0) {
+          setBatchNumber(serverBatch);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     try {
@@ -429,7 +443,12 @@ function OperatorPanel({
       window.clearInterval(liveIntervalRef.current);
       liveIntervalRef.current = null;
     }
-    waitForMotionAfterEmptyRef.current = false;
+    waitForMotionAfterEmptyRef.current = true;
+    if (countdownTimerRef.current) {
+      clearInterval(countdownTimerRef.current);
+      countdownTimerRef.current = null;
+    }
+    setCountdown(0);
     annotatedImageRef.current = null;
 
     // Keep the camera preview active across session restarts.
@@ -1053,7 +1072,22 @@ function OperatorPanel({
       setLoading(true);
       setError("");
       captureInFlightRef.current = true;
-
+      // Auto-confirm previous PENDING log if operator did not flag it
+      if (previousLogIdRef.current && !reviewPendingRef.current) {
+        try {
+          await reviewInferenceLog(previousLogIdRef.current, {
+            action: "ACKNOWLEDGE",
+            description: "Auto-confirmed by next detection",
+            final_decision: previousLogDecisionRef.current === "PASS" ? "PASS" : "FAIL",
+            rejection_reason: "",
+          });
+          previousLogIdRef.current = null;
+          previousLogDecisionRef.current = null;
+          reviewPendingRef.current = false;
+        } catch (e) {
+          console.warn("[Auto-Confirm] Failed to confirm previous log", e);
+        }
+      }
       try {
         const imageBlob = await fetch(imageSrc).then((response) =>
           response.blob(),
@@ -1092,71 +1126,22 @@ function OperatorPanel({
         // Store captured frame for future change verification
         lastCapturedFrameRef.current = imageSrc;
 
-        // Attempt backend-driven confidence-based auto-approval
-        // If confidence >= threshold on backend, will auto-approve
-        // If confidence < threshold, backend returns indication for manual review
-        try {
-          const logId = result.log_id || result.id;
-
-          if (!logId) {
-            setDetectionResult(result);
-            setCapturedFrame(imageSrc);
-            setMotionStatus("Ready for next scan");
-            return;
-          }
-
-          const autoApproveResponse = await autoApproveInferenceLog(logId);
-          const approvalStatus = autoApproveResponse.data.status;
-
-          if (approvalStatus === "auto_approved") {
-            // Backend auto-approved
-            console.log("[Auto-Approved]", autoApproveResponse.data.message);
-            setNotification({
-              type: "success",
-              message: autoApproveResponse.data.message,
-            });
-
-            // Clear UI state
-            setDetectionResult(null);
-            setCapturedFrame("");
-            setMotionStatus("Ready for next scan");
-            previousFrameRef.current = null;
-            stableSinceRef.current = null;
-            annotatedImageRef.current = null;
-
-            // Refresh logs
-            await fetchLogsRef.current();
-          } else if (approvalStatus === "requires_manual_review") {
-            // Backend indicated manual review needed (confidence below threshold)
-            console.log(
-              "[Manual Review Required]",
-              autoApproveResponse.data.message,
-            );
-            setNotification({
-              type: "info",
-              message: autoApproveResponse.data.message,
-            });
-
-            setDetectionResult(result);
-            setReviewMode("ACKNOWLEDGE");
-            const autoDescription = autoAnnotateDetection(result);
-            setReviewDescription(autoDescription);
-            setReviewFinalDecision(result.system_decision || "PASS");
-            setReviewRejectionReason("MISSED_DEFECT");
-            setMotionStatus("Ready for next scan");
-            await fetchLogsRef.current();
-          }
-        } catch (autoApproveError) {
-          console.error("[Backend Auto-Approve Error]", autoApproveError);
-          // Fallback to manual review if backend auto-approve fails
-          setDetectionResult(result);
-          setReviewMode("ACKNOWLEDGE");
-          const autoDescription = autoAnnotateDetection(result);
-          setReviewDescription(autoDescription);
-          setReviewFinalDecision(result.system_decision || "PASS");
-          setReviewRejectionReason("MISSED_DEFECT");
-          setMotionStatus("Ready for next scan");
+        // Always require operator review before confirming decision
+        const newLogId = result?.log_id || result?.id;
+        console.log("[Debug] result log_id:", result?.log_id, "id:", result?.id, "newLogId:", newLogId);
+        if (newLogId) {
+          previousLogIdRef.current = newLogId;
+          previousLogDecisionRef.current = result?.system_decision || "PASS";
+          currentLogIdRef.current = newLogId;
         }
+        setDetectionResult(result);
+        setReviewMode("ACKNOWLEDGE");
+        const autoDescription = autoAnnotateDetection(result);
+        setReviewDescription(autoDescription);
+        setReviewFinalDecision(result.system_decision || "PASS");
+        setReviewRejectionReason("MISSED_DEFECT");
+        setMotionStatus("Ready for next scan");
+        await fetchLogsRef.current();
       } catch (requestError) {
         const errorMsg =
           requestError.response?.data?.error ||
@@ -1213,11 +1198,11 @@ function OperatorPanel({
       reviewPendingRef.current ||
       !autoDetectEnabled ||
       !preset ||
-      !sessionStarted
+      !sessionStarted ||
+      streamStatus === "connected"
     ) {
       return;
     }
-
     const width = 96;
     const height = 72;
     let canvas = motionCanvasRef.current;
@@ -1286,7 +1271,7 @@ function OperatorPanel({
       stableSinceRef.current = null;
       void handleDetect("auto_stable");
     }
-  }, [autoDetectEnabled, handleDetect, loading, preset, sessionStarted]);
+  }, [autoDetectEnabled, handleDetect, loading, preset, sessionStarted, streamStatus]);
 
   useEffect(() => {
     const interval = window.setInterval(
@@ -1355,7 +1340,19 @@ function OperatorPanel({
           !preset
         )
           return;
-        if (waitForMotionAfterEmptyRef.current) return;
+        if (waitForMotionAfterEmptyRef.current) {
+          // Cancel countdown if motion detected (operator placed new IC)
+          if (sessionStarted && checkLiveInferenceMotion()) {
+            if (countdownTimerRef.current) {
+              clearInterval(countdownTimerRef.current);
+              countdownTimerRef.current = null;
+            }
+            setCountdown(0);
+            waitForMotionAfterEmptyRef.current = false;
+            console.debug("[LiveGate] Motion detected - cancelling countdown for next IC");
+          }
+          return;
+        }
         if (liveRequestInFlightRef.current) return;
 
         const socket = liveSocketRef.current;
@@ -1422,7 +1419,7 @@ function OperatorPanel({
 
   /* -- Submit review --------------------------------------------- */
   const submitReview = async () => {
-    const logId = detectionResult?.log_id || detectionResult?.id;
+    const logId = detectionResult?.log_id || detectionResult?.id || currentLogIdRef.current;
 
     if (!logId) {
       setError("No inference log is available for review.");
@@ -1452,6 +1449,7 @@ function OperatorPanel({
       setReviewPending(false);
       previousFrameRef.current = null;
       stableSinceRef.current = null;
+      detectionActiveRef.current = false;
       setDetectionResult(null);
       setCapturedFrame("");
       annotatedImageRef.current = null;
@@ -1620,7 +1618,7 @@ function OperatorPanel({
                 </span>
                 <span>
                   {!detectionResult
-                    ? "Waiting for detection..."
+                    ? "Waiting for IC..."
                     : detectionResult.system_decision === "PASS"
                     ? `PASS � ${detectionResult.detections?.[0]?.label || "INTACT"} ${((detectionResult.confidence || 0) * 100).toFixed(1)}%`
                     : detectionResult.system_decision === "FAIL"
@@ -1656,6 +1654,31 @@ function OperatorPanel({
               </div>
             )}
 
+            {detectionResult && sessionStarted && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!reviewPendingRef.current) {
+                    setDetectionResult(null);
+                  }
+                  waitForMotionAfterEmptyRef.current = false;
+                }}
+                style={{
+                  width: "100%",
+                  padding: "14px",
+                  marginTop: "8px",
+                  borderRadius: "8px",
+                  border: "none",
+                  background: "#1a73e8",
+                  color: "#fff",
+                  fontWeight: 700,
+                  fontSize: "16px",
+                  cursor: "pointer",
+                }}
+              >
+                Next IC
+              </button>
+            )}
 
             {!isCameraFullscreen && cameraOnly && (
               <p className="camera-mode-note">
@@ -1971,9 +1994,12 @@ function OperatorPanel({
         {reviewPending && detectionResult && (
           <div className="review-modal" role="dialog" aria-modal="true">
             <div className="review-modal__panel">
-              <div className="section-heading">
-                <p className="eyebrow">Operator review</p>
-                <h2>Decision required</h2>
+              <div className="section-heading" style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div>
+                  <p className="eyebrow">Operator review</p>
+                  <h2>Decision required</h2>
+                </div>
+                <button onClick={() => { reviewPendingRef.current = false; setReviewPending(false); }} style={{background:"none",border:"none",fontSize:"20px",cursor:"pointer",color:"#666"}}>X</button>
               </div>
 
               <div className="review-choice">
@@ -2289,3 +2315,4 @@ function OperatorPanel({
 }
 
 export default OperatorPanel;
+

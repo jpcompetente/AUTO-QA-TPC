@@ -18,7 +18,7 @@ DEBUG = True
 
 INTERNAL_IPS = ["127.0.0.1"]
 # Allowed hosts setting (necessary if DEBUG is False)
-ALLOWED_HOSTS = ['*']  # Set this to your domain or IP in production
+ALLOWED_HOSTS = ['*']
 
 # Database Configuration
 DATABASES = {
@@ -102,6 +102,7 @@ CORS_ALLOWED_ORIGINS = [
 
 # ✅ CSRF Trusted Origins for Form Submissions
 CSRF_TRUSTED_ORIGINS = [
+    "https://10.0.2.134",
     "http://10.0.2.134:5173",
     "http://10.0.2.132",
     "https://10.0.2.132:5173",
@@ -166,6 +167,10 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 # ✅ Required for django.contrib.sites
 SITE_ID = 1
+
+# Timezone configuration - match operations location (Philippines)
+TIME_ZONE = 'Asia/Manila'
+USE_TZ = True
 
 # ✅ WebSocket & Real-time Support with Channels
 ASGI_APPLICATION = 'ai_ins_sys.asgi.application'
@@ -235,7 +240,7 @@ if crontab is not None:
     }
 
 # ===== Label Studio Configuration =====
-LABEL_STUDIO_URL = "http://192.168.1.226:8080"
+LABEL_STUDIO_URL = os.getenv("LABEL_STUDIO_URL", "http://192.168.1.226:8080")
 LABEL_STUDIO_API_KEY = "6012ccd72686b62b318f8f24a782d13f5e55f2c3"  # Replace with actual token
 LABEL_STUDIO_PROJECT_ID = 5  # Replace with your project ID
 

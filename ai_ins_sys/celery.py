@@ -21,3 +21,11 @@ app.autodiscover_tasks()
 def debug_task(self):
     """Debug task for testing Celery setup"""
     print(f'Request: {self.request!r}')
+
+# Scheduled tasks
+app.conf.beat_schedule = {
+    'reset-batch-counter-midnight': {
+        'task': 'core.tasks.reset_batch_counter',
+        'schedule': crontab(hour=0, minute=0),
+    },
+}

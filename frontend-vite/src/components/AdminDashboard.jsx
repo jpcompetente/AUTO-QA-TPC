@@ -1533,8 +1533,8 @@ function AdminDashboard({ onLogout }) {
                         onChange={(e) => {
                           setFilterDateOnly(e.target.value);
                           setCurrentPage(1);
+                          setTimeout(() => fetchLogs({ date: e.target.value }), 0);
                         }}
-                        title="Filter by specific date"
                         style={{
                           padding: "6px 10px",
                           fontSize: "12px",
@@ -1552,8 +1552,8 @@ function AdminDashboard({ onLogout }) {
                           onChange={(e) => {
                             setFilterDateFrom(e.target.value);
                             setCurrentPage(1);
+                            setTimeout(() => fetchLogs({ date_from: e.target.value }), 0);
                           }}
-                          title="Start date"
                           style={{
                             padding: "6px 10px",
                             fontSize: "12px",
@@ -1567,8 +1567,8 @@ function AdminDashboard({ onLogout }) {
                           onChange={(e) => {
                             setFilterDateTo(e.target.value);
                             setCurrentPage(1);
+                            setTimeout(() => fetchLogs({ date_to: e.target.value }), 0);
                           }}
-                          title="End date"
                           style={{
                             padding: "6px 10px",
                             fontSize: "12px",
