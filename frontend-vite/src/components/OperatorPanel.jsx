@@ -3,7 +3,6 @@ import { motion } from "framer-motion";
 import Webcam from "react-webcam";
 import {
   buildInferenceStreamUrl,
-  autoApproveInferenceLog,
   detectImage,
   getDetectionLogs,
   getOperatorPreset,
@@ -88,10 +87,8 @@ function OperatorPanel({
   const waitForMotionAfterEmptyRef = useRef(false);
   const previousLogIdRef = useRef(null);
   const previousLogDecisionRef = useRef(null);
-  const lastImageHashRef = useRef(null);
   const detectionActiveRef = useRef(false);
   const currentLogIdRef = useRef(null);
-  const lastDetectionTimeRef = useRef(0);
   const countdownTimerRef = useRef(null);
 
   /* state */
@@ -100,7 +97,6 @@ function OperatorPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [detectionResult, setDetectionResult] = useState(null);
-  const [countdown, setCountdown] = useState(0);
   const [capturedFrame, setCapturedFrame] = useState("");
   const [autoDetectEnabled, setAutoDetectEnabled] = useState(true);
   const [sessionFilter] = useState("");
@@ -115,6 +111,7 @@ function OperatorPanel({
   
   const [zoomedImage, setZoomedImage] = useState(null);
   const [streamStatus, setStreamStatus] = useState("disconnected");
+  const setCountdown = () => {};
   const annotatedImageRef = useRef(null);
   const [sessionCompletedLogs, setSessionCompletedLogs] = useState([]);
   const [showSessionHistory, setShowSessionHistory] = useState(false);
@@ -1274,7 +1271,7 @@ function OperatorPanel({
       stableSinceRef.current = null;
       void handleDetect("auto_stable");
     }
-  }, [autoDetectEnabled, handleDetect, loading, preset, sessionStarted]);
+  }, [autoDetectEnabled, handleDetect, loading, preset, sessionStarted, streamStatus]);
 
   useEffect(() => {
     const interval = window.setInterval(
