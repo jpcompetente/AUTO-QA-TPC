@@ -11,7 +11,7 @@ from django.utils import timezone
 from django.db.models import Avg, Count, Q, F
 from django.contrib.auth.models import User
 from rest_framework import viewsets, permissions, status
-from rest_framework.decorators import api_view, action
+from rest_framework.decorators import api_view, action, permission_classes
 from rest_framework.response import Response
 from rest_framework_simplejwt.views import TokenObtainPairView
 from django_filters.rest_framework import DjangoFilterBackend
@@ -453,8 +453,6 @@ def detect_image(request):
                         defect_area_percent = max(defect_area_percent, (bbox_area / img_area) * 100)
 
         snapshot_name = f"{timezone.now():%Y%m%d_%H%M%S_%f}_{result.image_hash}.png"
-        payload = result.to_dict()
-        payload['snapshot_url'] = ''
         payload['debug'].update({
             'has_mask_polygons': bool(segmentation_data.get('mask_polygons')),
         })
@@ -481,9 +479,9 @@ def detect_image(request):
                 confidence_score=result.confidence,
                 system_decision=result.system_decision,
                 final_decision=result.system_decision,
-                status='PENDING' if result.system_decision in (
-                    'FAIL', 'UNCERTAIN', 'LOW_CONFIDENCE'
-                ) else 'APPROVED',
+                status='APPROVED' if result.system_decision == 'PASS' else 'REJECTED',
+
+
                 session_id=request.data.get('session_id', ''),
                 batch_number=batch_number,
                 batch_date=batch_date,
@@ -651,6 +649,11 @@ class InferenceLogViewSet(viewsets.ModelViewSet):
                     qs = qs.filter(batch_number=b)
                 except Exception:
                     pass
+
+        # Session filter
+        session_id = params.get('session_id')
+        if session_id:
+            qs = qs.filter(session_id=session_id)
 
         # Specific date
         date = params.get('date')
@@ -1003,3 +1006,23 @@ class OperatorViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = User.objects.filter(profile__role='USER').order_by('username')
     serializer_class = OperatorSerializer
     permission_classes = [IsAdminOnly]
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def operator_current_batch(request):
+    """Return the current active batch for the operator."""
+    from django.utils import timezone
+    today = timezone.localtime(timezone.now()).date()
+    last_log = InferenceLog.objects.filter(
+        operator=request.user,
+        batch_date=today,
+    ).order_by('-batch_number', '-timestamp').first()
+    
+    batch_number = last_log.batch_number if last_log else 1
+    batch_date = last_log.batch_date.isoformat() if last_log else today.isoformat()
+    
+    return Response({
+        'batch_number': batch_number,
+        'batch_date': batch_date,
+        'batch_key': last_log.batch_key if last_log else f'{batch_date}-{batch_number}',
+    })

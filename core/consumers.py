@@ -538,7 +538,7 @@ class InferenceStreamConsumer(AsyncWebsocketConsumer):
                     system_decision=result.system_decision,
                     final_decision=result.system_decision,
                     is_confidence_below_threshold=result.confidence < confidence,
-                    status="PENDING",
+                    status="APPROVED" if result.system_decision == "PASS" else "REJECTED",
                     session_id=payload.get("session_id", ""),
                     batch_number=batch_number,
                     batch_date=batch_date,

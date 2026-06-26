@@ -23,6 +23,7 @@ from core.views import (
     inference_health,
     inference_metrics,
     operator_preset,
+    operator_current_batch,
 )
 
 legacy_router = DefaultRouter()
@@ -48,6 +49,7 @@ urlpatterns = [
     path('api/inference/health/', inference_health),
     path('api/inference/metrics/', inference_metrics),
     path('api/operator/preset/', operator_preset),
+    path('api/operator/current-batch/', operator_current_batch),
     path('api/auth/login/', CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('api/auth/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('api/', include(legacy_router.urls)),

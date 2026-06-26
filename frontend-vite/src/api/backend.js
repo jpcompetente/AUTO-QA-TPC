@@ -68,6 +68,7 @@ export const getComponents = () => api.get("/component-types/");
 export const getModels = () => api.get("/ai-models/");
 export const getOperators = () => api.get("/operators/");
 export const getOperatorPreset = () => api.get("/operator/preset/");
+export const getOperatorCurrentBatch = () => api.get("/operator/current-batch/");
 export const getAdminSettings = () => api.get("/admin/settings/");
 export const createAdminSettings = (data) => api.post("/admin/settings/", data);
 export const updateAdminSettings = (id, data) =>

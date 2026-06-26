@@ -578,3 +578,18 @@ def notify_deployment_ready(training_job_id: int, model_id: int):
 
 
 
+
+
+from celery import shared_task
+
+@shared_task
+def reset_batch_counter():
+    """Reset batch number to 1 every midnight."""
+    from django.utils import timezone
+    from core.models import ManufacturingOrderSession
+    today = timezone.now().date()
+    # Reset active sessions batch number
+    ManufacturingOrderSession.objects.filter(
+        is_active=True
+    ).update(current_batch_number=1)
+    return f"Batch counter reset at {today}"

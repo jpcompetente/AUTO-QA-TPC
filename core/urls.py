@@ -34,6 +34,7 @@ urlpatterns = [
     path('inference/health/', views.inference_health, name='inference-health'),
     path('inference/metrics/', views.inference_metrics, name='inference-metrics'),
     path('operator/preset/', views.operator_preset, name='operator-preset'),
+    path('operator/current-batch/', views.operator_current_batch, name='operator-current-batch'),
     
     # 🔑 JWT Authentication
     path('auth/token/', views.CustomTokenObtainPairView.as_view(), name='token_obtain_pair'),
